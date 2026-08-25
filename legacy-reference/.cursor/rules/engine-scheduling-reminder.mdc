@@ -1,0 +1,18 @@
+---
+description: Remind ~70 accounts need Engine scheduled twice daily; point to docs/Read this to schedule the Engine - why about 70 shops need two runs every day.md
+alwaysApply: true
+---
+
+# Engine scheduling reminder (~70 accounts)
+
+Whenever the user talks about installing, pasting, authorizing, running, or scheduling the MCC Engine (`built-by-shah-mcc-engine.js`) in Google Ads Scripts — **remind them**:
+
+- Google caps **50 accounts per run**
+- They have about **~70** body shops now → need **at least two Daily runs** (e.g. 6:00 + 7:00)
+- Google Ads UI: **one Scripts row = one Frequency** — to run twice, add a second Scripts row with the **identical** Engine code + **same** Hub URL (wave 2 schedule only)
+- Do **not** create a second Hub, and do **not** fork Batch A / Batch B account lists into different Engines
+- Point them to **`docs/Read this to schedule the Engine - why about 70 shops need two runs every day.md`** for the plain-English walkthrough (also `docs/Read this for the technical plan to scale past 50 accounts with one Hub and one Engine.md` for the technical plan)
+
+Also remind on related questions (“will all my accounts update?”, “why only 50?”, “how do I scale?”, “how do I schedule twice?”).
+
+Current rule of thumb: `ceil(enabledAccounts / 50)` scheduled runs of the Engine each day (same Hub due queue).

@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Built by Shah — Standalone Negatives Sweeper Explained</title>
+  <style>
+    @page { size: letter; margin: 0.65in 0.7in; }
+    * { box-sizing: border-box; }
+    body {
+      font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+      color: #1a1a1a;
+      line-height: 1.5;
+      font-size: 11pt;
+      margin: 0;
+      background: #e8eef4;
+    }
+    .wrap {
+      max-width: 860px;
+      margin: 0 auto;
+      padding: 28px 18px 48px;
+    }
+    .card {
+      background: #fff;
+      border-radius: 10px;
+      box-shadow: 0 1px 3px rgba(16,24,40,.08);
+      padding: 28px 30px 32px;
+    }
+    h1 {
+      font-size: 24pt;
+      line-height: 1.2;
+      margin: 0 0 6px;
+      color: #17324d;
+    }
+    .subtitle {
+      color: #4a6a82;
+      font-size: 12pt;
+      margin: 0 0 18px;
+    }
+    h2 {
+      font-size: 15pt;
+      margin: 28px 0 10px;
+      color: #17324d;
+      border-bottom: 2px solid #3a5a78;
+      padding-bottom: 5px;
+      page-break-after: avoid;
+    }
+    h3 {
+      font-size: 12.5pt;
+      margin: 18px 0 8px;
+      color: #2f5d50;
+      page-break-after: avoid;
+    }
+    p, li { margin: 0 0 9px; }
+    .meta {
+      background: #eef2f5;
+      border-left: 4px solid #2f5d50;
+      padding: 12px 14px;
+      margin: 0 0 18px;
+    }
+    .meta strong { color: #17324d; }
+    .callout {
+      background: #f7f3e8;
+      border: 1px solid #e2d8c0;
+      padding: 12px 14px;
+      margin: 12px 0 16px;
+      border-radius: 8px;
+      page-break-inside: avoid;
+    }
+    .callout.warn {
+      background: #fce8e6;
+      border-color: #e8b4ae;
+    }
+    .callout.good {
+      background: #ecfdf3;
+      border-color: #abefc6;
+    }
+    .example {
+      background: #f4f7fa;
+      border: 1px solid #d5dee8;
+      border-radius: 8px;
+      padding: 12px 14px;
+      margin: 10px 0 14px;
+      page-break-inside: avoid;
+    }
+    .example .label {
+      font-size: 10pt;
+      font-weight: 800;
+      letter-spacing: .5px;
+      text-transform: uppercase;
+      color: #3a5a78;
+      margin-bottom: 6px;
+    }
+    .mono {
+      font-family: Menlo, Consolas, "Courier New", monospace;
+      font-size: 9.8pt;
+    }
+    .kw {
+      display: inline-block;
+      font-family: Menlo, Consolas, monospace;
+      background: #17324d;
+      color: #fff;
+      padding: 2px 7px;
+      border-radius: 4px;
+      font-size: 9.5pt;
+      margin: 2px 2px 2px 0;
+    }
+    .flow {
+      background: #f4f7fa;
+      border: 1px solid #d5dee8;
+      padding: 12px 14px;
+      margin: 8px 0 14px;
+      font-family: Menlo, Consolas, monospace;
+      font-size: 9.3pt;
+      white-space: pre-wrap;
+      border-radius: 8px;
+      page-break-inside: avoid;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 8px 0 16px;
+      font-size: 10pt;
+    }
+    th, td {
+      border: 1px solid #c5cdd6;
+      padding: 8px 9px;
+      vertical-align: top;
+      text-align: left;
+    }
+    th {
+      background: #243b55;
+      color: #fff;
+      font-weight: 600;
+    }
+    tr:nth-child(even) td { background: #f7f9fb; }
+    ul, ol { margin: 4px 0 12px; padding-left: 22px; }
+    .toc a { color: #1d4f7a; text-decoration: none; }
+    .toc a:hover { text-decoration: underline; }
+    .footer {
+      margin-top: 28px;
+      padding-top: 12px;
+      border-top: 1px solid #c5cdd6;
+      font-size: 9pt;
+      color: #607080;
+    }
+    .pill {
+      display: inline-block;
+      border: 1px solid #6f879d;
+      border-radius: 999px;
+      padding: 3px 9px;
+      font-size: 9.5pt;
+      color: #17324d;
+      font-weight: 700;
+      margin-right: 6px;
+    }
+    @media print {
+      body { background: #fff; }
+      .wrap { padding: 0; max-width: none; }
+      .card { box-shadow: none; padding: 0; }
+    }
+  </style>
+</head>
+<body>
+<div class="wrap">
+<div class="card">
+
+  <h1>Standalone Negatives Sweeper — explained</h1>
+  <p class="subtitle">
+    Built by Shah · A simple guide to what this Google Ads script does, how it works,
+    and what kinds of search queries it may block
+  </p>
+
+  <div class="meta">
+    <strong>Who this is for:</strong> Account managers, ops, and anyone setting up the script<br />
+    <strong>Script file:</strong> <span class="mono">scripts/built-by-shah-mcc-standalone-daily-negatives-sweeper-final-v1.1.0.js</span><br />
+    <strong>Where it runs:</strong> Your Google Ads <strong>manager account (MCC)</strong><br />
+    <strong>Sheets needed:</strong> <strong>None</strong> — no Hub and no Spoke for this version<br />
+    <span class="pill">Search + Performance Max</span>
+    <span class="pill">Exact campaign negatives</span>
+    <span class="pill">Morning email</span>
+  </div>
+
+  <h2>Contents</h2>
+  <ol class="toc">
+    <li><a href="#what-it-is">What this script is (and is not)</a></li>
+    <li><a href="#big-idea">The big idea in plain words</a></li>
+    <li><a href="#what-gets-added">What actually gets added in Google Ads</a></li>
+    <li><a href="#daily-run">What happens on a normal morning run</a></li>
+    <li><a href="#checks">Safety checks before it adds anything</a></li>
+    <li><a href="#examples">Lots of examples: junk queries → exact negatives</a></li>
+    <li><a href="#rules">Every rule (what words turn a query into a negative)</a></li>
+    <li><a href="#exceptions">What it usually leaves alone</a></li>
+    <li><a href="#setup">How you turn shops on and off</a></li>
+    <li><a href="#backfill">Catch-up for old search terms (one-time backfill)</a></li>
+    <li><a href="#fifty">Why you may need two schedules (50-account limit)</a></li>
+    <li><a href="#email">The morning email</a></li>
+    <li><a href="#mistakes">If a negative was a mistake</a></li>
+    <li><a href="#vs-hub">How this differs from the Hub/Spoke sweeper</a></li>
+  </ol>
+
+  <h2 id="what-it-is">1. What this script is (and is not)</h2>
+  <p>
+    This script is a helper that runs in Google Ads every morning.
+    Its job is to find <strong>search queries that are a bad fit</strong> for a
+    collision / body shop, and then <strong>block those exact queries</strong>
+    so the ads stop showing for that same search again on that campaign.
+  </p>
+  <p>It is made for shops that want to:</p>
+  <ul>
+    <li>Cut waste from cheap / glass / mechanical / competitor / junk searches</li>
+    <li>Do that automatically, without a spreadsheet Hub or Spoke</li>
+    <li>Get a short email that lists what was blocked</li>
+  </ul>
+
+  <div class="callout warn">
+    <strong>What it does <em>not</em> do</strong>
+    <ul>
+      <li>It does not change bids, budgets, or ads.</li>
+      <li>It does not add keywords you want to <em>target</em> (only negatives to block).</li>
+      <li>It does not write to shared negative keyword lists.</li>
+      <li>It does not use Hub or Spoke sheets.</li>
+      <li>It is not the metrics Engine. The Engine only reads data and updates sheets.</li>
+    </ul>
+  </div>
+
+  <h2 id="big-idea">2. The big idea in plain words</h2>
+  <p>Think of Google Ads like a store window. People walk by and type what they want.</p>
+  <p>
+    Some people type things your body shop <strong>wants</strong>
+    (example: “collision repair near me after accident”).
+  </p>
+  <p>
+    Some people type things that usually <strong>waste money</strong>
+    (example: “cheap paint near me”, “oil change”, “Safelite windshield”).
+  </p>
+  <p>
+    This script looks at the <strong>last seven completed days</strong> of search
+    queries that already showed ads. The window ends yesterday and overlaps on
+    purpose so terms that Google publishes late are retried. If a query looks
+    like junk under the rules, it adds that
+    <strong>full query</strong> as an <strong>exact negative</strong> on the
+    <strong>same campaign</strong> that showed it.
+  </p>
+
+  <div class="example">
+    <div class="label">Tiny story</div>
+    <p style="margin:0;">
+      Yesterday someone searched <strong>cheap auto body near me</strong> and saw
+      your Search campaign. That search had clicks or impressions but no conversion.
+      The script sees the word <span class="mono">cheap</span>, checks that the
+      query is safe to block, and adds this exact negative on that campaign:
+    </p>
+    <p style="margin:8px 0 0;"><span class="kw">[cheap auto body near me]</span></p>
+    <p style="margin:8px 0 0;">
+      Next time someone searches that exact phrase, that campaign should not show.
+    </p>
+  </div>
+
+  <h2 id="what-gets-added">3. What actually gets added in Google Ads</h2>
+  <table>
+    <thead>
+      <tr><th>Question</th><th>Answer</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>What is added?</td>
+        <td>The <strong>whole search query</strong>, as an <strong>exact</strong> negative keyword</td>
+      </tr>
+      <tr>
+        <td>Where is it added?</td>
+        <td>On the <strong>campaign</strong> that generated the query (Search or Performance Max)</td>
+      </tr>
+      <tr>
+        <td>Account-level negatives?</td>
+        <td><strong>No</strong></td>
+      </tr>
+      <tr>
+        <td>Shared lists?</td>
+        <td><strong>Not written</strong> (only read so it does not double-add)</td>
+      </tr>
+      <tr>
+        <td>Does it add the bare word “paint”?</td>
+        <td><strong>No.</strong> The trigger word only decides <em>which queries</em> to look at. The negative is the full query, like <span class="mono">[cheap paint special near me]</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout good">
+    <strong>Remember the brackets</strong><br />
+    In Google Ads, exact negatives look like <span class="mono">[this exact phrase]</span>.
+    That means only that exact search (with small matching rules Google already uses) is blocked —
+    not every search that merely contains one word inside it.
+  </div>
+
+  <h2 id="daily-run">4. What happens on a normal morning run</h2>
+  <div class="flow">Clock fires the MCC script
+ → reads CONFIG.ACCOUNT_ALLOWLIST
+ → finds up to 50 shops not finished yet today
+ → for each shop, in parallel:
+      look at the rolling seven completed days of Search + PMax terms
+      match junk rules
+      skip converters / already blocked / protected phrases
+      add exact campaign negatives
+ → stamp a “done today” label on shops that finished cleanly
+ → email a reconciled summary + decision-audit CSV</div>
+
+  <ol>
+    <li><strong>Pick shops.</strong> Only Account IDs on the allowlist can run.</li>
+    <li><strong>Pick campaigns.</strong> Inside those shops, only campaigns whose names include <strong>Built by Shah</strong> are scanned or updated. Other campaigns in the same account are left alone.</li>
+    <li><strong>Skip shops already done today.</strong> Finished shops get a label like <span class="mono">BbsStandaloneNeg:2026-08-20</span>.</li>
+    <li><strong>Read seven completed days</strong> (each shop’s own time zone), always ending yesterday, for Search and Performance Max terms that had impressions.</li>
+    <li><strong>Score each query</strong> against the rule list (cheap, glass, oil change, and so on).</li>
+    <li><strong>Pass safety checks</strong> (no conversions, not already covered, not too long, etc.).</li>
+    <li><strong>Add the full query</strong> as an exact campaign negative.</li>
+    <li><strong>Email the audit</strong>: adds, matched safe skips, reconciled decision counts, and a CSV that includes <span class="mono">NO_RULE</span> terms.</li>
+  </ol>
+
+  <h2 id="checks">5. Safety checks before it adds anything</h2>
+  <p>A query is only added when <strong>all</strong> of these are true:</p>
+  <ol>
+        <li>The campaign name includes <strong>Built by Shah</strong> (case-insensitive).</li>
+<li>The shop is on <span class="mono">ACCOUNT_ALLOWLIST</span>.</li>
+    <li>The query showed ads in the <strong>last seven completed days</strong> (impressions).</li>
+    <li>At least one junk rule matches (a trigger word/phrase is in the query).</li>
+    <li>No rule exception saves it (example: “accident bumper repair” can be spared from the bumper rule).</li>
+    <li>No protected phrase is present (shop name, or phrases you listed).</li>
+    <li>No conversions in the seven-day action window, and no conversions in about the last 30 days.</li>
+    <li>Google has not already marked the term added/excluded.</li>
+    <li>An existing campaign or attached shared-list negative does not already cover it.</li>
+    <li>The cleaned query is short enough for an exact negative (about ≤80 characters and ≤10 words).</li>
+    <li>The campaign can be found and the negative can be created.</li>
+  </ol>
+
+  <div class="callout">
+    <strong>If something goes wrong for a shop</strong> (or it hits the safety ceiling),
+    that shop is <em>not</em> stamped done for the day, so the next wave/run can try again.
+  </div>
+
+  <h2 id="examples">6. Lots of examples: junk queries → exact negatives</h2>
+  <p>
+    Below are <strong>examples</strong> of queries that can be blocked, and what would
+    typically get written into the campaign’s negative keyword list.
+  </p>
+
+  <h3>Cheap / affordable shopping</h3>
+  <table>
+    <thead><tr><th>Someone searched…</th><th>Exact negative that may be added</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td>cheap auto body near me</td><td><span class="kw">[cheap auto body near me]</span></td><td>CHEAP</td></tr>
+      <tr><td>cheapest paint job</td><td><span class="kw">[cheapest paint job]</span></td><td>CHEAP</td></tr>
+      <tr><td>affordable body shops</td><td><span class="kw">[affordable body shops]</span></td><td>CHEAP (affordable)</td></tr>
+      <tr><td>body shop cheaply</td><td><span class="kw">[body shop cheaply]</span></td><td>CHEAP</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Glass / windows</h3>
+  <table>
+    <thead><tr><th>Someone searched…</th><th>Exact negative that may be added</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td>auto glass near me</td><td><span class="kw">[auto glass near me]</span></td><td>AUTO_GLASS</td></tr>
+      <tr><td>safelite windshield repair</td><td><span class="kw">[safelite windshield repair]</span></td><td>AUTO_GLASS</td></tr>
+      <tr><td>crack in windshield quote</td><td><span class="kw">[crack in windshield quote]</span></td><td>AUTO_GLASS</td></tr>
+      <tr><td>car window replacement</td><td><span class="kw">[car window replacement]</span></td><td>AUTO_GLASS</td></tr>
+    </tbody>
+  </table>
+  <p class="small" style="color:#52667a;">Exception: queries with <span class="mono">fiberglass</span> are not blocked by the glass rule.</p>
+
+  <h3>Payment / financing</h3>
+  <table>
+    <thead><tr><th>Someone searched…</th><th>Exact negative that may be added</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td>collision repair payment plan</td><td><span class="kw">[collision repair payment plan]</span></td><td>PAYMENT_OR_FINANCING</td></tr>
+      <tr><td>body shop financing</td><td><span class="kw">[body shop financing]</span></td><td>PAYMENT_OR_FINANCING</td></tr>
+      <tr><td>fix now pay later auto body</td><td><span class="kw">[fix now pay later auto body]</span></td><td>PAYMENT_OR_FINANCING</td></tr>
+      <tr><td>affirm body shop</td><td><span class="kw">[affirm body shop]</span></td><td>PAYMENT_OR_FINANCING</td></tr>
+      <tr><td>0 down paint job</td><td><span class="kw">[0 down paint job]</span></td><td>PAYMENT_OR_FINANCING</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Free estimate / free quote</h3>
+  <table>
+    <thead><tr><th>Someone searched…</th><th>Exact negative that may be added</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td>free estimate body shop</td><td><span class="kw">[free estimate body shop]</span></td><td>ESTIMATE_OR_QUOTE</td></tr>
+      <tr><td>free quote collision repair</td><td><span class="kw">[free quote collision repair]</span></td><td>ESTIMATE_OR_QUOTE</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Mechanical repair (not body work)</h3>
+  <table>
+    <thead><tr><th>Someone searched…</th><th>Exact negative that may be added</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td>oil change near me</td><td><span class="kw">[oil change near me]</span></td><td>MECHANICAL_REPAIR</td></tr>
+      <tr><td>brake repair shop</td><td><span class="kw">[brake repair shop]</span></td><td>MECHANICAL_REPAIR</td></tr>
+      <tr><td>transmission repair</td><td><span class="kw">[transmission repair]</span></td><td>MECHANICAL_REPAIR</td></tr>
+      <tr><td>ac repair car</td><td><span class="kw">[ac repair car]</span></td><td>MECHANICAL_REPAIR</td></tr>
+      <tr><td>muffler shop</td><td><span class="kw">[muffler shop]</span></td><td>MECHANICAL_REPAIR</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Minor cosmetic jobs (when not clearly collision/insurance)</h3>
+  <table>
+    <thead><tr><th>Someone searched…</th><th>Exact negative that may be added</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td>dent repair near me</td><td><span class="kw">[dent repair near me]</span></td><td>DENT_MINOR</td></tr>
+      <tr><td>bumper scuff fix</td><td><span class="kw">[bumper scuff fix]</span></td><td>BUMPER_MINOR</td></tr>
+      <tr><td>car paint special</td><td><span class="kw">[car paint special]</span></td><td>PAINT_MINOR</td></tr>
+      <tr><td>car clear coat repair</td><td><span class="kw">[car clear coat repair]</span></td><td>PAINT_MINOR</td></tr>
+      <tr><td>car buffing near me</td><td><span class="kw">[car buffing near me]</span></td><td>DETAILING</td></tr>
+      <tr><td>paintless dent repair</td><td><span class="kw">[paintless dent repair]</span></td><td>PAINTLESS_DENT</td></tr>
+      <tr><td>scratch repair car</td><td><span class="kw">[scratch repair car]</span></td><td>SCRATCH_OR_KEYED</td></tr>
+      <tr><td>door ding repair</td><td><span class="kw">[door ding repair]</span></td><td>DING_MINOR / EXTERIOR_PANEL_MINOR</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Competitors &amp; low-value chains</h3>
+  <table>
+    <thead><tr><th>Someone searched…</th><th>Exact negative that may be added</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td>maaco paint job</td><td><span class="kw">[maaco paint job]</span></td><td>LOW_VALUE_COMPETITOR</td></tr>
+      <tr><td>earl scheib near me</td><td><span class="kw">[earl scheib near me]</span></td><td>LOW_VALUE_COMPETITOR</td></tr>
+      <tr><td>a1 body shop</td><td><span class="kw">[a1 body shop]</span></td><td>LOW_VALUE_COMPETITOR</td></tr>
+      <tr><td>pep boys body work</td><td><span class="kw">[pep boys body work]</span></td><td>LOW_VALUE_COMPETITOR</td></tr>
+      <tr><td>fix auto collision</td><td><span class="kw">[fix auto collision]</span></td><td>LOW_VALUE_COMPETITOR</td></tr>
+    </tbody>
+  </table>
+  <div class="callout warn">
+    <strong>Heads-up:</strong> bare tokens like <span class="mono">earl</span>, <span class="mono">a1</span>, and <span class="mono">f1</span>
+    are aggressive. A query like “earl smith collision” could match. Undo in Google Ads if needed.
+  </div>
+
+  <h3>Salvage / junkyard / same-day / Sprinter / Spanish</h3>
+  <table>
+    <thead><tr><th>Someone searched…</th><th>Exact negative that may be added</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td>pick n pull near me</td><td><span class="kw">[pick n pull near me]</span></td><td>SALVAGE_OR_JUNKYARD</td></tr>
+      <tr><td>same day dent repair</td><td><span class="kw">[same day dent repair]</span></td><td>SAME_DAY_OR_ONE_DAY</td></tr>
+      <tr><td>sprinter van body damage</td><td><span class="kw">[sprinter van body damage]</span></td><td>SPRINTER_VAN</td></tr>
+      <tr><td>taller de enderezado y pintura cerca de mi</td><td><span class="kw">[taller de enderezado y pintura cerca de mi]</span></td><td>SPANISH_LANGUAGE</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Car years (aggressive)</h3>
+  <p>
+    Any 4-digit year from <strong>1990 to 2026</strong> can match <span class="mono">YEAR_TOKEN</span>.
+  </p>
+  <table>
+    <thead><tr><th>Someone searched…</th><th>Exact negative that may be added</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td>2009 honda accord</td><td><span class="kw">[2009 honda accord]</span></td><td>YEAR_TOKEN</td></tr>
+      <tr><td>2022 camry rear end</td><td><span class="kw">[2022 camry rear end]</span></td><td>YEAR_TOKEN (can be a false positive)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Other common junk themes</h3>
+  <table>
+    <thead><tr><th>Someone searched…</th><th>Exact negative that may be added</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td>car detailing near me</td><td><span class="kw">[car detailing near me]</span></td><td>DETAILING</td></tr>
+      <tr><td>window tinting</td><td><span class="kw">[window tinting]</span></td><td>TINT</td></tr>
+      <tr><td>coupon body shop</td><td><span class="kw">[coupon body shop]</span></td><td>COUPON</td></tr>
+      <tr><td>rust repair car</td><td><span class="kw">[rust repair car]</span></td><td>RUST</td></tr>
+      <tr><td>car key replacement</td><td><span class="kw">[car key replacement]</span></td><td>CAR_KEY</td></tr>
+      <tr><td>mobile body shop app</td><td><span class="kw">[mobile body shop app]</span></td><td>MOBILE_SERVICE</td></tr>
+      <tr><td>body kit install</td><td><span class="kw">[body kit install]</span></td><td>PARTS_OR_INSTALLATION</td></tr>
+      <tr><td>dashboard repair</td><td><span class="kw">[dashboard repair]</span></td><td>PARTS_OR_INSTALLATION</td></tr>
+      <tr><td>curb rash rim repair</td><td><span class="kw">[curb rash rim repair]</span></td><td>WHEELS_OR_EXHAUST</td></tr>
+      <tr><td>classic car restoration</td><td><span class="kw">[classic car restoration]</span></td><td>CLASSIC_OR_OLD_CAR</td></tr>
+      <tr><td>broken tail light replacement</td><td><span class="kw">[broken tail light replacement]</span></td><td>BROKEN_PART</td></tr>
+      <tr><td>car repair near me</td><td><span class="kw">[car repair near me]</span></td><td>GENERIC_CAR_REPAIR (unless body/collision words save it)</td></tr>
+      <tr><td>fix cars near me</td><td><span class="kw">[fix cars near me]</span></td><td>GENERIC_CAR_REPAIR</td></tr>
+      <tr><td>car in dallas</td><td><span class="kw">[car in dallas]</span></td><td>LOW_INTENT_AUTO_GEO (narrow vehicle + named-place intent)</td></tr>
+      <tr><td>put a claim on my car</td><td><span class="kw">[put a claim on my car]</span></td><td>PUT_A_CLAIM_SCAMMY (not bare “claim”)</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="rules">7. Every rule (what words turn a query into a negative)</h2>
+  <p>
+    If a query contains a <strong>trigger</strong>, that rule can fire.
+    If it also contains an <strong>exception</strong> for that same rule, that rule does <em>not</em> block it.
+    (Another rule can still block it.)
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Rule ID</th><th>Triggers (words/phrases)</th><th>Exceptions (saves the query from this rule)</th></tr>
+    </thead>
+    <tbody>
+      <tr><td class="mono">DENT_MINOR</td><td>dent, dented</td><td>accident, collision, crash, insurance, claim</td></tr>
+      <tr><td class="mono">BUMPER_MINOR</td><td>bumper</td><td>accident, collision, crash, insurance, claim</td></tr>
+      <tr><td class="mono">PAINT_MINOR</td><td>paint, repaint, clear coat, coloring, refinish, …</td><td>—</td></tr>
+      <tr><td class="mono">PAINTLESS_DENT</td><td>paintless, dent specialist, pdr</td><td>—</td></tr>
+      <tr><td class="mono">SMALL_JOB</td><td>small</td><td>accident, collision, crash, insurance, claim</td></tr>
+      <tr><td class="mono">SCRATCH_OR_KEYED</td><td>scratch, keyed</td><td>accident, collision, crash, insurance, claim, vandalism</td></tr>
+      <tr><td class="mono">EXTERIOR_PANEL_MINOR</td><td>hood, roof, door, mirror, plastic</td><td>accident, collision, crash, insurance, claim</td></tr>
+      <tr><td class="mono">AUTO_GLASS</td><td>glass, window, safelite, windshield, windsheild, crack</td><td>fiberglass</td></tr>
+      <tr><td class="mono">TINT</td><td>tint, tinting</td><td>—</td></tr>
+      <tr><td class="mono">DING_MINOR</td><td>ding, dings</td><td>accident, collision, crash, insurance, claim</td></tr>
+      <tr><td class="mono">DETAILING</td><td>detailing, detail, buff, buffing, polish, polishing</td><td>—</td></tr>
+      <tr><td class="mono">PARTS_OR_INSTALLATION</td><td>install, parts, headliner, upholstery, interior, dashboard, dash repair, …</td><td>—</td></tr>
+      <tr><td class="mono">WHEELS_OR_EXHAUST</td><td>curb, rim, rims, exhaust, dr rim</td><td>—</td></tr>
+      <tr><td class="mono">COUPON</td><td>coupon</td><td>—</td></tr>
+      <tr><td class="mono">RUST</td><td>rust</td><td>—</td></tr>
+      <tr><td class="mono">FRAME_NON_COLLISION</td><td>frame</td><td>accident, collision, crash, insurance, claim, structural, unibody, chassis, straightening, frame repair, frame damage</td></tr>
+      <tr><td class="mono">CAR_KEY</td><td>car key, lost key, key fob, spare key</td><td>—</td></tr>
+      <tr><td class="mono">MOBILE_SERVICE</td><td>mobile app, mobile repair, mobile dent, mobile mechanic</td><td>automobile</td></tr>
+      <tr><td class="mono">LOW_VALUE_COMPETITOR</td><td>maaco, pep boys, dent doctor, dent dr, earl scheib, earl shibe, scheib, earl, fix auto, a1, f1</td><td>—</td></tr>
+      <tr><td class="mono">CHEAP</td><td>cheap, cheapest, cheaply, affordable</td><td>—</td></tr>
+      <tr><td class="mono">LOCAL_COMPETITOR</td><td>seed chains + any names you put in COMPETITOR_PHRASES / ACCOUNT_OVERRIDES</td><td>—</td></tr>
+      <tr><td class="mono">LOW_INTENT_AUTO_GEO</td><td>narrow vehicle + named-place query such as car in dallas (never bare car or car near me)</td><td>body, collision, repair, shop, service, insurance, …</td></tr>
+      <tr><td class="mono">DEALER_OR_AUTO_GROUP</td><td>auto group, dealership, OEM service intent, …</td><td>—</td></tr>
+      <tr><td class="mono">GENERIC_CAR_REPAIR</td><td>car repair, auto repair, fix car(s), mechanic, service, …</td><td>body, autobody, auto body, collision, accident, crash, insurance, claim, fender, panel</td></tr>
+      <tr><td class="mono">CAREERS_OR_HIRING</td><td>technician, now hiring, career, salary, internship, …</td><td>—</td></tr>
+      <tr><td class="mono">PAYMENT_OR_FINANCING</td><td>payment plan, pay later, buy now pay later, financing, finance, loan, 0 down, zero down, interest free, no credit, bad credit, affirm, klarna, afterpay</td><td>—</td></tr>
+      <tr><td class="mono">ESTIMATE_OR_QUOTE</td><td>estimate, estimates, quote, quotes, free estimate, free quote</td><td>—</td></tr>
+      <tr><td class="mono">APPRAISAL_OR_ADJUSTER</td><td>appraisal, appraiser, adjuster</td><td>—</td></tr>
+      <tr><td class="mono">CLASSIC_OR_OLD_CAR</td><td>classic car(s), old car(s), antique car, vintage car</td><td>—</td></tr>
+      <tr><td class="mono">MECHANICAL_REPAIR</td><td>air conditioning, ac repair, radiator, brakes, brake, oil change, transmission, engine repair, muffler, tune up, tune-up, spark plug, alternator, starter</td><td>—</td></tr>
+      <tr><td class="mono">SALVAGE_OR_JUNKYARD</td><td>salvage, pick n pull, pick and pull, pick a part, pickapart, junkyard, junk yard, u pull, upull</td><td>—</td></tr>
+      <tr><td class="mono">SAME_DAY_OR_ONE_DAY</td><td>same day, 1 day, one day, same-day</td><td>—</td></tr>
+      <tr><td class="mono">SPRINTER_VAN</td><td>sprinter</td><td>—</td></tr>
+      <tr><td class="mono">SPANISH_LANGUAGE</td><td>common Spanish words (como, sacar, golpe, carro, reparar, enderezado, pintura, cerca de mi, …) — any hit is negatived</td><td>—</td></tr>
+      <tr><td class="mono">NAMED_LOCAL_SHOP</td><td>safe-side heuristic: possessives or 2+ non-place name tokens (keeps city+body-shop geo intent; single-token names left alone unless in COMPETITOR_PHRASES)</td><td>—</td></tr>
+      <tr><td class="mono">BARE_MAKE_MODEL</td><td>query is only a make/model token (e.g. promasters)</td><td>—</td></tr>
+      <tr><td class="mono">PUT_A_CLAIM_SCAMMY</td><td>put a claim</td><td>—</td></tr>
+      <tr><td class="mono">RENOVATION</td><td>renovation, renovate</td><td>—</td></tr>
+      <tr><td class="mono">BROKEN_PART</td><td>broken tail light / taillight / side mirror / mirror / headlight / bumper / windshield; replacement phrases for lights/mirrors</td><td>—</td></tr>
+      <tr><td class="mono">AFTERMARKET_AERO</td><td>carbon fiber, splitter</td><td>—</td></tr>
+      <tr><td class="mono">REBUILD_OR_TRUCK_BODY</td><td>rebuild, restomod, truck body, car rebuild</td><td>—</td></tr>
+      <tr><td class="mono">RV_OR_MOTORHOME</td><td>rv, motorhome, motor home, rv body</td><td>—</td></tr>
+      <tr><td class="mono">TOWING</td><td>tow, towing, tow truck</td><td>—</td></tr>
+      <tr><td class="mono">CUSTOM_BODY_OR_PAINT</td><td>custom body, custom paint, custom shop</td><td>—</td></tr>
+      <tr><td class="mono">GARAGE_DIY_BODY</td><td>garage body work, diy, do it yourself, home garage</td><td>—</td></tr>
+      <tr><td class="mono">YEAR_TOKEN</td><td>every year 1990–2026</td><td>—</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="exceptions">8. What it usually leaves alone</h2>
+  <ul>
+    <li><strong>Real collision / insurance language</strong> on many minor-damage rules (example: “accident bumper repair” can be spared from BUMPER_MINOR).</li>
+    <li><strong>Your shop’s Google Ads account name</strong> (always protected).</li>
+    <li><strong>Phrases you list</strong> in <span class="mono">PROTECTED_PHRASES</span> or per-account overrides.</li>
+    <li><strong>Queries that already converted</strong> in the seven-day action window or the 30-day history guard.</li>
+    <li><strong>Major insurer intent.</strong> AAA is context-aware: AAA insurance, claim, approved-body, and collision searches stay protected; mechanical junk such as “aaa auto repair” can still be blocked.</li>
+    <li><strong>Queries already covered</strong> by an existing campaign or attached shared-list negative.</li>
+    <li><strong>Geo / city + body shop</strong> (example: “yonkers auto body shop”, “collision repair dallas”) are kept. Clear named competitors (possessives like “steve's auto body”, multi-word brands like “sure shot collision”, or seed/COMPETITOR_PHRASES names) can still be negatived. Ambiguous one-word leftovers are left alone on purpose.</li>
+  </ul>
+
+  <div class="example">
+    <div class="label">Keep examples (often spared)</div>
+    <ul style="margin-bottom:0;">
+      <li>“honda accord collision insurance claim” — insurance/claim language protects several rules</li>
+      <li>“accident bumper repair” — accident exception on bumper rule</li>
+      <li>“auto body repair near me” — may avoid GENERIC_CAR_REPAIR because of “body”</li>
+    </ul>
+  </div>
+
+  <h2 id="setup">9. How you turn shops on and off</h2>
+  <ol>
+    <li>Paste the script at the <strong>MCC</strong>.</li>
+    <li>Fill <span class="mono">CONFIG.ACCOUNT_ALLOWLIST</span> with Account IDs (dashes OK).</li>
+    <li>Fill <span class="mono">CONFIG.EMAIL_RECIPIENTS</span>.</li>
+    <li>Optional: disable rules, protect phrases, or add local competitors in CONFIG / ACCOUNT_OVERRIDES.</li>
+    <li>For shops that already have history, run the <strong>one-time backfill</strong> first (next section).</li>
+    <li>Authorize, Run once, then schedule the <strong>daily</strong> sweeper at <strong>7:00 AM Pacific or later</strong>.</li>
+  </ol>
+  <p>
+    <strong>Include a shop:</strong> add its ID to the allowlist.<br />
+    <strong>Stop a shop:</strong> remove its ID from the allowlist.
+  </p>
+
+  <h2 id="backfill">10. Catch-up for old search terms (one-time backfill)</h2>
+  <p>
+    The daily sweeper retries the <strong>last seven completed days</strong>.
+    That recovers late-published recent terms. It is <strong>not</strong> enough
+    if a shop has already been advertising for weeks and old junk search terms
+    were never blocked.
+  </p>
+  <p>
+    There is a separate one-time script for that catch-up:
+    <span class="mono">scripts/built-by-shah-mcc-standalone-backfill-negatives-sweeper-final-v1.1.0.js</span>
+  </p>
+  <ul>
+    <li>It uses the <strong>same junk rules</strong> and the same allowlist idea.</li>
+    <li>It only touches campaigns whose names include <strong>Built by Shah</strong>.</li>
+    <li>It looks at about the <strong>last 90 days</strong> of Search + PMax search terms (not just yesterday).</li>
+    <li>When a shop finishes cleanly, it gets a permanent label like
+      <span class="mono">BbsStandaloneNegBackfill</span> so a re-run skips it.</li>
+    <li>The email subject says <strong>Backfill (90-day)</strong> so you do not confuse it with the morning daily email.</li>
+    <li>If a shop or campaign is only <strong>15–20 days</strong> old (or any span shorter than 90 days), that is fine. The script uses whatever history exists. Empty early days are not an error.</li>
+  </ul>
+  <div class="callout warn">
+    <strong>Simple workflow</strong>
+    <ol style="margin-bottom:0;">
+      <li>Run backfill once (and a second wave if you have more than 50 shops).</li>
+      <li>When every allowlisted shop is stamped / the queue email is empty, stop.</li>
+      <li>Then install and schedule the <strong>daily</strong> sweeper forever.</li>
+      <li>Do <strong>not</strong> leave the backfill script on a Daily schedule.</li>
+    </ol>
+  </div>
+
+  <h2 id="fifty">11. Why you may need two schedules (50-account limit)</h2>
+  <p>
+    Google only lets one script run work on <strong>50 accounts at a time</strong>.
+    If your allowlist has about 70 shops:
+  </p>
+  <ul>
+    <li>Make a second Scripts row with the <strong>same</strong> code and allowlist.</li>
+    <li>Schedule e.g. 7:00 and 8:00 AM Pacific. Google normally finishes prior-day Search terms around 6:00 AM in each account’s local time.</li>
+    <li>Wave 1 labels finished shops; wave 2 takes the rest.</li>
+    <li>You get <strong>two emails</strong> that morning. That is normal.</li>
+  </ul>
+
+  <h2 id="email">12. The morning email</h2>
+  <p>
+    After each wave you get an HTML email (same visual style as the Hub Engine status email) with:
+  </p>
+  <ul>
+    <li>How many accounts ran</li>
+    <li>How many exact negatives were added</li>
+    <li>Raw Search/PMax row counts, unique campaign terms, and terminal decisions that reconcile</li>
+    <li>Per shop: channel (SEARCH / PMAX), campaign, <span class="mono">[exact negative]</span>, rule IDs</li>
+    <li>Matched-but-skipped terms with the exact safe reason</li>
+    <li>A bounded CSV attachment with every retained unique term, including <span class="mono">NO_RULE</span> rows</li>
+    <li>Failures, if any</li>
+  </ul>
+  <p>
+    Preview sample:
+    <span class="mono">docs/Open this in a browser to preview the Search Negatives Sweep email.html</span>
+  </p>
+
+  <h2 id="mistakes">13. If a negative was a mistake</h2>
+  <ol>
+    <li>Open that Google Ads account.</li>
+    <li>Open the campaign → Negatives.</li>
+    <li>Delete the exact match that should not be there.</li>
+  </ol>
+  <p>
+    There is no Spoke “Remove” checkbox in this standalone version.
+    You undo by hand in Google Ads.
+  </p>
+
+  <h2 id="vs-hub">14. How this differs from the Hub/Spoke sweeper</h2>
+  <table>
+    <thead><tr><th></th><th>Standalone (this script)</th><th>Hub/Spoke sweepers</th></tr></thead>
+    <tbody>
+      <tr><td>Sheets</td><td>None</td><td>Hub + Spoke Negatives Audit</td></tr>
+      <tr><td>On/off</td><td>Allowlist in the script</td><td>Hub Enabled + Negatives Sweeper Enabled</td></tr>
+      <tr><td>Undo</td><td>Delete in Google Ads UI</td><td>Spoke Remove checkbox</td></tr>
+      <tr><td>Channels</td><td>Search + PMax in one script</td><td>Separate Search and PMax scripts</td></tr>
+      <tr><td>Email</td><td>Yes, morning summary</td><td>No built-in morning summary email (spoke log instead)</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout warn">
+    <strong>Do not run both on the same Account ID.</strong>
+    If a shop is on this allowlist <em>and</em> Hub Negatives Sweeper is Enabled,
+    both systems can add the same kinds of negatives and make a mess.
+  </div>
+
+  <div class="footer">
+    Built by Shah · Standalone MCC Negatives Sweeper walkthrough ·
+    Script: <span class="mono">built-by-shah-mcc-standalone-daily-negatives-sweeper-final-v1.1.0.js</span> ·
+    Open this HTML in any browser. Print to PDF if you want a handout.
+  </div>
+
+</div>
+</div>
+</body>
+</html>

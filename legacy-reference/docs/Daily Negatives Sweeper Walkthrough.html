@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Built by Shah — Daily Negatives Sweeper Walkthrough</title>
+  <style>
+    @page {
+      size: letter;
+      margin: 0.7in 0.75in;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+      color: #1a1a1a;
+      line-height: 1.45;
+      font-size: 11pt;
+      margin: 0;
+    }
+    h1 {
+      font-size: 22pt;
+      line-height: 1.2;
+      margin: 0 0 6px;
+      color: #17324D;
+    }
+    h2 {
+      font-size: 14pt;
+      margin: 22px 0 8px;
+      color: #17324D;
+      border-bottom: 2px solid #3A5A78;
+      padding-bottom: 4px;
+      page-break-after: avoid;
+    }
+    h3 {
+      font-size: 12pt;
+      margin: 16px 0 6px;
+      color: #2F5D50;
+      page-break-after: avoid;
+    }
+    p, li { margin: 0 0 8px; }
+    .subtitle {
+      color: #4A6A82;
+      font-size: 11pt;
+      margin: 0 0 18px;
+    }
+    .meta {
+      background: #EEF2F5;
+      border-left: 4px solid #2F5D50;
+      padding: 10px 12px;
+      margin: 0 0 18px;
+    }
+    .meta strong { color: #17324D; }
+    ol.steps {
+      padding-left: 22px;
+    }
+    ol.steps > li {
+      margin-bottom: 10px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 8px 0 14px;
+      font-size: 10pt;
+      page-break-inside: avoid;
+    }
+    th, td {
+      border: 1px solid #C5CDD6;
+      padding: 7px 8px;
+      vertical-align: top;
+      text-align: left;
+    }
+    th {
+      background: #243B55;
+      color: #fff;
+      font-weight: 600;
+    }
+    tr:nth-child(even) td { background: #F7F9FB; }
+    .callout {
+      background: #F7F3E8;
+      border: 1px solid #E2D8C0;
+      padding: 10px 12px;
+      margin: 10px 0 14px;
+      page-break-inside: avoid;
+    }
+    .callout.warn {
+      background: #FCE8E6;
+      border-color: #E8B4AE;
+    }
+    .small { font-size: 9.5pt; color: #445566; }
+    .mono {
+      font-family: Menlo, Consolas, monospace;
+      font-size: 9.5pt;
+    }
+    ul { margin: 4px 0 10px; padding-left: 20px; }
+    .footer {
+      margin-top: 28px;
+      padding-top: 10px;
+      border-top: 1px solid #C5CDD6;
+      font-size: 9pt;
+      color: #607080;
+    }
+    .flow {
+      background: #F4F7FA;
+      border: 1px solid #D5DEE8;
+      padding: 12px 14px;
+      margin: 8px 0 14px;
+      font-family: Menlo, Consolas, monospace;
+      font-size: 9.5pt;
+      white-space: pre-wrap;
+      page-break-inside: avoid;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>Daily Negatives Sweeper Walkthrough</h1>
+  <p class="subtitle">Built by Shah — what the Search (and PMax) negative keyword sweeper does every day</p>
+
+  <div class="meta">
+    <strong>Audience:</strong> Account managers and ops<br />
+    <strong>Scripts:</strong> Search sweeper + optional PMax sister sweeper<br />
+    <strong>Not the Engine:</strong> This is a separate MCC Google Ads Script. It does not live inside the metrics Engine.<br />
+    <strong>Guide in repo:</strong> <span class="mono">docs/Read this for the Search negatives sweeper - auto-add review and remove on the spoke.md</span>
+  </div>
+
+  <h2>1. One-sentence summary</h2>
+  <p>
+    Every scheduled day, the sweeper looks at the <strong>last seven completed days</strong> of search terms for each enabled shop,
+    finds low-value queries that match your body-shop rules, adds the <strong>full query</strong> as an
+    <strong>exact-match campaign negative</strong>, logs it on that shop’s spoke <strong>Negatives Audit</strong> tab,
+    and (if an AM checked Remove earlier) deletes those flagged negatives on the next run.
+  </p>
+
+  <h2>2. How it fits the Hub-and-Spoke system</h2>
+  <table>
+    <thead>
+      <tr><th>Piece</th><th>Role for negatives</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Hub Config</strong></td>
+        <td>On/off per shop, due-queue stamp, rule overrides (disable rules, protect phrases, local competitors)</td>
+      </tr>
+      <tr>
+        <td><strong>Search / PMax sweeper scripts</strong></td>
+        <td>MCC scripts that read the Hub, change Google Ads negatives, write the spoke audit tab</td>
+      </tr>
+      <tr>
+        <td><strong>Spoke Negatives Audit</strong></td>
+        <td>Per-shop log of what was added; AM marks Reviewed / Remove</td>
+      </tr>
+      <tr>
+        <td><strong>Engine</strong></td>
+        <td>Metrics + goal sync only — <strong>does not</strong> add negatives</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout">
+    <strong>Both switches required for a shop to run:</strong><br />
+    Hub <strong>Enabled</strong> = Enabled <strong>and</strong>
+    Hub <strong>Negatives Sweeper Enabled</strong> = Enabled <strong>and</strong>
+    Spoke Spreadsheet URL filled in.
+  </div>
+
+  <h2>3. What happens on a normal daily run</h2>
+  <p class="small">Example: you schedule the Search sweeper Daily at 7:00 AM Pacific (and again at 8:00 AM for shops 51–70).</p>
+
+  <div class="flow">MCC Scripts clock fires
+   → main() opens Hub
+   → finds shops due today (≤50)
+   → runs those shops in parallel
+   → for each shop: Remove flagged rows → scan seven completed days → add exact negatives → write spoke
+   → stamps Hub “Negatives Last Successful Run” when the shop finished cleanly</div>
+
+  <h3>Step A — Wake up and read the Hub</h3>
+  <ol class="steps">
+    <li>Opens the Hub spreadsheet URL from script config.</li>
+    <li>Makes sure Negatives columns exist on Config (can append missing ones).</li>
+    <li>Builds the candidate list of shops where:
+      <ul>
+        <li><strong>Enabled</strong> is on</li>
+        <li><strong>Negatives Sweeper Enabled</strong> is on</li>
+        <li><strong>Spoke Spreadsheet URL</strong> is present</li>
+      </ul>
+    </li>
+    <li>Keeps only shops still <strong>due today</strong>:
+      Negatives Last Successful Run is blank or not today’s date
+      (PMax uses its own stamp: Negatives PMax Last Successful Run).</li>
+    <li>Sorts by Priority (higher first), then Account ID.</li>
+    <li>Takes up to <strong>50 shops</strong> (Google’s hard parallel limit).</li>
+  </ol>
+
+  <h3>Step B — Process each shop (in parallel)</h3>
+  <p>For every selected shop, the script switches into that Google Ads account and does the following.</p>
+
+  <h3>Step C — Remove pass first (undo yesterday’s bad blocks)</h3>
+  <ol class="steps">
+    <li>Opens that shop’s spoke → <strong>Negatives Audit</strong>.</li>
+    <li>Finds rows where <strong>Remove</strong> is checked, Status is <strong>ADDED</strong>, and Channel matches this script (SEARCH or PMAX).</li>
+    <li>Deletes that exact campaign negative from Google Ads.</li>
+    <li>Updates the row to Status <strong>REMOVED</strong> and fills <strong>Removed At</strong>.</li>
+    <li>Does <strong>not</strong> clear your Reviewed / Remove checkboxes or AM Notes.</li>
+  </ol>
+
+  <h3>Step D — Pull the rolling seven-day search-term window</h3>
+  <ol class="steps">
+    <li>Uses the <strong>Google Ads account time zone</strong> (not UTC).</li>
+    <li>Looks at the most recent <strong>seven completed days</strong>, always ending yesterday.</li>
+    <li>Re-reading recent days is intentional. Google normally finishes prior-day Search terms around 6:00 AM in the account’s local time, so late-published terms get another chance on later runs.</li>
+    <li>Also loads about <strong>30 days</strong> of history for conversion guarding and lookback spend.</li>
+    <li>Search sweeper: Search campaigns only.</li>
+    <li>PMax sweeper: Performance Max campaigns only (same spoke tab, Channel = PMAX).</li>
+    <li>Only terms with at least <strong>1 impression</strong> are considered.</li>
+  </ol>
+
+  <h3>Step E — Match against the rule brain</h3>
+  <p>Each search term is checked against the shared rule list (examples):</p>
+  <ul>
+    <li>Minor / low-intent themes: dent, bumper, paint, scratch, ding, detailing, tint, glass, coupon, cheap, etc.</li>
+    <li>Many rules have <strong>exceptions</strong> (example: “dent” + “insurance” is protected for that rule).</li>
+    <li><strong>CHEAP</strong>: cheap / cheapest / cheaply</li>
+    <li><strong>LOCAL_COMPETITOR</strong>: seed chains + Hub <strong>Negatives Competitor Phrases</strong></li>
+    <li>Hub can disable rules per shop via <strong>Negatives Disabled Rule IDs</strong></li>
+    <li>Hub <strong>Negatives Protected Phrases</strong> plus Client Name / Account Name block auto-negatives on brand / specialty queries</li>
+  </ul>
+  <p>Matching is word-boundary aware (example: “glass” does not match “fiberglass”).</p>
+
+  <h3>Step F — Safety gates before any Ads change</h3>
+  <p>A matching term is still skipped if any of these are true:</p>
+  <table>
+    <thead><tr><th>Gate</th><th>Meaning</th></tr></thead>
+    <tbody>
+      <tr><td>Converted in action window</td><td>Has primary conversions in the rolling seven completed days</td></tr>
+      <tr><td>Converted in lookback</td><td>Has primary conversions in the ~30-day guard window</td></tr>
+      <tr><td>Already ADDED / EXCLUDED</td><td>Google already marks the term as added or excluded</td></tr>
+      <tr><td>Already covered</td><td>An existing campaign or attached shared-list negative already blocks it</td></tr>
+      <tr><td>Protected</td><td>Every matched rule was exception-protected or Hub-protected</td></tr>
+      <tr><td>Too long</td><td>Would exceed Google’s 80-character or 10-word keyword limits → logged as MANUAL_REVIEW, not added</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Step G — Add exact campaign negatives</h3>
+  <ol class="steps">
+    <li>Sorts remaining candidates by spend (worst waste first).</li>
+    <li>For each eligible term, adds the <strong>full search term</strong> as an exact negative, like <span class="mono">[cheap auto body near me]</span>.</li>
+    <li>Adds at <strong>campaign</strong> level (not ad group).</li>
+    <li>Never auto-adds bare trigger words as broad or phrase negatives.</li>
+    <li>Does not write into shared negative lists (it only reads them for coverage checks).</li>
+    <li>Processes <strong>all</strong> eligible terms in that run (no “only 10 per campaign” product cap).</li>
+    <li>Keeps a high runaway safety ceiling (~500 adds per account per run). If hit, the shop is <strong>not</strong> stamped done so the next wave can finish the rest.</li>
+  </ol>
+
+  <h3>Step H — Write the spoke Negatives Audit tab</h3>
+  <p>For each actionable result, a new row is written under the header (newest on top) with:</p>
+  <ul>
+    <li>Date, Channel, Campaign, Search Term, Exact Negative, Matched Rules</li>
+    <li>Impressions, Clicks, Cost Yesterday, Cost Lookback, Conversions</li>
+    <li>Spend Summary (short blurb like “$12.40 lookback / $3.10 yesterday / 0 conv”)</li>
+    <li>Decision + Reason</li>
+    <li>Empty Reviewed / Remove checkboxes for the AM</li>
+    <li>Status such as ADDED, MANUAL_REVIEW, FAILED, or REMOVED</li>
+  </ul>
+
+  <h3>Step I — Stamp the Hub due queue</h3>
+  <p>
+    If the shop finished successfully and did not hit the safety ceiling,
+    the script stamps today’s date on:
+  </p>
+  <ul>
+    <li>Search sweeper → <strong>Negatives Last Successful Run</strong></li>
+    <li>PMax sweeper → <strong>Negatives PMax Last Successful Run</strong></li>
+  </ul>
+  <p>That shop is then skipped until tomorrow (unless you clear the stamp to force a re-run).</p>
+
+  <h2>4. What the account manager does each day</h2>
+  <ol class="steps">
+    <li>Open the shop spoke → <strong>Daily Checklist</strong> → Negatives audit status.</li>
+    <li>Open <strong>Negatives Audit</strong>.</li>
+    <li>Scan new rows (spend summary helps prioritize).</li>
+    <li>Check <strong>Reviewed</strong> when the add looks correct.</li>
+    <li>Check <strong>Remove</strong> if the negative was a mistake — the <strong>next</strong> sweeper run deletes it in Google Ads.</li>
+    <li>Shop-specific rule tweaks (glass shop, local competitor, protect a phrase) happen on the <strong>Hub</strong>, not on the spoke.</li>
+  </ol>
+
+  <h2>5. Where do I edit what?</h2>
+  <table>
+    <thead><tr><th>I want to…</th><th>Go here</th></tr></thead>
+    <tbody>
+      <tr><td>Turn Engine + negatives off for a shop</td><td>Hub → Enabled = Disabled</td></tr>
+      <tr><td>Keep metrics, stop auto-negatives</td><td>Hub → Negatives Sweeper Enabled = Disabled</td></tr>
+      <tr><td>Turn auto-negatives on</td><td>Hub → Enabled + Negatives Sweeper Enabled + Spoke URL</td></tr>
+      <tr><td>Disable a rule for one shop</td><td>Hub → Negatives Disabled Rule IDs (example: AUTO_GLASS, PAINTLESS_DENT)</td></tr>
+      <tr><td>Protect a specialty phrase</td><td>Hub → Negatives Protected Phrases</td></tr>
+      <tr><td>Add a local competitor name</td><td>Hub → Negatives Competitor Phrases</td></tr>
+      <tr><td>Review / undo an add</td><td>Spoke → Negatives Audit (Reviewed / Remove)</td></tr>
+      <tr><td>Change agency-wide triggers for everyone</td><td>Script update (developer)</td></tr>
+    </tbody>
+  </table>
+
+  <h2>6. Scheduling reality (~70 shops)</h2>
+  <div class="callout warn">
+    Google only allows <strong>50 accounts per script run</strong>.
+    With about 70 shops, schedule the <strong>same</strong> sweeper code at least <strong>twice daily</strong>
+    (two Scripts rows, identical code, same Hub URL — for example 7:00 and 8:00 AM Pacific).
+    Do the same separately for PMax if you install that sister script.
+    Do <strong>not</strong> create a second Hub.
+  </div>
+
+  <h2>7. What this script never does</h2>
+  <ul>
+    <li>Does not live inside the Engine</li>
+    <li>Does not dump all shops’ negatives into one shared Sheet</li>
+    <li>Does not auto-add broad/phrase bare trigger words</li>
+    <li>Does not write shared negative lists</li>
+    <li>Does not use a DRY_RUN / LIVE mode switch (Hub Enabled columns control whether a shop runs)</li>
+    <li>Google Preview still never changes Ads if someone clicks Preview</li>
+  </ul>
+
+  <h2>8. End-of-day mental model</h2>
+  <p>
+    <strong>Hub</strong> decides who is allowed to be swept and which shop-specific exceptions apply.<br />
+    <strong>Sweeper</strong> finds junk queries from the rolling seven completed days, adds exact campaign negatives, and logs them.<br />
+    <strong>Spoke</strong> is where the human double-checks and can request a Remove on the next run.
+  </p>
+
+  <div class="footer">
+    Built by Shah — Google Ads Management Scripts<br />
+    Search script: scripts/built-by-shah-mcc-search-negatives-sweeper.js<br />
+    PMax script: scripts/built-by-shah-mcc-pmax-negatives-sweeper.js<br />
+    Generated for operators — keep this PDF with your Hub / spoke install notes.
+  </div>
+
+</body>
+</html>

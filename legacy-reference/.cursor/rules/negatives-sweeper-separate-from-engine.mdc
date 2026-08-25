@@ -1,0 +1,23 @@
+# Negatives sweeper — separate from the Engine
+
+The Built by Shah **Search** and **PMax** negative keyword sweepers are **sibling MCC scripts**, not part of `scripts/built-by-shah-mcc-engine.js`.
+
+## Never
+
+- Fold negative-keyword mutations into the Engine
+- Create a third dedicated MCC audit workbook for negatives
+- Put per-keyword action dumps on the Hub
+- Put rule editors on the spoke (Hub owns per-shop overrides)
+- Add script DRY_RUN / LIVE MODE or WOULD_ADD spoke rows
+- Auto-add bare trigger words as broad/phrase negatives
+
+## Contract
+
+- **Hub:** per-shop `Negatives Sweeper Enabled` (requires account `Enabled` too), `Negatives Last Successful Run`, Disabled Rule IDs / Protected Phrases / Competitor Phrases
+- **Spoke:** `Negatives Audit` tab — Reviewed / Remove / spend context; Channel SEARCH or PMAX
+- **Scripts:** `scripts/built-by-shah-mcc-search-negatives-sweeper.js` and `scripts/built-by-shah-mcc-pmax-negatives-sweeper.js`
+- **Docs:** `docs/Read this for the Search negatives sweeper - auto-add review and remove on the spoke.md`
+
+## Clarity
+
+When Hub/spoke negatives columns or tabs change, update Instructions + Definitions in the same change (plain language + examples). Keep the go-live guide in sync.

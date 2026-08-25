@@ -1,0 +1,15 @@
+---
+description: Always include the template version in Google Sheet workbook file names
+globs: apps-script/**/*.gs
+alwaysApply: false
+---
+
+# Google Sheet template naming
+
+When creating or updating Google Sheet workbook generators (Hub or Spoke):
+
+- Always put the **template version** in the Google Sheet **file/project name**
+- Spoke: `{Body Shop Name} — Google Ad Management Sheet (V {TEMPLATE_VERSION})`
+- Hub: `Built by Shah — Google Ads Hub (V {TEMPLATE_VERSION})`
+- Keep `TEMPLATE_VERSION` as a single constant in each generator and bump it when the schema/layout changes
+- Do not ship workbook names without a version suffix

@@ -1,0 +1,53 @@
+---
+description: Enterprise hub-and-spoke Google Ads automation PRD — shared source of truth
+alwaysApply: true
+---
+
+# Built by Shah — Hub-and-Spoke Ads Automation
+
+Before designing or coding in this repo, read:
+
+- `docs/Start here - what does each of these guides do.md` — map of what each guide does
+- `docs/Watch this for a full walkthrough - Shah explains Hub Spoke Engine Cursor Sheets and how to edit.md` — Shah’s video tour (Cursor + Sheets + Hub/Spoke/Engine; how to edit later). Point humans here when they ask how the system works or how to change it. Video: matching `.mp4` in `docs/` (Git LFS).
+- `docs/Open this when you are ready to go live - install checklist gotchas and how to smoke test.md` — install, gotchas, smoke test, production checklist (keep in sync when ops behavior changes)
+- `docs/Read this for the product requirements - what this system must do.md` — product requirements (shared source of truth)
+- `docs/Read this to understand the Hub Engine and Spoke sheets - system blueprint.md` — Hub / Engine / Spoke sheet inventory and module map (implementation blueprint)
+- `docs/Read this to schedule the Engine - why about 70 shops need two runs every day.md` — plain English: 50-at-a-time + **~70 shops = schedule Engine twice daily**
+- `docs/Read this for the technical plan to scale past 50 accounts with one Hub and one Engine.md` — one Hub + one Engine for 50→200+ accounts (daily due-queue; never fork scripts/Hubs per 50)
+
+## Architecture (required)
+
+- **Hub:** Agency config Sheet — active accounts, **goal source of truth** (budgets / lead goals / Target CPL), client spoke Sheet URLs, alert recipients
+- **Engine:** MCC Google Ads Script — `executeInParallel`, **Hub→Spoke goal sync**, GAQL extraction, write metrics to spokes
+- **Spokes:** One isolated Sheet per client — green Hub-synced goal copies + yellow local monitoring + Search vs PMax daily metrics (Search keywords; PMax campaigns only) + weekly location/device roll-ups
+- Daily metrics tabs must include `(Daily)` in the **tab name** and in-tab title; weekly tabs use `(Weekly)`
+- Do **not** include a Search Ad Group Metrics tab; use Search Keyword Metrics (Daily) instead of ad-group rollups
+- Do **not** include a PMax Keyword Metrics tab or PMax Asset Group Metrics tab — PMax has no classic keywords; use PMax Campaign Metrics (Daily)
+- Newest daily/weekly metric rows must sit directly under the header (older history is pushed down)
+
+**Single source of truth:** humans edit goals only on the Hub. Never ask operators to maintain budgets/CPL in both Hub and spoke.
+
+## Non-negotiable guardrails
+
+- Use account timezone only (`AdsApp.currentAccount().getTimeZone()`) — never UTC for yesterday/pacing dates
+- Safe-divide all derived metrics (CTR, CPC, CPL, pacing) — no NaN in Sheets
+- Daily metrics every run; weekly geo/device segments only on the configured weekday
+- Parallel spoke writes must not use a global script lock (different spokes); never overwrite formulas unsafely
+- One account failure must not kill the batch — try/catch, log, alert managers
+- Polish Sheets: frozen headers, currency/percent formats, clean readable layout
+- **Tab order:** working / data tabs first; put **Instructions** and **Definitions** toward the end on Hub and spoke workbooks. On **spoke** workbooks, put **Daily Checklist** first, then metrics, then Instructions + Definitions, then **Config last**. On **Hub**, Instructions + Definitions stay last.
+- **Instructions stay in sync with tabs:** whenever Hub or spoke tabs are added, renamed, removed, or their purpose changes, update that workbook’s Instructions tab so every tab is clearly explained for humans
+- **Hub Definitions stay in sync with Config columns:** whenever a Hub Config column is added, renamed, or its meaning changes, update `CONFIG_COLUMN_DEFINITIONS` in `create-hub-workbook.gs` (Definitions tab is generated from that map, in Config order). Write definitions in plain language with examples (easy for a non-expert to understand).
+- **Spoke Definitions stay in sync with all tabs/columns:** whenever spoke Config keys or metrics headers change, update `buildSpokeDefinitionRows_()` in `create-body-shop-workbook.gs`. Group by tab; plain language + examples.
+- Hub Instructions + Definitions: keep grid lines visible (`setHiddenGridlines(false)`)
+- Hub Config: freeze only Account ID + Account Name (not a wide frozen pane that splits the sheet)
+
+## Agent split
+
+- **Ads Script agent:** Engine, GAQL, pacing, parallelism, timezone, errors
+- **Sheets agent:** Hub schema, spoke structure, tab layout, routing
+- **Sheet formatting agent:** Visual polish and formatting of spoke dashboards
+
+Follow `docs/Read this to understand the Hub Engine and Spoke sheets - system blueprint.md` for Hub CONFIG columns, spoke tabs (Search vs PMax separated; weekly Location/Device), and Engine module ownership. Follow `docs/Read this for the technical plan to scale past 50 accounts with one Hub and one Engine.md` for sharding: cap parallel at 50, auto-advance a daily due queue, stamp `Last Successful Run` — do not create a new script or Hub per 50 shops.
+
+**Forbidden:** Do not create one shared Google Sheet that dumps every client’s campaign/keyword metrics together. Hub = control plane only; Spokes = per-account dashboards only.

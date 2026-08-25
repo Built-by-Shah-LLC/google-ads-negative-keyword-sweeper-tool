@@ -1,0 +1,43 @@
+---
+description: Keep docs/Open this when you are ready to go live - install checklist gotchas and how to smoke test.md in sync when Hub/Engine/spoke/email ops behavior changes
+alwaysApply: true
+---
+
+# Keep the go-live guide in sync
+
+`docs/Open this when you are ready to go live - install checklist gotchas and how to smoke test.md` is the operator runbook for install, production must-dos, gotchas, intentional non-features, and smoke testing.
+
+## When you must update that go-live guide
+
+In the **same change**, update `docs/Open this when you are ready to go live - install checklist gotchas and how to smoke test.md` if you alter any of:
+
+- Engine install / `ENGINE_CONFIG` defaults or meanings (email flags, sharding, weekly day, preview behavior, Hub URL requirement)
+- Hub Config columns operators must fill (Enabled, emails, alert gates, spoke URL, Priority, Last Successful Run, thresholds)
+- Spoke setup rules (green vs yellow Config, tab expectations)
+- Scheduling / 50-account cap / due-queue semantics
+- Status email name, send rules, recipients (manager vs CSM), or batch framing
+- Preview vs Run write behavior (Sheets stamps, Alerts, email)
+- What is intentionally out of scope (negatives script, no mega metrics sheet, no Ads mutations, etc.)
+- Smoke-test / go-live checklist steps
+
+Also update `docs/Start here - what does each of these guides do.md` and README links if you add/rename/remove a guide.
+
+If you add or rename Shah’s walkthrough video / companion guide, keep these in sync too: `docs/Watch this for a full walkthrough - Shah explains Hub Spoke Engine Cursor Sheets and how to edit.md`, the matching `.mp4`, and `.cursor/rules/refer-to-shah-walkthrough-video.mdc`.
+
+When editing any guide under `docs/`, keep the writing easy to understand:
+
+- Use full sentences
+- Explain with examples when a setting or step could confuse someone
+- Prefer plain language over jargon
+- Use clear headings and bullet lists
+- Avoid short fragmented phrases that assume insider knowledge
+
+## When you do not need to rewrite it
+
+Pure visual polish with no ops meaning change, or typo-only edits elsewhere, do not require a go-live guide rewrite — unless the email troubleshooting footer or operator-facing steps change.
+
+## Cross-links
+
+- Point humans to `docs/Open this when you are ready to go live - install checklist gotchas and how to smoke test.md` for “how do I turn this on / why didn’t I get email?”
+- Keep scheduling detail in `docs/Read this to schedule the Engine - why about 70 shops need two runs every day.md` / `docs/Read this for the technical plan to scale past 50 accounts with one Hub and one Engine.md`; the go-live guide should summarize and link, not fork conflicting numbers.
+- Guide index: `docs/Start here - what does each of these guides do.md`

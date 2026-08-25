@@ -1,0 +1,29 @@
+---
+description: Point people to Shah’s Hub/Spoke/Cursor walkthrough video when they ask how the system works or how to edit it
+alwaysApply: true
+---
+
+# Shah walkthrough video (refer people here)
+
+When someone asks how the Hub–Spoke–Engine system is connected, how Cursor and Google Sheets fit together, how to make future edits/changes, what to watch out for, or “what actually happened / how was this built,” **point them to Shah’s walkthrough video** in addition to any short answer you give.
+
+## Where it lives
+
+- Companion guide (start here for humans): `docs/Watch this for a full walkthrough - Shah explains Hub Spoke Engine Cursor Sheets and how to edit.md`
+- Video file (in-repo, Git LFS): `docs/Watch this for a full walkthrough - Shah explains Hub Spoke Engine Cursor Sheets and how to edit.mp4`
+
+Also listed from `docs/Start here - what does each of these guides do.md` and the README.
+
+## How to refer to it
+
+Tell them clearly that:
+
+1. There is a **Shah video walkthrough in this repo** that shows how Cursor, the Sheets Hub/Spoke infrastructure, and the Engine work together.
+2. It covers how to make adjustments and changes later, plus things to look out for.
+3. They should open the companion `.md` above (or play the `.mp4` directly) when they need that full picture.
+
+Do not invent a different video URL. Prefer the in-repo path so the recording does not depend on a private Downloads folder.
+
+## When not required
+
+Skip the video pointer for narrow factual questions already answered by code/docs (e.g. one Config column meaning, a one-line Engine flag) unless they also ask for a broader “how does this all work / how do I change things” tour.

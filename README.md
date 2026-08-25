@@ -19,12 +19,15 @@ See [Architecture decisions](docs/ARCHITECTURE_DECISIONS.md) for the controlling
 - `handoff/` — evidence-backed documentation and labeled search-term examples.
 - `handoff/source_code/` — sanitized copies of the previous Google Ads and Apps Script implementation.
 - `docs/` — current architecture decisions that supersede conflicting legacy behavior.
+- `legacy-reference/` — original Cursor project Markdown, Cursor rules, negative-sweeper operator documents, walkthrough assets, and a sanitized copy of the related MCC Engine.
 
 ## Legacy-code status
 
 The code under `handoff/source_code/` is reference material. It is not the required foundation for the new product and should not be deployed as the AI-assisted sweeper. Useful collection, MCC orchestration, mutation, and reporting mechanics may be retained when they remain the safest implementation.
 
 The legacy deterministic rule engine, stemming, competitor seeds, city heuristics, and `shouldExclude` behavior are not authoritative business policy.
+
+Files in `legacy-reference/` are provided for complete project context. When they conflict with `docs/ARCHITECTURE_DECISIONS.md`, the current architecture decisions control.
 
 ## Data handling
 

@@ -1,0 +1,63 @@
+---
+description: Intake checklist when creating a new body shop spoke Sheet or Hub Config row
+alwaysApply: true
+---
+
+# New body shop spoke / Hub intake
+
+When the user asks to create, generate, or set up a **new body shop spoke Google Sheet** (or to add a shop to the Hub), do **not** jump straight to pasting code. First ask for everything below that is still missing. Then deliver a ready-to-paste `SETUP_CONFIG` (from `apps-script/create-body-shop-workbook.gs`) **and** a ready-to-paste Hub Config row.
+
+## Always ask / confirm (required)
+
+1. **Body shop display name** → becomes `BODY_SHOP_NAME` and the Sheet file name  
+   Pattern: `{Body Shop Name} — Google Ad Management Sheet (V {TEMPLATE_VERSION})`  
+   Read `TEMPLATE_VERSION` from `create-body-shop-workbook.gs` (do not invent a version).
+2. **Google Ads Account ID** (keep as text, e.g. `123-456-7890`)
+3. **Account Name** (as shown in Google Ads)
+4. **Client Name** (friendly business name; can differ from Account Name)
+5. **Time Zone** (IANA, must match the Ads account — e.g. `America/New_York`)
+6. **Daily Budget**, **Monthly Lead Goal**, **Target CPL**
+7. **Account Manager Name** + **Account Manager Email** (email required for status email)
+8. **Enabled?** (`Enabled` / `Disabled` — usually Enabled when going live)
+
+## Ask with sensible defaults (confirm or override)
+
+- **Monthly Budget** (planning; often Daily Budget × ~30.4)
+- **High CPL Multiplier** (default `1.5`)
+- **Zero Conversion Spend Alert** (default `100`)
+- **Budget / Lead Pace Tolerance** (default `0.15` = 15%)
+- **Alerts Enabled** + each **Alert: …** gate (default all `Enabled` unless they say otherwise)
+- **CSM Name** / **CSM Email** (optional)
+- **Priority** (optional number; blank = normal)
+- **Campaign Start Date** (optional; for fair early lead pacing + 30-day money-back email)
+- **Client Report Notes** (optional)
+- **Alert recipient emails** if different from Account Manager Email
+
+## Spoke yellow Config (campaign / ad group tables)
+
+Green goal cells come from the Hub via the Engine — do **not** ask the user to maintain budgets/CPL on the spoke.
+
+Yellow campaign + Search ad group rows are still human-owned. Ask whether they want to:
+
+- Leave yellow tables empty for now (Engine still writes metrics; unlisted campaigns may show UNCONFIGURED), **or**
+- Prefill from a campaign/ad group list they provide (IDs, names, type Search/PMax, Monitor, Expected to Spend)
+
+Keyword override rows are optional rare exceptions — skip unless they ask.
+
+## What you deliver after intake
+
+1. Filled `SETUP_CONFIG` block (seeds only; Hub remains source of truth for goals)
+2. Hub Config row values in Config column order from `create-hub-workbook.gs` `CONFIG_HEADERS`
+3. Short run steps: paste `create-body-shop-workbook.gs` → set SETUP_CONFIG → run `createBodyShopWorkbook` → copy Sheet URL → paste into Hub **Spoke Spreadsheet URL** → fill yellow campaign/ad group rows when ready → leave **Last Successful Run** blank → confirm **Daily Checklist** is the first tab (V 1.9.1+). For an older live spoke without that tab, paste `add-daily-checklist-tab.gs` and run `refreshDailyChecklistTab` once.
+4. Remind: one Hub + one Engine; with ~70 shops schedule the Engine at least twice daily (see scheduling docs)
+
+## What you cannot do without their Google account
+
+You cannot create the Sheet in Drive or edit the live Hub from this chat. You prepare paste-ready values and the generator script config. After they create the spoke, ask them for the URL if helping finish the Hub row.
+
+## Do not
+
+- Invent Account IDs, emails, or budgets
+- Tell them to edit green Hub-synced cells on the spoke long-term
+- Create a second Hub or second Engine for a new shop
+- Ship a spoke file name without `(V {TEMPLATE_VERSION})`
