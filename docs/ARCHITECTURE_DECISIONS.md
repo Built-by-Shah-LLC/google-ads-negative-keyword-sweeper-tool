@@ -17,8 +17,9 @@ The Google Ads MCC JavaScript is a collector and executor. It should:
 The AI service is the semantic decision-maker. It should classify each term as:
 
 - `KEEP`
-- `HUMAN_REVIEW`
 - `NEGATIVE_EXACT`
+
+Ambiguous, mixed, contradictory, or insufficiently supported intent resolves to `KEEP`. Only clearly irrelevant intent may resolve to `NEGATIVE_EXACT`.
 
 ## Minimal deterministic safeguards
 
@@ -30,7 +31,7 @@ The application layer may reject or skip a proposed mutation only when:
 - The identical exact negative already exists directly on the same campaign.
 - The same decision was already successfully applied under the same idempotency key.
 - Google rejects the mutation.
-- The AI returned `KEEP` or `HUMAN_REVIEW`.
+- The AI returned `KEEP`.
 
 These are integrity and duplication controls, not a competing intent classifier.
 

@@ -163,7 +163,7 @@ function createSummary(
   decisions: Array<{ decision: string }>,
   failedBatchCount: number
 ): OrganizationSummary {
-  const counts: Record<string, number> = { KEEP: 0, HUMAN_REVIEW: 0, NEGATIVE_EXACT: 0 };
+  const counts: Record<string, number> = { KEEP: 0, NEGATIVE_EXACT: 0 };
   for (const decision of decisions) counts[decision.decision] = (counts[decision.decision] || 0) + 1;
   return {
     customerId: organization.customerId,

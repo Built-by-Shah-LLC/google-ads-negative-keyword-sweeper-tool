@@ -5,7 +5,7 @@ import type {
   RuleSet
 } from "../types.js";
 
-const DECISIONS = new Set<Decision>(["KEEP", "HUMAN_REVIEW", "NEGATIVE_EXACT"]);
+const DECISIONS = new Set<Decision>(["KEEP", "NEGATIVE_EXACT"]);
 
 export function validateDecisions(
   value: unknown,

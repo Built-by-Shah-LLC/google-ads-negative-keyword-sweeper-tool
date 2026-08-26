@@ -58,3 +58,16 @@ test("rejects rewritten negative text", () => {
 test("rejects an omitted decision", () => {
   assert.throws(() => validateDecisions({ decisions: [] }, [candidate], rules), /0 decisions for 1/u);
 });
+
+test("rejects the removed human-review decision", () => {
+  assert.throws(() => validateDecisions({
+    decisions: [{
+      itemId: "item-1",
+      decision: "HUMAN_REVIEW",
+      negativeText: null,
+      ruleIds: ["RULE-1"],
+      reason: "Ambiguous intent",
+      confidence: 0.5
+    }]
+  }, [candidate], rules), /invalid decision/u);
+});

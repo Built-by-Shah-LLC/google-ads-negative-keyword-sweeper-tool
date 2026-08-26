@@ -126,7 +126,7 @@ function createPrompt(source: CandidateArtifact, rules: RuleSet): string {
     "Return only the JSON object required by the supplied output schema.",
     "Requirements:",
     "- Return exactly one decision for every itemId, with no extras or duplicates.",
-    "- Use NEGATIVE_EXACT only for clearly irrelevant intent. If uncertain, use HUMAN_REVIEW.",
+    "- Use NEGATIVE_EXACT only for clearly irrelevant intent. If uncertain or conflicted, use KEEP.",
     "- For NEGATIVE_EXACT, negativeText must exactly equal the complete searchTerm. Otherwise it must be null.",
     "- Cite one or more supplied rule IDs for every decision.",
     "- Keep each reason concise and specific.",
@@ -156,7 +156,7 @@ function createSchema(candidates: ClassificationCandidate[], rules: RuleSet): Re
           required: ["itemId", "decision", "negativeText", "ruleIds", "reason", "confidence"],
           properties: {
             itemId: { type: "string", enum: candidates.map((candidate) => candidate.itemId) },
-            decision: { type: "string", enum: ["KEEP", "HUMAN_REVIEW", "NEGATIVE_EXACT"] },
+            decision: { type: "string", enum: ["KEEP", "NEGATIVE_EXACT"] },
             negativeText: { type: ["string", "null"] },
             ruleIds: {
               type: "array",
@@ -231,7 +231,7 @@ function countDecisions(decisions: ClassificationDecision[]): Record<string, num
   return decisions.reduce<Record<string, number>>((counts, item) => {
     counts[item.decision] = (counts[item.decision] ?? 0) + 1;
     return counts;
-  }, { KEEP: 0, HUMAN_REVIEW: 0, NEGATIVE_EXACT: 0 });
+  }, { KEEP: 0, NEGATIVE_EXACT: 0 });
 }
 
 function createTimestamp(): string {

@@ -1,4 +1,4 @@
-export type Decision = "KEEP" | "HUMAN_REVIEW" | "NEGATIVE_EXACT";
+export type Decision = "KEEP" | "NEGATIVE_EXACT";
 
 export interface Organization {
   customerId: string;

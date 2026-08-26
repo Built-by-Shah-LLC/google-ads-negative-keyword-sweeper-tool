@@ -32,10 +32,10 @@ const candidate: ClassificationCandidate = {
 test("creates one spreadsheet-safe CSV row with validated context", () => {
   const csv = createDecisionCsv(organization, candidate.date, [candidate], [{
     itemId: candidate.itemId,
-    decision: "HUMAN_REVIEW",
+    decision: "KEEP",
     negativeText: null,
-    ruleIds: ["POL-AMBIGUOUS-REVIEW"],
-    reason: "Needs review, because context is limited",
+    ruleIds: ["POL-AMBIGUOUS-KEEP"],
+    reason: "Kept conservatively because context is limited",
     confidence: 0.5
   }], "gemini-test", "rules-v1");
 

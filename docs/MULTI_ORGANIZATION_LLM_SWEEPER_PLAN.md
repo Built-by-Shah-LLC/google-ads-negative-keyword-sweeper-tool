@@ -276,7 +276,7 @@ Required output per candidate:
 ```json
 {
   "item_id": "stable-input-id",
-  "decision": "KEEP | HUMAN_REVIEW | NEGATIVE_EXACT",
+  "decision": "KEEP | NEGATIVE_EXACT",
   "negative_text": "full original search term or null",
   "rule_ids": ["..."],
   "reason": "short explanation",
@@ -300,6 +300,8 @@ Application validation enforces:
 - No missing candidate decisions
 
 Invalid or incomplete output never produces a mutation.
+
+The contract is deliberately binary. Ambiguous, mixed, contradictory, or insufficiently supported intent must be `KEEP`; there is no human-review decision state.
 
 ## Error handling
 

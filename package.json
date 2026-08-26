@@ -7,6 +7,7 @@
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit",
     "codex:one-off": "tsx scripts/codex-subscription-one-off.ts",
+    "kimi:one-off": "tsx scripts/kimi-subscription-one-off.ts",
     "test": "node --import tsx --test test/**/*.test.ts",
     "sweep": "tsx src/index.ts"
   },
