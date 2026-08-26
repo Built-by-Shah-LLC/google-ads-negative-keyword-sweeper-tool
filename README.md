@@ -27,6 +27,49 @@ The code under `handoff/source_code/` is reference material. It is not the requi
 
 The legacy deterministic rule engine, stemming, competitor seeds, city heuristics, and `shouldExclude` behavior are not authoritative business policy.
 
+## Read-only TypeScript classifier
+
+The new application under `src/` is isolated from `legacy-reference/`. It currently performs only:
+
+1. Discover enabled leaf organizations under the configured MCC.
+2. Fetch Search and Performance Max reported search terms for one completed day.
+3. Aggregate organization- and campaign-scoped candidates.
+4. Send bounded organization-specific batches plus `src/config/negative-keyword-rules.json` to Gemini.
+5. Validate the structured result and write ignored JSON artifacts under `runs/`.
+
+Each selected organization also receives one spreadsheet-safe aggregate file at:
+
+```text
+runs/{run_id}/organizations/{customer_id}/llm-decisions.csv
+```
+
+The CSV contains candidate context and validated decisions from every LLM batch. JSON remains the exact-fidelity source artifact; CSV cells that could execute as spreadsheet formulas are intentionally neutralized.
+
+It contains no Google Ads mutation code.
+
+Install and check it:
+
+```powershell
+npm install
+npm run check
+npm test
+```
+
+Add a separately created Gemini key to the ignored `.env`, then run one organization first:
+
+```powershell
+npm run sweep -- --date 2026-08-25 --organization-limit 1
+```
+
+Use a specific customer or deliberately select the entire MCC:
+
+```powershell
+npm run sweep -- --date 2026-08-25 --customer 1234567890
+npm run sweep -- --date 2026-08-25 --all-organizations
+```
+
+If `--date` is omitted, each organization uses its own previous local calendar day. Free-tier Gemini input may be used by Google to improve its products; never put credentials or unnecessary customer data into rules or prompts.
+
 Files in `legacy-reference/` are provided for complete project context. When they conflict with `docs/ARCHITECTURE_DECISIONS.md`, the current architecture decisions control.
 
 ## Data handling
