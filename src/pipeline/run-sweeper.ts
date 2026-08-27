@@ -3,9 +3,13 @@ import type { RuleSet } from "../types.js";
 import { GoogleAdsClient } from "../google-ads/client.js";
 import { fetchOrganizations } from "../google-ads/organizations.js";
 import { GeminiKeywordClassifier } from "../llm/gemini-classifier.js";
+import type { EmailAlertService } from "../notifications/email-alerts.js";
+import { PipelineError } from "../observability/errors.js";
+import { createLogger, type Logger } from "../observability/logger.js";
+import { RunTelemetry } from "../observability/run-telemetry.js";
 import { RunArtifacts } from "../storage/run-artifacts.js";
 import { createLimiter } from "../util/concurrency.js";
-import { processOrganization } from "./process-organization.js";
+import { processOrganization, type OrganizationSummary } from "./process-organization.js";
 
 export interface SweepOptions {
   rootDirectory: string;
@@ -15,73 +19,150 @@ export interface SweepOptions {
   allOrganizations: boolean;
 }
 
-export async function runSweeper(config: AppConfig, rules: RuleSet, options: SweepOptions): Promise<{
+export interface SweepServices {
+  logger?: Logger;
+  emailAlerts?: EmailAlertService;
+}
+
+export async function runSweeper(config: AppConfig, rules: RuleSet, options: SweepOptions, services: SweepServices = {}): Promise<{
   runId: string;
   runDirectory: string;
   status: "SUCCEEDED" | "PARTIAL" | "FAILED";
 }> {
-  const artifacts = new RunArtifacts(options.rootDirectory);
-  const googleAds = new GoogleAdsClient(config.googleAds);
+  let telemetry!: RunTelemetry;
+  const artifacts = new RunArtifacts(options.rootDirectory, undefined, (error, relativePath) => {
+    telemetry.error(error, {
+      stage: "ARTIFACT_WRITE",
+      code: "ARTIFACT_WRITE_FAILED",
+      retryable: true,
+      details: { relativePath }
+    });
+  });
+  const logger = (services.logger ?? createLogger()).child({ runId: artifacts.runId });
+  telemetry = new RunTelemetry({
+    logger,
+    onError: (error) => services.emailAlerts?.notifyHandled(error, {
+      runId: artifacts.runId,
+      runDirectory: artifacts.runDirectory
+    })
+  });
+  const googleAds = new GoogleAdsClient(config.googleAds, telemetry);
   const classifier = new GeminiKeywordClassifier(config.llm);
   const startedAt = new Date().toISOString();
-
-  await artifacts.write("run-manifest.json", {
+  const manifestBase = {
     runId: artifacts.runId,
-    status: "RUNNING",
     startedAt,
     requestedDate: options.date,
     readOnly: true,
-    ruleVersion: rules.version,
+    ruleSet: {
+      version: rules.version,
+      sourcePath: rules.sourcePath,
+      promptVersion: rules.promptVersion
+    },
     llm: { provider: classifier.provider, model: classifier.model },
     limits: {
       googleFetchConcurrency: config.googleFetchConcurrency,
       llmConcurrency: config.llm.concurrency,
       llmBatchSize: config.llm.batchSize
     }
-  });
-  await artifacts.write("rules.json", rules);
+  };
 
-  const discovered = await fetchOrganizations(googleAds, config.googleAds.loginCustomerId);
-  let selected = discovered;
-  if (options.customerId) {
-    const customerId = options.customerId.replaceAll("-", "");
-    selected = discovered.filter((organization) => organization.customerId === customerId);
-    if (selected.length === 0) throw new Error(`Customer ${customerId} was not found as an enabled leaf account.`);
-  } else if (!options.allOrganizations) {
-    selected = discovered.slice(0, options.organizationLimit ?? 1);
-  }
+  let discoveredCount = 0;
+  let selectedCount = 0;
+  let summaries: OrganizationSummary[] = [];
+  try {
+    logger.info({ ruleVersion: rules.version, promptVersion: rules.promptVersion }, "Sweep run started");
+    await artifacts.write("run-manifest.json", { ...manifestBase, status: "RUNNING" });
+    await artifacts.writeText("rules.md", rules.markdown);
 
-  await artifacts.write("organizations.json", { discovered, selected });
-  const fetchLimit = createLimiter(config.googleFetchConcurrency);
-  const llmLimit = createLimiter(config.llm.concurrency);
-  const summaries = await Promise.all(selected.map((organization) => fetchLimit(() => processOrganization(
-    organization,
-    options.date,
-    {
-      googleAds,
-      classifier,
-      artifacts,
-      rules,
-      batchSize: config.llm.batchSize,
-      llmLimit
+    const discovered = await telemetry.track("ORGANIZATION_DISCOVERY", {}, () =>
+      fetchOrganizations(googleAds, config.googleAds.loginCustomerId)
+    );
+    discoveredCount = discovered.length;
+    let selected = discovered;
+    if (options.customerId) {
+      const customerId = options.customerId.replaceAll("-", "");
+      selected = discovered.filter((organization) => organization.customerId === customerId);
+      if (selected.length === 0) {
+        throw new PipelineError(
+          `Customer ${customerId} was not found as an enabled leaf account.`,
+          { stage: "ORGANIZATION_SELECTION", code: "ORGANIZATION_NOT_FOUND", retryable: false }
+        );
+      }
+    } else if (!options.allOrganizations) {
+      selected = discovered.slice(0, options.organizationLimit ?? 1);
     }
-  ))));
+    if (selected.length === 0) {
+      throw new PipelineError(
+        "No enabled leaf organizations were selected; refusing to report an empty successful run.",
+        { stage: "ORGANIZATION_SELECTION", code: "NO_ORGANIZATIONS_SELECTED", retryable: false }
+      );
+    }
+    selectedCount = selected.length;
+    await artifacts.write("organizations.json", { discovered, selected });
 
+    const fetchLimit = createLimiter(config.googleFetchConcurrency);
+    const llmLimit = createLimiter(config.llm.concurrency);
+    summaries = await Promise.all(selected.map((organization) => fetchLimit(() => processOrganization(
+      organization,
+      options.date,
+      {
+        googleAds,
+        classifier,
+        artifacts,
+        telemetry,
+        rules,
+        batchSize: config.llm.batchSize,
+        llmLimit
+      }
+    ))));
+
+    const status = runStatus(summaries);
+    await finalizeRun(artifacts, telemetry, manifestBase, summaries, discoveredCount, selectedCount, status, services.emailAlerts);
+    logger.info({ status, organizationsSelected: selectedCount }, "Sweep run completed");
+    return { runId: artifacts.runId, runDirectory: artifacts.runDirectory, status };
+  } catch (error) {
+    const alreadyTracked = telemetry.snapshot().errors.some((item) => item.message === errorMessage(error));
+    if (!alreadyTracked) telemetry.error(error, { stage: "RUN_PIPELINE" });
+    await finalizeRun(
+      artifacts,
+      telemetry,
+      manifestBase,
+      summaries,
+      discoveredCount,
+      selectedCount,
+      "FAILED",
+      services.emailAlerts,
+      errorMessage(error)
+    );
+    logger.error({ status: "FAILED" }, "Sweep run failed");
+    return { runId: artifacts.runId, runDirectory: artifacts.runDirectory, status: "FAILED" };
+  }
+}
+
+async function finalizeRun(
+  artifacts: RunArtifacts,
+  telemetry: RunTelemetry,
+  manifestBase: Record<string, unknown>,
+  summaries: OrganizationSummary[],
+  discoveredCount: number,
+  selectedCount: number,
+  status: "SUCCEEDED" | "PARTIAL" | "FAILED",
+  emailAlerts?: EmailAlertService,
+  fatalError?: string
+): Promise<void> {
+  const completedAt = new Date().toISOString();
+  const telemetrySnapshot = telemetry.snapshot();
   const failed = summaries.filter((summary) => summary.status === "FAILED").length;
   const partial = summaries.filter((summary) => summary.status === "PARTIAL").length;
-  const status = failed === summaries.length && summaries.length > 0
-    ? "FAILED"
-    : failed > 0 || partial > 0
-      ? "PARTIAL"
-      : "SUCCEEDED";
   const summary = {
     runId: artifacts.runId,
     status,
     readOnly: true,
-    startedAt,
-    completedAt: new Date().toISOString(),
-    organizationsDiscovered: discovered.length,
-    organizationsSelected: selected.length,
+    startedAt: manifestBase.startedAt,
+    completedAt,
+    organizationsDiscovered: discoveredCount,
+    organizationsSelected: selectedCount,
     organizationStatusCounts: {
       succeeded: summaries.filter((item) => item.status === "SUCCEEDED").length,
       partial,
@@ -90,18 +171,33 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
     rawRows: summaries.reduce((sum, item) => sum + item.rawRowCount, 0),
     candidates: summaries.reduce((sum, item) => sum + item.candidateCount, 0),
     decisions: summaries.reduce((sum, item) => sum + item.decisionCount, 0),
+    tokenUsage: telemetrySnapshot.tokenUsage,
+    errorCount: telemetrySnapshot.errors.length,
+    fatalError: fatalError ?? null,
     organizations: summaries
   };
   await artifacts.write("summary.json", summary);
+  await artifacts.write("telemetry.json", telemetrySnapshot);
   await artifacts.write("run-manifest.json", {
-    runId: artifacts.runId,
+    ...manifestBase,
     status,
-    startedAt,
-    completedAt: summary.completedAt,
-    requestedDate: options.date,
-    readOnly: true,
-    ruleVersion: rules.version,
-    llm: { provider: classifier.provider, model: classifier.model }
+    completedAt,
+    organizationsDiscovered: discoveredCount,
+    organizationsSelected: selectedCount,
+    errorCount: telemetrySnapshot.errors.length,
+    fatalError: fatalError ?? null
   });
-  return { runId: artifacts.runId, runDirectory: artifacts.runDirectory, status };
+  await emailAlerts?.flush();
+}
+
+function runStatus(summaries: OrganizationSummary[]): "SUCCEEDED" | "PARTIAL" | "FAILED" {
+  const failed = summaries.filter((summary) => summary.status === "FAILED").length;
+  const partial = summaries.filter((summary) => summary.status === "PARTIAL").length;
+  if (failed === summaries.length && summaries.length > 0) return "FAILED";
+  if (failed > 0 || partial > 0) return "PARTIAL";
+  return "SUCCEEDED";
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

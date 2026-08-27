@@ -190,8 +190,12 @@ Suggested layout:
 
 ```text
 runs/{run_id}/run-manifest.json
+runs/{run_id}/rules.md
+runs/{run_id}/telemetry.json
 runs/{run_id}/organizations/{customer_id}/fetch.json
 runs/{run_id}/organizations/{customer_id}/candidates.json
+runs/{run_id}/organizations/{customer_id}/fixed-input-tokens.json
+runs/{run_id}/organizations/{customer_id}/errors.json
 runs/{run_id}/organizations/{customer_id}/llm/batch-{batch_id}-input.json
 runs/{run_id}/organizations/{customer_id}/llm/batch-{batch_id}-output.json
 runs/{run_id}/organizations/{customer_id}/decisions.json
@@ -224,23 +228,19 @@ The absence of a database is an accepted tradeoff: cross-run analytical querying
 
 Do not send the LLM the entire historical Markdown handoff. The handoff intentionally documents contradictions and unresolved decisions.
 
-Create one authoritative, versioned rule set. Example:
+Create one authoritative, versioned Markdown rule set. The implementation uses
+`src/config/negative-keyword-rules.md`, copies its exact snapshot to every run, and
+extracts only its versions and rule IDs for deterministic validation. Example:
 
-```json
-{
-  "version": "2026-08-26.1",
-  "rules": [
-    {
-      "id": "POL-COLLISION-KEEP",
-      "title": "Serious collision intent",
-      "instruction": "Keep searches expressing collision, crash, accident, or frame-damage repair intent.",
-      "examples_keep": [],
-      "examples_negative": [],
-      "exceptions": [],
-      "enabled": true
-    }
-  ]
-}
+```markdown
+# Collision-repair search-term classification rules
+
+Rule set version: `2026-08-27.1`
+Prompt version: `collision-classifier-v2`
+
+### `POL-COLLISION-KEEP` — Serious collision intent
+
+KEEP searches expressing collision, crash, accident, or frame-damage repair intent.
 ```
 
 Every classification batch records:
@@ -264,10 +264,9 @@ Example input shape:
 
 ```json
 {
-  "account": {},
+  "organizationContext": {},
   "date": "2026-08-25",
-  "rules": [],
-  "search_terms": []
+  "candidates": []
 }
 ```
 
@@ -275,10 +274,10 @@ Required output per candidate:
 
 ```json
 {
-  "item_id": "stable-input-id",
+  "itemId": "stable-input-id",
   "decision": "KEEP | NEGATIVE_EXACT",
-  "negative_text": "full original search term or null",
-  "rule_ids": ["..."],
+  "negativeText": "full original search term or null",
+  "ruleIds": ["..."],
   "reason": "short explanation",
   "confidence": 0.0
 }
@@ -298,6 +297,9 @@ Application validation enforces:
 - Matching account and campaign identity
 - `NEGATIVE_EXACT` uses the full submitted term after approved normalization
 - No missing candidate decisions
+- No unexpected root or decision fields
+- Only known, non-duplicated rule IDs
+- Reasons are trimmed, non-empty, and at most 240 characters
 
 Invalid or incomplete output never produces a mutation.
 
@@ -335,6 +337,12 @@ Record structured logs and metrics for:
 - LLM token usage
 - Queue age and dead-letter counts
 - Artifact write failures and reconciliation mismatches
+
+Provider `usageMetadata` is normalized into input, output, total, cached-input, and
+thought token counts. Every generation attempt is included, even when its output fails
+validation. A separate per-organization `countTokens` baseline records fixed non-candidate
+input overhead (system instruction, Markdown policy, organization/date envelope, and
+generic response schema); candidate rows and batch-specific item ID enums are variable.
 
 Secrets stay outside source control and never enter prompts or logs. Local development may use the Git-ignored `.env`; deployed environments use a secrets manager. Access tokens are short-lived and remain in process memory only. Refresh tokens are durable secrets, not application data.
 

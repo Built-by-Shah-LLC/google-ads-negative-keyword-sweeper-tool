@@ -1,26 +1,30 @@
-import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
-import { loadConfig } from "./config/env.js";
-import type { RuleSet } from "./types.js";
+import { loadConfig, loadOperationalConfig, type EmailAlertConfig } from "./config/env.js";
+import { loadRuleSet } from "./config/rule-set.js";
+import { EmailAlertService } from "./notifications/email-alerts.js";
 import { runSweeper, type SweepOptions } from "./pipeline/run-sweeper.js";
+import { serializeError } from "./observability/errors.js";
+import { createLogger, type Logger } from "./observability/logger.js";
 
-async function main(): Promise<void> {
-  const rootDirectory = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+async function main(rootDirectory: string, logger: Logger, emailAlerts: EmailAlertService): Promise<void> {
   const options = parseArguments(process.argv.slice(2), rootDirectory);
   const config = await loadConfig(rootDirectory);
-  const rules = JSON.parse(await readFile(resolve(rootDirectory, "src/config/negative-keyword-rules.json"), "utf8")) as RuleSet;
+  const rules = await loadRuleSet(rootDirectory);
 
-  console.log("Starting read-only Google Ads → Gemini classification pipeline.");
-  console.log(options.allOrganizations
-    ? "Scope: every enabled leaf organization."
-    : options.customerId
-      ? `Scope: customer ${options.customerId.replaceAll("-", "")}.`
-      : `Scope: first ${options.organizationLimit ?? 1} organization(s); use --all-organizations for the full MCC.`);
+  logger.info({
+    scope: options.allOrganizations
+      ? { type: "ALL_ORGANIZATIONS" }
+      : options.customerId
+        ? { type: "CUSTOMER", customerId: options.customerId.replaceAll("-", "") }
+        : { type: "LIMITED", organizationLimit: options.organizationLimit ?? 1 },
+    provider: "google-gemini",
+    model: config.llm.model,
+    readOnly: true
+  }, "Starting Google Ads classification pipeline");
 
-  const result = await runSweeper(config, rules, options);
-  console.log(`Run ${result.status}: ${result.runId}`);
-  console.log(`Artifacts: ${result.runDirectory}`);
+  const result = await runSweeper(config, rules, options, { logger, emailAlerts });
+  logger.info({ ...result }, "Pipeline run finished");
   if (result.status === "FAILED") process.exitCode = 1;
 }
 
@@ -64,7 +68,33 @@ function parseArguments(argumentsList: string[], rootDirectory: string): SweepOp
   return options;
 }
 
-main().catch((error: unknown) => {
-  console.error(`Sweep failed: ${error instanceof Error ? error.message : String(error)}`);
-  process.exitCode = 1;
-});
+async function bootstrap(): Promise<void> {
+  const rootDirectory = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+  let logger = createLogger();
+  const disabledAlerts: EmailAlertConfig = {
+    enabled: false,
+    handledErrorCodes: [],
+    handledErrorStages: []
+  };
+  let emailAlerts = new EmailAlertService(disabledAlerts, logger);
+  try {
+    const operationalConfig = await loadOperationalConfig(rootDirectory);
+    logger = createLogger(operationalConfig.logging);
+    emailAlerts = new EmailAlertService(operationalConfig.emailAlerts, logger);
+    await main(rootDirectory, logger, emailAlerts);
+  } catch (error) {
+    const serialized = serializeError(error, {
+      stage: "BOOTSTRAP",
+      code: "UNHANDLED_PIPELINE_ERROR",
+      retryable: false
+    });
+    logger.fatal({ pipelineError: serialized }, "Unhandled pipeline error");
+    await emailAlerts.notifyUnhandled(serialized);
+    process.exitCode = 1;
+  } finally {
+    await emailAlerts.flush();
+    emailAlerts.close();
+  }
+}
+
+void bootstrap();

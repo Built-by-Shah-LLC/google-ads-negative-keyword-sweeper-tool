@@ -6,6 +6,8 @@ import type {
 } from "../types.js";
 
 const DECISIONS = new Set<Decision>(["KEEP", "NEGATIVE_EXACT"]);
+const ROOT_KEYS = new Set(["decisions"]);
+const DECISION_KEYS = new Set(["itemId", "decision", "negativeText", "ruleIds", "reason", "confidence"]);
 
 export function validateDecisions(
   value: unknown,
@@ -13,6 +15,7 @@ export function validateDecisions(
   rules: RuleSet
 ): ClassificationDecision[] {
   const root = asRecord(value, "response");
+  assertExactKeys(root, ROOT_KEYS, "response");
   const rawDecisions = root.decisions;
   if (!Array.isArray(rawDecisions)) throw new Error("LLM response.decisions must be an array.");
   if (rawDecisions.length !== candidates.length) {
@@ -20,12 +23,13 @@ export function validateDecisions(
   }
 
   const candidatesById = new Map(candidates.map((candidate) => [candidate.itemId, candidate]));
-  const allowedRuleIds = new Set(rules.rules.map((rule) => rule.id));
+  const allowedRuleIds = new Set(rules.ruleIds);
   const seen = new Set<string>();
   const decisionsById = new Map<string, ClassificationDecision>();
 
   for (const [index, rawDecision] of rawDecisions.entries()) {
     const decisionObject = asRecord(rawDecision, `decisions[${index}]`);
+    assertExactKeys(decisionObject, DECISION_KEYS, `decisions[${index}]`);
     const itemId = requiredString(decisionObject.itemId, `decisions[${index}].itemId`);
     if (seen.has(itemId)) throw new Error(`LLM returned duplicate itemId '${itemId}'.`);
     seen.add(itemId);
@@ -64,7 +68,8 @@ export function validateDecisions(
       throw new Error(`confidence for '${itemId}' must be between 0 and 1.`);
     }
     const reason = requiredString(decisionObject.reason, `reason for '${itemId}'`);
-    if (reason.length > 500) throw new Error(`reason for '${itemId}' exceeds 500 characters.`);
+    if (reason !== reason.trim()) throw new Error(`reason for '${itemId}' must not have surrounding whitespace.`);
+    if (reason.length > 240) throw new Error(`reason for '${itemId}' exceeds 240 characters.`);
 
     decisionsById.set(itemId, {
       itemId,
@@ -79,6 +84,13 @@ export function validateDecisions(
   const missing = candidates.filter((candidate) => !seen.has(candidate.itemId));
   if (missing.length > 0) throw new Error(`LLM omitted ${missing.length} submitted item(s).`);
   return candidates.map((candidate) => decisionsById.get(candidate.itemId)!);
+}
+
+function assertExactKeys(value: Record<string, unknown>, allowed: Set<string>, name: string): void {
+  const unexpected = Object.keys(value).filter((key) => !allowed.has(key));
+  if (unexpected.length > 0) throw new Error(`${name} contains unexpected field(s): ${unexpected.join(", ")}.`);
+  const missing = [...allowed].filter((key) => !(key in value));
+  if (missing.length > 0) throw new Error(`${name} is missing required field(s): ${missing.join(", ")}.`);
 }
 
 function asRecord(value: unknown, name: string): Record<string, unknown> {

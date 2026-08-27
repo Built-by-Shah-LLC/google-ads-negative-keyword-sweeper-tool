@@ -63,7 +63,7 @@ Regression harness (`npm run eval:kimi`) over the 124 labeled rows. Targets vs b
 
 ## Proposed changes
 
-### Phase 1 — Rule set rebuild (`src/config/negative-keyword-rules.json` → v2026-08-27.1)
+### Phase 1 — Rule set rebuild (`src/config/negative-keyword-rules.md` → v2026-08-27.1)
 
 KEEP-side rules:
 
@@ -100,8 +100,8 @@ Meta rules:
 
 ### Phase 2 — Code changes (minimal, additive)
 
-- `src/types.ts`: `Rule` gains optional `examplesKeep` / `examplesNegative`
-  (validation only reads `rule.id`; zero breakage).
+- `src/config/rule-set.ts` loads the Markdown file, extracts its versions and rule IDs,
+  and sends the exact Markdown snapshot to providers.
 - New `src/llm/prompt.ts`: single shared system-instruction + user-payload builder consumed by
   both `src/llm/gemini-classifier.ts` and `scripts/kimi-subscription-one-off.ts`
   (eliminates existing prompt drift between the two paths).
@@ -110,7 +110,8 @@ Meta rules:
 
 - New `scripts/evaluate-labeled-examples.ts` + npm script `eval:kimi`.
 - Builds candidates from `handoff/02_LABELED_SEARCH_TERM_EXAMPLES.csv`
-  (mapping `AUTO_NEGATIVE_ALLOWED → NEGATIVE_EXACT`; `KEEP / HUMAN_REVIEW / UNRESOLVED → KEEP`),
+  (mapping `AUTO_NEGATIVE_ALLOWED → NEGATIVE_EXACT`; `KEEP / HUMAN_REVIEW / UNRESOLVED → KEEP`,
+  then applying the owner-locked 2026-08-27 overrides above where historical CSV operations conflict),
   runs live Kimi classification, writes `runs/eval-<timestamp>/report.json` with overall
   agreement, KEEP-side accuracy, negative recall/precision, and per-category FP/FN listings.
 - Known expected disagreement: EX-114 `range rover mechanic near me` (owner pasted without a

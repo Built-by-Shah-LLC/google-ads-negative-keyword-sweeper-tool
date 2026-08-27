@@ -5,8 +5,10 @@ import { validateDecisions } from "../src/llm/validation.js";
 
 const rules: RuleSet = {
   version: "test",
-  policy: "test",
-  rules: [{ id: "RULE-1", title: "Rule", instruction: "Classify", examples: [] }]
+  promptVersion: "test-prompt",
+  sourcePath: "test-rules.md",
+  markdown: "### `RULE-1` — Rule",
+  ruleIds: ["RULE-1"]
 };
 const candidate: ClassificationCandidate = {
   itemId: "item-1",
@@ -70,4 +72,18 @@ test("rejects the removed human-review decision", () => {
       confidence: 0.5
     }]
   }, [candidate], rules), /invalid decision/u);
+});
+
+test("rejects unexpected output fields even if a provider ignores the schema", () => {
+  assert.throws(() => validateDecisions({
+    decisions: [{
+      itemId: "item-1",
+      decision: "KEEP",
+      negativeText: null,
+      ruleIds: ["RULE-1"],
+      reason: "Ambiguous",
+      confidence: 0.5,
+      mutation: "do-not-accept"
+    }]
+  }, [candidate], rules), /unexpected field/u);
 });

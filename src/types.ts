@@ -39,22 +39,35 @@ export interface ClassificationDecision {
   confidence: number;
 }
 
-export interface Rule {
-  id: string;
-  title: string;
-  instruction: string;
-  examples: string[];
-}
-
 export interface RuleSet {
   version: string;
-  policy: string;
-  rules: Rule[];
+  promptVersion: string;
+  sourcePath: string;
+  markdown: string;
+  ruleIds: string[];
+}
+
+export interface LlmTokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  cachedInputTokens: number;
+  thoughtTokens: number;
+}
+
+export interface FixedInputTokenCount {
+  totalTokens: number;
+  countedAt: string;
+  definition: string;
+  model: string;
+  providerRequestId: string | null;
+  attemptCount: number;
+  retryCount: number;
 }
 
 export interface ValidatedBatch {
   decisions: ClassificationDecision[];
   model: string;
   providerRequestId: string | null;
-  usage: Record<string, unknown> | null;
+  usage: LlmTokenUsage;
 }

@@ -6,7 +6,11 @@ export class RunArtifacts {
   readonly runId: string;
   readonly runDirectory: string;
 
-  constructor(rootDirectory: string, runId = createRunId()) {
+  constructor(
+    rootDirectory: string,
+    runId = createRunId(),
+    private readonly onWriteError?: (error: unknown, relativePath: string) => void
+  ) {
     this.runId = runId;
     this.runDirectory = resolve(rootDirectory, "runs", runId);
   }
@@ -16,14 +20,19 @@ export class RunArtifacts {
   }
 
   async writeText(relativePath: string, value: string): Promise<void> {
-    const target = resolve(this.runDirectory, relativePath);
-    if (target !== this.runDirectory && !target.startsWith(this.runDirectory + sep)) {
-      throw new Error("Artifact path escaped the run directory.");
+    try {
+      const target = resolve(this.runDirectory, relativePath);
+      if (target !== this.runDirectory && !target.startsWith(this.runDirectory + sep)) {
+        throw new Error("Artifact path escaped the run directory.");
+      }
+      await mkdir(dirname(target), { recursive: true });
+      const temporary = `${target}.${randomUUID()}.tmp`;
+      await writeFile(temporary, value, "utf8");
+      await rename(temporary, target);
+    } catch (error) {
+      this.onWriteError?.(error, relativePath);
+      throw error;
     }
-    await mkdir(dirname(target), { recursive: true });
-    const temporary = `${target}.${randomUUID()}.tmp`;
-    await writeFile(temporary, value, "utf8");
-    await rename(temporary, target);
   }
 }
 
