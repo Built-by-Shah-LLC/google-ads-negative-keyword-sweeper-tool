@@ -16,6 +16,7 @@ export class GoogleAdsClient {
   }
 
   async searchStream(customerId: string, query: string): Promise<Record<string, unknown>[]> {
+    assertReadOnlyGoogleAdsQuery(query);
     const payload = await this.request(
       `/customers/${sanitizeCustomerId(customerId)}/googleAds:searchStream`,
       { query }
@@ -32,6 +33,7 @@ export class GoogleAdsClient {
   }
 
   private async request(path: string, body: Record<string, unknown>): Promise<unknown> {
+    assertReadOnlyGoogleAdsPath(path);
     let oauthRetried = false;
     for (let attempt = 0; attempt <= 4; attempt += 1) {
       const startedAt = new Date().toISOString();
@@ -147,6 +149,19 @@ export class GoogleAdsClient {
       ...(statusCode === null ? {} : { statusCode }),
       ...(details === undefined ? {} : { details })
     });
+  }
+}
+
+export function assertReadOnlyGoogleAdsPath(path: string): void {
+  if (!/^\/customers\/\d+\/googleAds:searchStream$/u.test(path)) {
+    throw new Error(`Blocked non-read-only Google Ads endpoint '${path}'.`);
+  }
+}
+
+export function assertReadOnlyGoogleAdsQuery(query: string): void {
+  const normalized = query.trimStart();
+  if (!/^SELECT\b/iu.test(normalized)) {
+    throw new Error("Blocked non-read-only Google Ads query: only SELECT is allowed.");
   }
 }
 
