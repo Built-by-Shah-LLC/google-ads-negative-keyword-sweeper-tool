@@ -1,6 +1,6 @@
-import type { FixedInputTokenCount, LlmTokenUsage, Organization, RuleSet } from "../types.js";
+import type { DateRange, FixedInputTokenCount, LlmTokenUsage, Organization, RuleSet } from "../types.js";
 import type { GoogleAdsClient } from "../google-ads/client.js";
-import { aggregateCandidates, fetchDailySearchTerms } from "../google-ads/search-terms.js";
+import { aggregateCandidates, fetchSearchTermsForDateRange } from "../google-ads/search-terms.js";
 import { ClassificationFailure, type KeywordClassifier, type LlmGenerationAttempt } from "../llm/classifier.js";
 import { serializeError } from "../observability/errors.js";
 import { addTokenUsage, emptyTokenUsage, type RunTelemetry } from "../observability/run-telemetry.js";
@@ -17,7 +17,7 @@ export interface OrganizationTokenUsage extends LlmTokenUsage {
 export interface OrganizationSummary {
   customerId: string;
   descriptiveName: string;
-  date: string;
+  dateRange: DateRange;
   status: "SUCCEEDED" | "PARTIAL" | "FAILED";
   rawRowCount: number;
   candidateCount: number;
@@ -44,7 +44,9 @@ export async function processOrganization(
   requestedDate: string | null,
   dependencies: ProcessOrganizationDependencies
 ): Promise<OrganizationSummary> {
-  const date = requestedDate || previousDateInTimeZone(organization.timeZone);
+  const dateRange = requestedDate
+    ? twoDayRangeEndingOn(requestedDate)
+    : lastTwoCompletedDatesInTimeZone(organization.timeZone);
   const basePath = `organizations/${organization.customerId}`;
   const errorContext = { organizationId: organization.customerId };
   let rawRowCount = 0;
@@ -56,19 +58,19 @@ export async function processOrganization(
 
   try {
     const rows = await dependencies.telemetry.track("GOOGLE_SEARCH_TERM_FETCH", errorContext, () =>
-      fetchDailySearchTerms(dependencies.googleAds, organization.customerId, date)
+      fetchSearchTermsForDateRange(dependencies.googleAds, organization.customerId, dateRange)
     );
     rawRowCount = rows.length;
     await dependencies.artifacts.write(`${basePath}/fetch.json`, {
       organization,
-      date,
+      dateRange,
       fetchedAt: new Date().toISOString(),
       rows
     });
 
     const candidates = aggregateCandidates(rows);
     candidateCount = candidates.length;
-    await dependencies.artifacts.write(`${basePath}/candidates.json`, { organization, date, candidates });
+    await dependencies.artifacts.write(`${basePath}/candidates.json`, { organization, dateRange, candidates });
 
     try {
       fixedInput = await dependencies.telemetry.track("LLM_FIXED_TOKEN_COUNT", {
@@ -76,7 +78,7 @@ export async function processOrganization(
         provider: dependencies.classifier.provider
       }, () => dependencies.classifier.countFixedInputTokens({
         account: organizationContext(organization),
-        date,
+        dateRange,
         rules: dependencies.rules
       }));
       organizationUsage.fixedInputTokens = fixedInput.totalTokens;
@@ -97,7 +99,7 @@ export async function processOrganization(
     if (candidates.length === 0) {
       const summary = createSummary(
         organization,
-        date,
+        dateRange,
         rawRowCount,
         0,
         [],
@@ -106,7 +108,7 @@ export async function processOrganization(
         false,
         dependencies.telemetry.errorsForOrganization(organization.customerId).length
       );
-      await writeOrganizationResults(dependencies, basePath, organization, date, candidates, [], summary);
+      await writeOrganizationResults(dependencies, basePath, organization, dateRange, candidates, [], summary);
       return summary;
     }
 
@@ -115,7 +117,7 @@ export async function processOrganization(
       const batchId = String(index + 1).padStart(4, "0");
       const context = {
         account: organizationContext(organization),
-        date,
+        dateRange,
         rules: dependencies.rules,
         searchTerms: batch
       };
@@ -198,7 +200,7 @@ export async function processOrganization(
     failedBatchCount = settled.filter((result) => result.status === "rejected").length;
     const summary = createSummary(
       organization,
-      date,
+      dateRange,
       rawRowCount,
       candidateCount,
       decisions,
@@ -207,7 +209,7 @@ export async function processOrganization(
       fixedInputFailed,
       dependencies.telemetry.errorsForOrganization(organization.customerId).length
     );
-    await writeOrganizationResults(dependencies, basePath, organization, date, candidates, decisions, summary);
+    await writeOrganizationResults(dependencies, basePath, organization, dateRange, candidates, decisions, summary);
     return summary;
   } catch (error) {
     const alreadyTracked = dependencies.telemetry.errorsForOrganization(organization.customerId)
@@ -216,7 +218,7 @@ export async function processOrganization(
     const summary: OrganizationSummary = {
       customerId: organization.customerId,
       descriptiveName: organization.descriptiveName,
-      date,
+      dateRange,
       status: "FAILED",
       rawRowCount,
       candidateCount,
@@ -239,7 +241,7 @@ async function writeOrganizationResults(
   dependencies: ProcessOrganizationDependencies,
   basePath: string,
   organization: Organization,
-  date: string,
+  dateRange: DateRange,
   candidates: Parameters<typeof createDecisionCsv>[2],
   decisions: Parameters<typeof createDecisionCsv>[3],
   summary: OrganizationSummary
@@ -257,7 +259,7 @@ async function writeOrganizationResults(
     `${basePath}/llm-decisions.csv`,
     createDecisionCsv(
       organization,
-      date,
+      formatDateRange(dateRange),
       candidates,
       decisions,
       dependencies.classifier.model,
@@ -272,7 +274,7 @@ async function writeOrganizationResults(
 
 function createSummary(
   organization: Organization,
-  date: string,
+  dateRange: DateRange,
   rawRowCount: number,
   candidateCount: number,
   decisions: Array<{ decision: string }>,
@@ -286,7 +288,7 @@ function createSummary(
   return {
     customerId: organization.customerId,
     descriptiveName: organization.descriptiveName,
-    date,
+    dateRange,
     status: candidateCount > 0 && decisions.length === 0
       ? "FAILED"
       : failedBatchCount > 0 || fixedInputFailed
@@ -368,7 +370,7 @@ function recordAttempts(
   }
 }
 
-export function previousDateInTimeZone(timeZone: string, now = new Date()): string {
+export function lastTwoCompletedDatesInTimeZone(timeZone: string, now = new Date()): DateRange {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone,
     year: "numeric",
@@ -377,7 +379,23 @@ export function previousDateInTimeZone(timeZone: string, now = new Date()): stri
   }).formatToParts(now);
   const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
   const localMidnightUtc = Date.UTC(Number(values.year), Number(values.month) - 1, Number(values.day));
-  return new Date(localMidnightUtc - 86_400_000).toISOString().slice(0, 10);
+  const endDate = new Date(localMidnightUtc - 86_400_000).toISOString().slice(0, 10);
+  return twoDayRangeEndingOn(endDate);
+}
+
+export function twoDayRangeEndingOn(endDate: string): DateRange {
+  const parsed = new Date(`${endDate}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== endDate) {
+    throw new Error(`Invalid end date '${endDate}'. Expected YYYY-MM-DD.`);
+  }
+  return {
+    startDate: new Date(parsed.getTime() - 86_400_000).toISOString().slice(0, 10),
+    endDate
+  };
+}
+
+function formatDateRange(dateRange: DateRange): string {
+  return `${dateRange.startDate}..${dateRange.endDate}`;
 }
 
 function errorMessage(error: unknown): string {

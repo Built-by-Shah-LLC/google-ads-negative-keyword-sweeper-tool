@@ -23,8 +23,10 @@ test("writes reconciled organization telemetry and token artifacts", async (cont
   context.after(() => rm(root, { recursive: true, force: true }));
   const telemetry = new RunTelemetry();
   const artifacts = new RunArtifacts(root, "test-run");
+  const queries: string[] = [];
   const googleAds = {
     async searchStream(_customerId: string, query: string): Promise<Record<string, unknown>[]> {
+      queries.push(query);
       if (query.includes("campaign_search_term_view")) return [];
       return [{
         campaign: { id: "456", name: "Collision campaign" },
@@ -108,6 +110,7 @@ test("writes reconciled organization telemetry and token artifacts", async (cont
   });
 
   assert.equal(summary.status, "SUCCEEDED");
+  assert.deepEqual(summary.dateRange, { startDate: "2026-08-24", endDate: "2026-08-25" });
   assert.equal(summary.decisionCount, 1);
   assert.equal(summary.tokenUsage.fixedInputTokens, 321);
   assert.equal(summary.tokenUsage.inputTokens, 100);
@@ -118,4 +121,6 @@ test("writes reconciled organization telemetry and token artifacts", async (cont
   assert.equal(output.tokenUsage.outputTokens, 20);
   const errors = JSON.parse(await readFile(join(artifacts.runDirectory, "organizations/123/errors.json"), "utf8"));
   assert.deepEqual(errors.errors, []);
+  assert.equal(queries.length, 2);
+  assert.ok(queries.every((query) => query.includes("segments.date BETWEEN '2026-08-24' AND '2026-08-25'")));
 });

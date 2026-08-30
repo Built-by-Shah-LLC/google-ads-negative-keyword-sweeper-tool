@@ -2,7 +2,7 @@ import type { AppConfig } from "../config/env.js";
 import type { RuleSet } from "../types.js";
 import { GoogleAdsClient } from "../google-ads/client.js";
 import { fetchOrganizations } from "../google-ads/organizations.js";
-import { GeminiKeywordClassifier } from "../llm/gemini-classifier.js";
+import { OpenAIKeywordClassifier } from "../llm/openai-classifier.js";
 import type { EmailAlertService } from "../notifications/email-alerts.js";
 import { PipelineError } from "../observability/errors.js";
 import { createLogger, type Logger } from "../observability/logger.js";
@@ -47,7 +47,7 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
     })
   });
   const googleAds = new GoogleAdsClient(config.googleAds, telemetry);
-  const classifier = new GeminiKeywordClassifier(config.llm);
+  const classifier = new OpenAIKeywordClassifier(config.llm);
   const startedAt = new Date().toISOString();
   const manifestBase = {
     runId: artifacts.runId,

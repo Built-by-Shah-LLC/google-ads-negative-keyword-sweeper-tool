@@ -1,14 +1,27 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { loadRuleSet } from "../src/config/rule-set.js";
-import { buildClassifierPrompt, createResponseSchema } from "../src/llm/prompt.js";
-import { validateDecisions } from "../src/llm/validation.js";
+import { OpenAIKeywordClassifier } from "../src/llm/openai-classifier.js";
 import { createLogger } from "../src/observability/logger.js";
+import { addTokenUsage, emptyTokenUsage } from "../src/observability/run-telemetry.js";
 import { RunArtifacts } from "../src/storage/run-artifacts.js";
 import { createLimiter } from "../src/util/concurrency.js";
-import type { ClassificationCandidate, ClassificationDecision, Decision, Organization } from "../src/types.js";
+import type {
+  ClassificationCandidate,
+  ClassificationDecision,
+  Decision,
+  LlmTokenUsage,
+  Organization
+} from "../src/types.js";
 
 const logger = createLogger();
+const DEFAULT_MODELS = ["gpt-5-nano", "gpt-5.4-nano", "gpt-5.6-luna", "gpt-5.4-mini"];
+const PRICING_PER_MILLION: Record<string, { input: number; cached: number; output: number }> = {
+  "gpt-5-nano": { input: 0.05, cached: 0.005, output: 0.40 },
+  "gpt-5.4-nano": { input: 0.20, cached: 0.02, output: 1.25 },
+  "gpt-5.6-luna": { input: 0.20, cached: 0.02, output: 1.20 },
+  "gpt-5.4-mini": { input: 0.75, cached: 0.075, output: 4.50 }
+};
 
 interface LabeledRow extends Record<string, string> {
   example_id: string;
@@ -23,87 +36,76 @@ interface LabeledRow extends Record<string, string> {
 
 async function main(): Promise<void> {
   const workspace = process.cwd();
-  const config = await loadKimiConfig(workspace);
+  const apiKey = await loadOpenAIKey(workspace);
+  const models = requestedModels(process.argv.slice(2));
   const rules = await loadRuleSet(workspace);
   const csvPath = resolve(workspace, "handoff/02_LABELED_SEARCH_TERM_EXAMPLES.csv");
   const allRows = parseCsv(await readFile(csvPath, "utf8")) as LabeledRow[];
   const requestedIds = requestedExampleIds(process.argv.slice(2));
-  const rows = requestedIds === null
-    ? allRows
-    : allRows.filter((row) => requestedIds.has(row.example_id));
+  const rows = requestedIds === null ? allRows : allRows.filter((row) => requestedIds.has(row.example_id));
   if (rows.length === 0) throw new Error("No labeled examples matched the requested IDs.");
-  const artifacts = new RunArtifacts(workspace, `eval-${timestamp()}`);
-  const date = "2026-08-27";
-  const decisions: ClassificationDecision[] = [];
-  const rawUsages: unknown[] = [];
 
+  const artifacts = new RunArtifacts(workspace, `eval-openai-${timestamp()}`);
+  const dateRange = { startDate: "2026-08-26", endDate: "2026-08-27" };
+  const groups = groupRows(rows);
+  const modelReports: Record<string, unknown>[] = [];
   await artifacts.write("run-manifest.json", {
     status: "RUNNING",
-    purpose: "Kimi regression evaluation over handoff labeled examples",
+    purpose: "OpenAI model comparison over handoff labeled examples",
     sourcePath: "handoff/02_LABELED_SEARCH_TERM_EXAMPLES.csv",
     exampleCount: rows.length,
-    model: config.model,
+    models,
     ruleVersion: rules.version,
     promptVersion: rules.promptVersion,
+    pricingSnapshotDate: "2026-08-31",
     googleAdsMutationPerformed: false
   });
-  await artifacts.writeText("rules.md", rules.markdown);
 
-  const groups = groupRows(rows);
-  const limit = createLimiter(2);
-  await Promise.all(groups.map((group, groupIndex) => limit(async () => {
-    const organization = evaluationOrganization(group.organizationName, groupIndex);
-    const candidates = group.rows.map((row) => candidateFromRow(row, organization.customerId, date));
-    const prompt = buildClassifierPrompt({
-      account: {
-        customerId: organization.customerId,
-        descriptiveName: organization.descriptiveName,
-        timeZone: organization.timeZone
-      },
-      date,
-      rules,
-      searchTerms: candidates
-    });
-    const request = {
-      model: config.model,
-      messages: [
-        { role: "system", content: prompt.systemInstruction },
-        { role: "user", content: prompt.userPrompt }
-      ],
-      reasoning_effort: "low",
-      max_completion_tokens: 50_000,
-      response_format: {
-        type: "json_schema",
-        json_schema: {
-          name: "negative_keyword_decisions",
-          strict: true,
-          schema: createResponseSchema(candidates.map((candidate) => candidate.itemId), rules.ruleIds)
-        }
-      },
-      prompt_cache_key: `negative-keyword-eval:${rules.version}:${groupIndex}`
-    };
-    await artifacts.write(`groups/group-${groupIndex + 1}-input.json`, { organization, rows: group.rows, request });
-    const response = await callKimi(config, request);
-    await artifacts.write(`groups/group-${groupIndex + 1}-output.json`, response);
-    const content = response.choices?.[0]?.message?.content;
-    if (typeof content !== "string" || content.trim() === "") throw new Error(`Evaluation group ${groupIndex + 1} returned no content.`);
-    decisions.push(...validateDecisions(JSON.parse(content) as unknown, candidates, rules));
-    rawUsages.push(response.usage ?? null);
-  })));
+  for (const model of models) {
+    const classifier = new OpenAIKeywordClassifier({ apiKey, model, batchSize: 50, concurrency: 2 });
+    const decisions: ClassificationDecision[] = [];
+    let usage = emptyTokenUsage();
+    const limit = createLimiter(2);
+    await Promise.all(groups.map((group, groupIndex) => limit(async () => {
+      const organization = evaluationOrganization(group.organizationName, groupIndex);
+      const candidates = group.rows.map((row) => candidateFromRow(row, organization.customerId, dateRange));
+      const result = await classifier.classify({
+        account: {
+          customerId: organization.customerId,
+          descriptiveName: organization.descriptiveName,
+          timeZone: organization.timeZone
+        },
+        dateRange,
+        rules,
+        searchTerms: candidates
+      });
+      decisions.push(...result.validated.decisions);
+      usage = addTokenUsage(usage, result.validated.usage);
+      await artifacts.write(`${safePath(model)}/group-${String(groupIndex + 1).padStart(4, "0")}.json`, {
+        organization: organization.descriptiveName,
+        candidateCount: candidates.length,
+        usage: result.validated.usage,
+        decisions: result.validated.decisions
+      });
+    })));
+    const report = createReport(rows, decisions, rules.version, model, usage);
+    modelReports.push(report);
+    await artifacts.write(`${safePath(model)}/report.json`, report);
+    logger.info({ model, metrics: report.metrics, estimatedCostUsd: report.estimatedCostUsd }, "OpenAI model evaluation completed");
+  }
 
-  const report = createReport(rows, decisions, rules.version, config.model, rawUsages);
-  await artifacts.write("report.json", report);
+  await artifacts.write("comparison.json", { models: modelReports });
   await artifacts.write("run-manifest.json", {
     status: "SUCCEEDED",
-    purpose: "Kimi regression evaluation over handoff labeled examples",
+    purpose: "OpenAI model comparison over handoff labeled examples",
     exampleCount: rows.length,
-    model: config.model,
+    models,
     ruleVersion: rules.version,
     promptVersion: rules.promptVersion,
-    metrics: report.metrics,
+    pricingSnapshotDate: "2026-08-31",
     googleAdsMutationPerformed: false
   });
-  logger.info({ runDirectory: artifacts.runDirectory, metrics: report.metrics }, "Kimi evaluation completed");
+  logger.info({ runDirectory: artifacts.runDirectory }, "OpenAI comparison completed");
 }
 
 function createReport(
@@ -111,7 +113,7 @@ function createReport(
   decisions: ClassificationDecision[],
   ruleVersion: string,
   model: string,
-  rawUsages: unknown[]
+  usage: LlmTokenUsage
 ): Record<string, any> {
   const decisionsById = new Map(decisions.map((decision) => [decision.itemId, decision]));
   const comparisons = rows.map((row) => {
@@ -124,9 +126,6 @@ function createReport(
       expected,
       actual: actualDecision.decision,
       correct: expected === actualDecision.decision,
-      expectedOperation: row.expected_operation,
-      evidenceStatus: row.evidence_status,
-      expectedRuleIds: row.rule_ids.split(";").filter(Boolean),
       actualDecision
     };
   });
@@ -139,6 +138,8 @@ function createReport(
     generatedAt: new Date().toISOString(),
     ruleVersion,
     model,
+    usage,
+    estimatedCostUsd: estimatedCost(model, usage),
     metrics: {
       examples: comparisons.length,
       overallAgreement: ratio(comparisons.filter((item) => item.correct).length, comparisons.length),
@@ -148,11 +149,18 @@ function createReport(
       falsePositiveCount: falsePositives.length,
       falseNegativeCount: falseNegatives.length
     },
-    providerUsage: rawUsages,
     falsePositives,
     falseNegatives,
     comparisons
   };
+}
+
+function estimatedCost(model: string, usage: LlmTokenUsage): number | null {
+  const pricing = PRICING_PER_MILLION[model];
+  if (!pricing) return null;
+  const uncached = Math.max(0, usage.inputTokens - usage.cachedInputTokens);
+  const cost = (uncached * pricing.input + usage.cachedInputTokens * pricing.cached + usage.outputTokens * pricing.output) / 1_000_000;
+  return Math.round(cost * 100_000_000) / 100_000_000;
 }
 
 function groupRows(rows: LabeledRow[]): Array<{ organizationName: string; rows: LabeledRow[] }> {
@@ -165,18 +173,22 @@ function groupRows(rows: LabeledRow[]): Array<{ organizationName: string; rows: 
   }
   return [...groups].flatMap(([organizationName, groupedRows]) => {
     const chunks: Array<{ organizationName: string; rows: LabeledRow[] }> = [];
-    for (let index = 0; index < groupedRows.length; index += 30) {
-      chunks.push({ organizationName, rows: groupedRows.slice(index, index + 30) });
+    for (let index = 0; index < groupedRows.length; index += 50) {
+      chunks.push({ organizationName, rows: groupedRows.slice(index, index + 50) });
     }
     return chunks;
   });
 }
 
-function candidateFromRow(row: LabeledRow, customerId: string, date: string): ClassificationCandidate {
+function candidateFromRow(
+  row: LabeledRow,
+  customerId: string,
+  dateRange: { startDate: string; endDate: string }
+): ClassificationCandidate {
   return {
     itemId: row.example_id,
     customerId,
-    date,
+    ...dateRange,
     channel: "SEARCH",
     campaignId: `eval-${row.example_id}`,
     campaignName: row.campaign_context || "Evaluation campaign",
@@ -204,24 +216,11 @@ function evaluationOrganization(name: string, index: number): Organization {
 }
 
 const OWNER_LOCKED_KEEP = new Set([
-  "EX-042", // custom body shop
-  "EX-036", // informational price wording, latest undefined-category lock
-  "EX-055", // cheap/affordable
-  "EX-056", "EX-057", // estimate/quote
-  "EX-058", "EX-070", // financing/payment
-  "EX-067", "EX-095", // Spanish repair demand
-  "EX-087", // affordable
-  "EX-073", // explicit generic collision service intent
-  "EX-097", // informational bumper question
-  "EX-113" // custom body shop
+  "EX-042", "EX-036", "EX-055", "EX-056", "EX-057", "EX-058", "EX-070", "EX-067",
+  "EX-095", "EX-087", "EX-073", "EX-097", "EX-113"
 ]);
-
 const OWNER_LOCKED_NEGATIVE = new Set([
-  "EX-013", "EX-017", "EX-061", "EX-115", // cosmetic-only, zero collision signal
-  "EX-116", // parts/component-only
-  "EX-117", // Spanish DIY
-  "EX-118", "EX-119", // named competitors
-  "EX-030" // contextless named competitor; own-brand protection does not apply
+  "EX-013", "EX-017", "EX-061", "EX-115", "EX-116", "EX-117", "EX-118", "EX-119", "EX-030"
 ]);
 
 function expectedDecision(row: LabeledRow): Decision {
@@ -269,37 +268,29 @@ function parseCsv(source: string): Array<Record<string, string>> {
   );
 }
 
-interface KimiConfig { apiKey: string; baseUrl: string; model: string }
-
-async function loadKimiConfig(workspace: string): Promise<KimiConfig> {
-  const values = Object.fromEntries((await readFile(resolve(workspace, ".env"), "utf8"))
-    .split(/\r?\n/u)
+async function loadOpenAIKey(workspace: string): Promise<string> {
+  const sources = await Promise.all([".env", ".env.openai"].map(async (name) => {
+    try {
+      return await readFile(resolve(workspace, name), "utf8");
+    } catch {
+      return "";
+    }
+  }));
+  const values = Object.fromEntries(sources.join("\n").split(/\r?\n/u)
     .map((line) => line.trim())
     .filter((line) => line && !line.startsWith("#") && line.includes("="))
     .map((line) => [line.slice(0, line.indexOf("=")).trim(), line.slice(line.indexOf("=") + 1).trim()]));
-  const apiKey = process.env.KIMI_API_KEY || values.KIMI_API_KEY;
-  if (!apiKey) throw new Error("KIMI_API_KEY is missing.");
-  return {
-    apiKey,
-    baseUrl: process.env.KIMI_BASE_URL || values.KIMI_BASE_URL || "https://api.kimi.com/coding/v1",
-    model: process.env.KIMI_MODEL || values.KIMI_MODEL || "kimi-for-coding"
-  };
+  const apiKey = process.env.OPENAI_API_KEY || values.OPENAI_API_KEY;
+  if (!apiKey) throw new Error("OPENAI_API_KEY is missing.");
+  return apiKey;
 }
 
-async function callKimi(config: KimiConfig, request: Record<string, unknown>): Promise<Record<string, any>> {
-  const response = await fetch(`${config.baseUrl.replace(/\/$/u, "")}/chat/completions`, {
-    method: "POST",
-    headers: { authorization: `Bearer ${config.apiKey}`, "content-type": "application/json" },
-    body: JSON.stringify(request),
-    signal: AbortSignal.timeout(300_000)
-  });
-  const payload = await response.json() as Record<string, any>;
-  if (!response.ok) throw new Error(`Kimi evaluation failed with HTTP ${response.status}.`);
-  return payload;
-}
-
-function timestamp(): string {
-  return new Date().toISOString().replace(/[-:.]/gu, "");
+function requestedModels(argumentsList: string[]): string[] {
+  const index = argumentsList.indexOf("--models");
+  if (index < 0) return DEFAULT_MODELS;
+  const value = argumentsList[index + 1];
+  if (!value) throw new Error("--models requires a comma-separated list.");
+  return value.split(",").map((item) => item.trim()).filter(Boolean);
 }
 
 function requestedExampleIds(argumentsList: string[]): Set<string> | null {
@@ -310,7 +301,15 @@ function requestedExampleIds(argumentsList: string[]): Set<string> | null {
   return new Set(value.split(",").map((item) => item.trim()).filter(Boolean));
 }
 
+function safePath(value: string): string {
+  return value.replace(/[^a-z0-9._-]+/giu, "-");
+}
+
+function timestamp(): string {
+  return new Date().toISOString().replace(/[-:.]/gu, "");
+}
+
 main().catch((error: unknown) => {
-  logger.fatal({ err: error }, "Kimi evaluation failed");
+  logger.fatal({ err: error }, "OpenAI evaluation failed");
   process.exitCode = 1;
 });

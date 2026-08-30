@@ -32,9 +32,9 @@ The legacy deterministic rule engine, stemming, competitor seeds, city heuristic
 The new application under `src/` is isolated from `legacy-reference/`. It currently performs only:
 
 1. Discover enabled leaf organizations under the configured MCC.
-2. Fetch Search and Performance Max reported search terms for one completed day.
+2. Fetch Search and Performance Max reported search terms for the two most recent completed local calendar days (48 completed hours).
 3. Aggregate organization- and campaign-scoped candidates.
-4. Send bounded organization-specific batches plus the authoritative Markdown policy at `src/config/negative-keyword-rules.md` to Gemini.
+4. Send bounded organization-specific batches plus the authoritative Markdown policy at `src/config/negative-keyword-rules.md` to OpenAI's Responses API.
 5. Strictly validate the structured result and write ignored JSON artifacts under `runs/`.
 
 Each selected organization also receives one spreadsheet-safe aggregate file at:
@@ -47,19 +47,17 @@ The CSV contains candidate context and validated decisions from every LLM batch.
 
 Each run also writes `telemetry.json`, and each organization writes `errors.json` and
 `fixed-input-tokens.json`. Telemetry includes stage latency, retry attempts, safe error
-categories, provider request IDs, and normalized Gemini input/output/total/cached/thought
+categories, provider request IDs, and normalized OpenAI input/output/total/cached/reasoning
 token counts. Token totals include every generation that consumed tokens, including an
 invalid first response followed by a successful validation retry.
 
 “Fixed input tokens” means the provider-tokenized system instruction, complete Markdown
 rules, organization/date envelope with zero candidates, and generic output schema. It
 excludes candidate rows, batch-specific item ID enums, and output. This baseline is
-counted with Gemini's `countTokens` endpoint for every selected organization and model;
+counted with the OpenAI Responses input-token endpoint for every selected organization and model;
 it is not estimated from characters. With rule version `2026-08-27.1`, model
-`gemini-3.1-flash-lite`, organization `10X AUTO GROUP INC`, and date `2026-08-25`, the
-measured baseline is **2,450 input tokens**. The recorded per-organization value is the
-source of truth because organization text, dates, rule revisions, and model tokenizers
-can change it.
+`gpt-5.6-luna`. The recorded per-organization value is the source of truth because
+organization text, rule revisions, schemas, and model tokenizers can change it.
 
 The accepted LLM response contract is consistently camelCase:
 
@@ -89,23 +87,23 @@ npm run check
 npm test
 ```
 
-Run the permanent live Kimi regression harness over all 124 handoff examples when Kimi
-credentials and evaluation spend are intentionally available:
+Run the live OpenAI comparison over all 124 handoff examples when evaluation spend is
+intentionally available:
 
 ```powershell
-npm run eval:kimi
+npm run eval:openai
 ```
 
 It writes an ignored `runs/eval-*/report.json` with overall agreement, KEEP-side
 accuracy, negative recall/precision, and false-positive/false-negative details. It never
 connects to or mutates Google Ads.
 
-The completed 124-example Kimi regression for rule version `2026-08-27.1` reached
-94.35% overall agreement, 92.45% KEEP-side accuracy, 95.77% negative recall, and
-94.44% negative precision. A focused follow-up passed all actionable edge cases; its
-only disagreement was the spec's documented EX-114 mechanical-query exception.
+The comparison evaluates `gpt-5-nano`, `gpt-5.4-nano`, `gpt-5.6-luna`, and `gpt-5.4-mini`, records
+quality metrics and token usage, and estimates cost from the pricing snapshot in the
+evaluation script. See [the recorded model evaluation](docs/OPENAI_MODEL_EVALUATION.md).
 
-Add a separately created Gemini key to the ignored `.env`, then run one organization first:
+Add an OpenAI key to the ignored `.env`, then run one organization first. An explicit
+`--date` is the end date of a two-day completed window:
 
 ```powershell
 npm run sweep -- --date 2026-08-25 --organization-limit 1
@@ -118,7 +116,16 @@ npm run sweep -- --date 2026-08-25 --customer 1234567890
 npm run sweep -- --date 2026-08-25 --all-organizations
 ```
 
-If `--date` is omitted, each organization uses its own previous local calendar day. Free-tier Gemini input may be used by Google to improve its products; never put credentials or unnecessary customer data into rules or prompts.
+If `--date` is omitted, each organization uses its own two most recent completed local
+calendar days. Google Ads reports these rows by date rather than hour, so the window is
+two complete account-local dates. The model receives only organization name plus each
+candidate's item ID, search term, campaign name, ad-group name, matched keyword, and
+match type. Raw IDs, dates, status, channel, and performance metrics remain in local
+audit artifacts and are not sent to the LLM.
+
+The Cloud Run Job deployment in `scripts/deploy/deploy-gcloud.ps1` creates a daily Cloud
+Scheduler trigger and runs with `--all-organizations`. See `docs/DEPLOYMENT.md`; only one
+production scheduler should be enabled to avoid duplicate daily runs.
 
 ## Terminal logs and error email
 

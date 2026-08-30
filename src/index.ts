@@ -18,7 +18,7 @@ async function main(rootDirectory: string, logger: Logger, emailAlerts: EmailAle
       : options.customerId
         ? { type: "CUSTOMER", customerId: options.customerId.replaceAll("-", "") }
         : { type: "LIMITED", organizationLimit: options.organizationLimit ?? 1 },
-    provider: "google-gemini",
+    provider: "openai",
     model: config.llm.model,
     readOnly: true
   }, "Starting Google Ads classification pipeline");

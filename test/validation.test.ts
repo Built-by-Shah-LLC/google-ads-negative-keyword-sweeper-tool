@@ -13,7 +13,8 @@ const rules: RuleSet = {
 const candidate: ClassificationCandidate = {
   itemId: "item-1",
   customerId: "123",
-  date: "2026-08-25",
+  startDate: "2026-08-24",
+  endDate: "2026-08-25",
   channel: "SEARCH",
   campaignId: "456",
   campaignName: "Campaign",

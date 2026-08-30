@@ -1,5 +1,6 @@
 import type {
   ClassificationCandidate,
+  DateRange,
   FixedInputTokenCount,
   LlmTokenUsage,
   RuleSet,
@@ -13,7 +14,7 @@ export interface ClassificationContext {
     descriptiveName: string;
     timeZone: string;
   };
-  date: string;
+  dateRange: DateRange;
   rules: RuleSet;
   searchTerms: ClassificationCandidate[];
 }
@@ -52,9 +53,10 @@ export class ClassificationFailure extends PipelineError {
     readonly request: Record<string, unknown>,
     readonly attempts: LlmGenerationAttempt[],
     readonly lastResponse: unknown,
+    provider: string,
     options?: ErrorOptions
   ) {
-    super(message, { stage: "LLM_CLASSIFICATION", code: "LLM_CLASSIFICATION_FAILED", provider: "google-gemini" }, options);
+    super(message, { stage: "LLM_CLASSIFICATION", code: "LLM_CLASSIFICATION_FAILED", provider }, options);
     this.name = "ClassificationFailure";
   }
 }

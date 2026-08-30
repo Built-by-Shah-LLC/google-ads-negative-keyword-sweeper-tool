@@ -3,7 +3,33 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { loadOperationalConfig } from "../src/config/env.js";
+import { loadConfig, loadOperationalConfig } from "../src/config/env.js";
+
+test("loads the OpenAI key override and economical model defaults", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "sweeper-openai-config-"));
+  try {
+    await writeFile(join(directory, ".env"), [
+      "GOOGLE_ADS_DEVELOPER_TOKEN=developer",
+      "GOOGLE_ADS_LOGIN_CUSTOMER_ID=123-456-7890",
+      "GOOGLE_ADS_CLIENT_ID=client",
+      "GOOGLE_ADS_CLIENT_SECRET=secret",
+      "GOOGLE_ADS_REFRESH_TOKEN=refresh",
+      "LLM_MODEL=retired-provider-model"
+    ].join("\n"), "utf8");
+    await writeFile(join(directory, ".env.openai"), [
+      "OPENAI_API_KEY=openai-test-key",
+      "OPENAI_MODEL=gpt-5.6-luna"
+    ].join("\n"), "utf8");
+
+    const config = await loadConfig(directory);
+    assert.equal(config.llm.apiKey, "openai-test-key");
+    assert.equal(config.llm.model, "gpt-5.6-luna");
+    assert.equal(config.llm.batchSize, 50);
+    assert.equal(config.googleAds.loginCustomerId, "1234567890");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
 
 test("loads enabled SMTP alerts and handled-error selectors", async () => {
   const directory = await mkdtemp(join(tmpdir(), "sweeper-alert-config-"));

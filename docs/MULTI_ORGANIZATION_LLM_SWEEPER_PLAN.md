@@ -4,12 +4,12 @@
 
 This document is an architecture and delivery plan. It does not authorize or implement Google Ads negative-keyword mutations.
 
-Implementation status as of 2026-08-26: the repository now contains a read-only TypeScript implementation through validated Gemini classification and local JSON run artifacts. Google Ads mutation remains unimplemented. A live Google read smoke test has passed; a live Gemini smoke test requires `GEMINI_API_KEY`.
+Implementation status as of 2026-08-31: the repository contains a read-only TypeScript implementation through validated OpenAI classification and local JSON run artifacts. Google Ads mutation remains unimplemented. The OpenAI adapter and labeled-example comparison have been tested live.
 
 The first delivery phase is read-only:
 
 1. Discover every enabled client account under the Built by Shah MCC.
-2. Fetch one completed local calendar day of reported search terms for every account.
+2. Fetch the two most recent completed local calendar days (48 completed hours) of reported search terms for every account.
 3. Load an authoritative, versioned negative-keyword rule set.
 4. Send the rules, account context, and reported terms to an LLM in bounded batches.
 5. Validate the LLM classifications and write immutable per-run audit artifacts.
@@ -264,9 +264,15 @@ Example input shape:
 
 ```json
 {
-  "organizationContext": {},
-  "date": "2026-08-25",
-  "candidates": []
+  "organizationContext": { "descriptiveName": "Example Collision" },
+  "candidates": [{
+    "itemId": "stable-input-id",
+    "searchTerm": "collision repair near me",
+    "campaignName": "Collision Search",
+    "adGroupName": "General",
+    "matchedKeyword": "collision repair",
+    "matchedKeywordMatchType": "BROAD"
+  }]
 }
 ```
 
@@ -283,7 +289,7 @@ Required output per candidate:
 }
 ```
 
-The provider integration is behind an adapter. The initial test adapter uses Gemini 3.1 Flash-Lite with a fixed seed, temperature zero, JSON Schema output, and a configurable model. These settings reduce variation but do not make a hosted LLM mathematically deterministic; deterministic application validation decides whether a response is accepted.
+The provider integration is behind an adapter. The production adapter uses the OpenAI Responses API with low reasoning effort, strict JSON Schema output, prompt caching, and a configurable model. These settings reduce cost and variation but do not make a hosted LLM mathematically deterministic; deterministic application validation decides whether a response is accepted.
 
 Search terms are untrusted data. The prompt must state that their text is data, never instructions. The model receives no mutation tools or application secrets.
 
@@ -294,7 +300,7 @@ Application validation enforces:
 - Exactly one decision per submitted candidate
 - No duplicate or unknown item IDs
 - Only the allowed decision enum
-- Matching account and campaign identity
+- Every item ID matches a submitted candidate
 - `NEGATIVE_EXACT` uses the full submitted term after approved normalization
 - No missing candidate decisions
 - No unexpected root or decision fields
@@ -338,10 +344,10 @@ Record structured logs and metrics for:
 - Queue age and dead-letter counts
 - Artifact write failures and reconciliation mismatches
 
-Provider `usageMetadata` is normalized into input, output, total, cached-input, and
-thought token counts. Every generation attempt is included, even when its output fails
-validation. A separate per-organization `countTokens` baseline records fixed non-candidate
-input overhead (system instruction, Markdown policy, organization/date envelope, and
+Provider usage is normalized into input, output, total, cached-input, and reasoning
+token counts. Every generation attempt is included, even when its output fails
+validation. A separate per-organization Responses input-token count records fixed non-candidate
+input overhead (system instruction, Markdown policy, organization-name envelope, and
 generic response schema); candidate rows and batch-specific item ID enums are variable.
 
 Secrets stay outside source control and never enter prompts or logs. Local development may use the Git-ignored `.env`; deployed environments use a secrets manager. Access tokens are short-lived and remain in process memory only. Refresh tokens are durable secrets, not application data.
@@ -351,7 +357,7 @@ Secrets stay outside source control and never enter prompts or logs. Local devel
 The read-only phase is complete when:
 
 1. A sweep discovers every enabled organization under the MCC.
-2. Every organization receives the correct target local date.
+2. Every organization receives the correct two-date completed local window.
 3. Search and Performance Max reported terms are fetched and written to account-scoped run artifacts.
 4. The active rule-set snapshot is associated with the run.
 5. Every non-empty account is sent to the LLM in bounded batches.

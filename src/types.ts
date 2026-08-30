@@ -26,7 +26,12 @@ export interface SearchTermRow {
   conversionValue: number;
 }
 
-export interface ClassificationCandidate extends SearchTermRow {
+export interface DateRange {
+  startDate: string;
+  endDate: string;
+}
+
+export interface ClassificationCandidate extends Omit<SearchTermRow, "date">, DateRange {
   itemId: string;
 }
 

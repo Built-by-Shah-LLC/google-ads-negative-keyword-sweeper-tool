@@ -31,6 +31,19 @@ test("aggregates equivalent terms within the same campaign and ad group", () => 
   assert.equal(candidates[0]?.impressions, 5);
   assert.equal(candidates[0]?.clicks, 3);
   assert.equal(candidates[0]?.costMicros, 300);
+  assert.equal(candidates[0]?.startDate, "2026-08-25");
+  assert.equal(candidates[0]?.endDate, "2026-08-25");
+});
+
+test("aggregates the same term across both dates in the 48-hour window", () => {
+  const candidates = aggregateCandidates([
+    { ...base, date: "2026-08-24", impressions: 3 },
+    { ...base, date: "2026-08-25", impressions: 4 }
+  ]);
+  assert.equal(candidates.length, 1);
+  assert.equal(candidates[0]?.impressions, 7);
+  assert.equal(candidates[0]?.startDate, "2026-08-24");
+  assert.equal(candidates[0]?.endDate, "2026-08-25");
 });
 
 test("keeps the same term in different campaigns as separate candidates", () => {

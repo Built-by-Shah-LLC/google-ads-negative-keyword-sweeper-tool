@@ -1,13 +1,13 @@
 import { createHash } from "node:crypto";
-import type { ClassificationCandidate, SearchTermRow } from "../types.js";
+import type { ClassificationCandidate, DateRange, SearchTermRow } from "../types.js";
 import type { GoogleAdsClient } from "./client.js";
 
-export async function fetchDailySearchTerms(
+export async function fetchSearchTermsForDateRange(
   client: GoogleAdsClient,
   customerId: string,
-  date: string
+  dateRange: DateRange
 ): Promise<SearchTermRow[]> {
-  assertDate(date);
+  assertDateRange(dateRange);
   const searchQuery = `
     SELECT
       campaign.id,
@@ -25,7 +25,7 @@ export async function fetchDailySearchTerms(
       metrics.conversions,
       metrics.conversions_value
     FROM search_term_view
-    WHERE segments.date = '${date}'
+    WHERE segments.date BETWEEN '${dateRange.startDate}' AND '${dateRange.endDate}'
       AND metrics.impressions > 0
   `;
   const performanceMaxQuery = `
@@ -41,7 +41,7 @@ export async function fetchDailySearchTerms(
       metrics.conversions,
       metrics.conversions_value
     FROM campaign_search_term_view
-    WHERE segments.date = '${date}'
+    WHERE segments.date BETWEEN '${dateRange.startDate}' AND '${dateRange.endDate}'
       AND campaign.advertising_channel_type = PERFORMANCE_MAX
       AND metrics.impressions > 0
   `;
@@ -63,7 +63,6 @@ export function aggregateCandidates(rows: SearchTermRow[]): ClassificationCandid
     const itemId = createHash("sha256")
       .update([
         row.customerId,
-        row.date,
         row.channel,
         row.campaignId,
         row.adGroupId || "",
@@ -73,9 +72,12 @@ export function aggregateCandidates(rows: SearchTermRow[]): ClassificationCandid
       .slice(0, 24);
     const existing = candidates.get(itemId);
     if (!existing) {
-      candidates.set(itemId, { ...row, itemId });
+      const { date, ...candidate } = row;
+      candidates.set(itemId, { ...candidate, itemId, startDate: date, endDate: date });
       continue;
     }
+    if (row.date < existing.startDate) existing.startDate = row.date;
+    if (row.date > existing.endDate) existing.endDate = row.date;
     existing.impressions += row.impressions;
     existing.clicks += row.clicks;
     existing.costMicros += row.costMicros;
@@ -83,6 +85,14 @@ export function aggregateCandidates(rows: SearchTermRow[]): ClassificationCandid
     existing.conversionValue += row.conversionValue;
   }
   return [...candidates.values()].sort((left, right) => left.itemId.localeCompare(right.itemId));
+}
+
+function assertDateRange(dateRange: DateRange): void {
+  assertDate(dateRange.startDate);
+  assertDate(dateRange.endDate);
+  if (dateRange.startDate > dateRange.endDate) {
+    throw new Error("Date range startDate must not be after endDate.");
+  }
 }
 
 function mapSearchRow(

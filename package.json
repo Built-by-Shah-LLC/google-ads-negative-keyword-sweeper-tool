@@ -6,9 +6,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit",
-    "codex:one-off": "tsx scripts/codex-subscription-one-off.ts",
-    "eval:kimi": "tsx scripts/evaluate-labeled-examples.ts",
-    "kimi:one-off": "tsx scripts/kimi-subscription-one-off.ts",
+    "eval:openai": "tsx scripts/evaluate-openai-models.ts",
     "test": "node --import tsx --test test/**/*.test.ts",
     "sweep": "tsx src/index.ts"
   },

@@ -87,12 +87,18 @@ function commaSeparated(value: string | undefined): string[] {
 
 async function loadEnvironment(rootDirectory: string): Promise<Record<string, string | undefined>> {
   let fileValues: Record<string, string> = {};
+  let localValues: Record<string, string> = {};
   try {
     fileValues = parseDotEnv(await readFile(resolve(rootDirectory, ".env"), "utf8"));
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
-  return { ...fileValues, ...process.env };
+  try {
+    localValues = parseDotEnv(await readFile(resolve(rootDirectory, ".env.openai"), "utf8"));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  return { ...fileValues, ...localValues, ...process.env };
 }
 
 export async function loadOperationalConfig(rootDirectory = process.cwd()): Promise<OperationalConfig> {
@@ -156,7 +162,7 @@ export async function loadConfig(rootDirectory = process.cwd()): Promise<AppConf
     "GOOGLE_ADS_CLIENT_ID",
     "GOOGLE_ADS_CLIENT_SECRET",
     "GOOGLE_ADS_REFRESH_TOKEN",
-    "GEMINI_API_KEY"
+    "OPENAI_API_KEY"
   ] as const;
   const missing = required.filter((name) => !env[name]);
   if (missing.length > 0) {
@@ -173,9 +179,9 @@ export async function loadConfig(rootDirectory = process.cwd()): Promise<AppConf
       refreshToken: env.GOOGLE_ADS_REFRESH_TOKEN!
     },
     llm: {
-      apiKey: env.GEMINI_API_KEY!,
-      model: env.LLM_MODEL || "gemini-3.1-flash-lite",
-      batchSize: positiveInteger(env.LLM_BATCH_SIZE, 30, "LLM_BATCH_SIZE"),
+      apiKey: env.OPENAI_API_KEY!,
+      model: env.OPENAI_MODEL || env.LLM_MODEL || "gpt-5.6-luna",
+      batchSize: positiveInteger(env.LLM_BATCH_SIZE, 50, "LLM_BATCH_SIZE"),
       concurrency: positiveInteger(env.LLM_CONCURRENCY, 3, "LLM_CONCURRENCY")
     },
     googleFetchConcurrency: positiveInteger(env.GOOGLE_FETCH_CONCURRENCY, 5, "GOOGLE_FETCH_CONCURRENCY")

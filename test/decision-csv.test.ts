@@ -12,7 +12,8 @@ const organization: Organization = {
 const candidate: ClassificationCandidate = {
   itemId: "item-1",
   customerId: "123",
-  date: "2026-08-25",
+  startDate: "2026-08-24",
+  endDate: "2026-08-25",
   channel: "SEARCH",
   campaignId: "456",
   campaignName: "Collision \"Search\"",
@@ -30,14 +31,14 @@ const candidate: ClassificationCandidate = {
 };
 
 test("creates one spreadsheet-safe CSV row with validated context", () => {
-  const csv = createDecisionCsv(organization, candidate.date, [candidate], [{
+  const csv = createDecisionCsv(organization, `${candidate.startDate}..${candidate.endDate}`, [candidate], [{
     itemId: candidate.itemId,
     decision: "KEEP",
     negativeText: null,
     ruleIds: ["POL-AMBIGUOUS-KEEP"],
     reason: "Kept conservatively because context is limited",
     confidence: 0.5
-  }], "gemini-test", "rules-v1");
+  }], "openai-test", "rules-v1");
 
   assert.match(csv, /"Example, Body Shop"/u);
   assert.match(csv, /"Collision ""Search"""/u);
