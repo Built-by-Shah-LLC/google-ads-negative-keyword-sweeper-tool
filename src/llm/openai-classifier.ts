@@ -243,7 +243,7 @@ function createRequest(
     max_output_tokens: Math.min(modelOutputTokenLimit(model), 512 + Math.max(1, context.searchTerms.length) * 384),
     text,
     store: false,
-    prompt_cache_key: `negative-keyword-sweeper:${context.rules.version}`
+    prompt_cache_key: `negative-keyword-sweeper:${context.rules.version}:${context.soul.version}`
   };
   if (supportsReasoningControls(model)) {
     request.reasoning = { effort: "low" };

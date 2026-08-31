@@ -13,6 +13,7 @@ COPY tsconfig.json tsconfig.build.json ./
 COPY src ./src
 RUN npx tsc -p tsconfig.build.json \
   && cp src/config/negative-keyword-rules.md dist/src/config/negative-keyword-rules.md \
+  && cp src/config/soul.md dist/src/config/soul.md \
   && npm prune --omit=dev
 
 FROM node:24-slim AS runtime

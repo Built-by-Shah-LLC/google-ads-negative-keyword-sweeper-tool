@@ -1,5 +1,5 @@
 import type { AppConfig } from "../config/env.js";
-import type { RuleSet } from "../types.js";
+import type { RuleSet, Soul } from "../types.js";
 import { GoogleAdsClient } from "../google-ads/client.js";
 import { fetchOrganizations } from "../google-ads/organizations.js";
 import { OpenAIKeywordClassifier } from "../llm/openai-classifier.js";
@@ -24,7 +24,7 @@ export interface SweepServices {
   emailAlerts?: EmailAlertService;
 }
 
-export async function runSweeper(config: AppConfig, rules: RuleSet, options: SweepOptions, services: SweepServices = {}): Promise<{
+export async function runSweeper(config: AppConfig, soul: Soul, rules: RuleSet, options: SweepOptions, services: SweepServices = {}): Promise<{
   runId: string;
   runDirectory: string;
   status: "SUCCEEDED" | "PARTIAL" | "FAILED";
@@ -59,6 +59,10 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
       sourcePath: rules.sourcePath,
       promptVersion: rules.promptVersion
     },
+    soul: {
+      version: soul.version,
+      sourcePath: soul.sourcePath
+    },
     llm: { provider: classifier.provider, model: classifier.model },
     limits: {
       googleFetchConcurrency: config.googleFetchConcurrency,
@@ -71,8 +75,9 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
   let selectedCount = 0;
   let summaries: OrganizationSummary[] = [];
   try {
-    logger.info({ ruleVersion: rules.version, promptVersion: rules.promptVersion }, "Sweep run started");
+    logger.info({ soulVersion: soul.version, ruleVersion: rules.version, promptVersion: rules.promptVersion }, "Sweep run started");
     await artifacts.write("run-manifest.json", { ...manifestBase, status: "RUNNING" });
+    await artifacts.writeText("soul.md", soul.markdown);
     await artifacts.writeText("rules.md", rules.markdown);
 
     const discovered = await telemetry.track("ORGANIZATION_DISCOVERY", {}, () =>
@@ -111,6 +116,7 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
         classifier,
         artifacts,
         telemetry,
+        soul,
         rules,
         batchSize: config.llm.batchSize,
         llmLimit

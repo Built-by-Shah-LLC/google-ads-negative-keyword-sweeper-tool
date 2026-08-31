@@ -52,6 +52,12 @@ export interface RuleSet {
   ruleIds: string[];
 }
 
+export interface Soul {
+  version: string;
+  sourcePath: string;
+  markdown: string;
+}
+
 export interface LlmTokenUsage {
   inputTokens: number;
   outputTokens: number;

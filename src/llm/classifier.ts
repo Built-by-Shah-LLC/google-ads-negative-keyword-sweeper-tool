@@ -4,6 +4,7 @@ import type {
   FixedInputTokenCount,
   LlmTokenUsage,
   RuleSet,
+  Soul,
   ValidatedBatch
 } from "../types.js";
 import { PipelineError } from "../observability/errors.js";
@@ -15,6 +16,7 @@ export interface ClassificationContext {
     timeZone: string;
   };
   dateRange: DateRange;
+  soul: Soul;
   rules: RuleSet;
   searchTerms: ClassificationCandidate[];
 }
