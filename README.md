@@ -58,7 +58,7 @@ and run totals are visible instead of silently accepted.
 rules, organization/date envelope with zero candidates, and generic output schema. It
 excludes candidate rows, batch-specific item ID enums, and output. This baseline is
 counted with the OpenAI Responses input-token endpoint for every selected organization and model;
-it is not estimated from characters. With rule version `2026-08-31.2`, the selected model is
+it is not estimated from characters. With rule version `2026-09-01.1`, the selected model is
 `gpt-5.6-luna`. Lower-priced models were evaluated, but they missed 38 of 72 labeled
 negative cases; Luna remains the least expensive evaluated model that preserves acceptable
 rule behavior. The recorded per-organization value is the source of truth because

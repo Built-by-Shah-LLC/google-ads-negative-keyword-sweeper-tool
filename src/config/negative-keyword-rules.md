@@ -1,20 +1,22 @@
 # Collision-repair search-term classification rules
 
-Rule set version: `2026-08-31.2`
+Rule set version: `2026-09-01.1`
 
-Prompt version: `collision-classifier-v4`
+Prompt version: `collision-classifier-v5`
 
 This is the authoritative policy sent to the LLM. It follows the controlling
-architecture decisions, the evidence in `handoff/`, and the owner-locked decisions in
-`docs/superpowers/specs/2026-08-27-handoff-ruleset-llm-classifier.md`. Historical
-JavaScript triggers are evidence, not policy.
+architecture decisions and the evidence in `handoff/`. The 2026-09-01 owner locks in
+this file repeal Spanish-service KEEP, undefined-category KEEP, and the conservative
+signal-less fallback. Historical JavaScript triggers are evidence, not policy.
 
 ## Output contract
 
 - Return exactly one decision for each submitted `itemId`, in submitted order.
 - Use only `KEEP` or `NEGATIVE_EXACT`.
-- `KEEP` means no negative is proposed. Ambiguous, mixed, contradictory, undefined, or
-  insufficiently supported intent is always `KEEP`; there is no human-review output.
+- `KEEP` means no negative is proposed. There is no human-review output.
+- Signal-less or insufficient intent is `NEGATIVE_EXACT` under
+  `POL-NO-SERVICE-SIGNAL-NEGATIVE`. Mixed or contradictory intent is `KEEP` only when an
+  approved KEEP signal is present and no always-win NEGATIVE rule applies.
 - For `NEGATIVE_EXACT`, copy the complete original `searchTerm` byte-for-byte into
   `negativeText`. For `KEEP`, use `negativeText: null`.
 - Cite one or more rule IDs below. Give a factual reason of at most 240 characters and a
@@ -31,7 +33,10 @@ JavaScript triggers are evidence, not policy.
 1. Apply `POL-OWN-BRAND-NEGATIVE` when the query clearly contains the advertised
    organization's distinctive name. This client-requested suppression overrides every
    service-intent KEEP rule.
-2. Apply `POL-UNDEFINED-KEEP` and `POL-SPANISH-SERVICE-KEEP` when applicable.
+2. Apply always-win NEGATIVE rules next. They override collision, body-shop, OEM, insurer,
+   and geo KEEP rules: `POL-FOREIGN-LANGUAGE-NEGATIVE`, `POL-TOWING-NEGATIVE`,
+   `POL-PRICE-SHOPPER-NEGATIVE`, `POL-INFORMATIONAL-NEGATIVE`,
+   `POL-WRONG-OUTCOME-NEGATIVE`, and `POL-CUSTOM-FABRICATION-NEGATIVE`.
 3. Apply the strong service-intent protections before competitor or mechanical
    classification: OEM/make/model plus body or collision, insurer-supported repair-shop
    demand, and place plus body/collision demand are KEEP. A city, neighborhood, region,
@@ -39,9 +44,16 @@ JavaScript triggers are evidence, not policy.
 4. A clearly named competitor is negative only when the full query supplies strong
    business-name evidence. Generic or geographically ambiguous service demand is KEEP.
 5. Apply the remaining service-intent KEEP rules.
-6. Apply a NEGATIVE rule only when the full query clearly establishes that intent.
-   Never classify from one word alone.
-7. If evidence conflicts or remains insufficient, use `POL-AMBIGUOUS-KEEP`.
+6. Apply a remaining NEGATIVE rule only when the full query clearly establishes that
+   intent. Never classify from one word alone. A model-year token never decides KEEP or
+   NEGATIVE by itself.
+7. If the query still has no approved KEEP signal, use `POL-NO-SERVICE-SIGNAL-NEGATIVE`.
+   Approved KEEP signals are crash-event wording (`collision`, `crash`, `wreck`,
+   `accident`, `totaled`, `rear ended`, `t-boned`, `hit my car`, `smashed`), body-shop
+   wording (`body`, `autobody`, `auto body`, `body shop`, `body work`), a recognized
+   insurer name with repair/body/collision context, or make/model plus body/collision.
+8. If an approved KEEP signal is present, evidence is mixed or contradictory, and no
+   always-win NEGATIVE rule applies, use `POL-AMBIGUOUS-KEEP`.
 
 ## KEEP rules
 
@@ -50,19 +62,21 @@ JavaScript triggers are evidence, not policy.
 KEEP generic collision, crash, accident, wreck, frame/unibody/chassis damage,
 insurance-claim body repair, and certified collision repair demand. A collision,
 accident, insurance, claim, frame, or structural signal prevents cosmetic-only
-classification. This rule does not protect a clearly named competing business or a
-non-repair outcome such as consulting.
+classification. This rule does not protect a clearly named competing business, a
+non-repair outcome such as consulting or legal, towing, a price/quote/financing query,
+an informational question, or a non-English query.
 Generic service wording beginning with a verb, such as `fix auto collision`, is repair
 intent, not a competitor name.
 
-Examples: `major collision with frame damage and dents`, `accident bumper repair`,
-`honda accord collision insurance claim`, `2022 camry rear end collision`.
+Examples: `major collision with frame damage and dents`, `honda accord collision
+insurance claim`, `2022 camry rear end collision`.
 
 ### `POL-BODYWORK-KEEP` — Body-shop and body-work intent
 
 KEEP genuine generic automotive body work, body works, auto body, body shop, body repair,
 and paint-and-body service demand, including `near me`, city, and vehicle variations.
-This rule does not protect a clearly named competing business.
+This rule does not protect a clearly named competing business, a custom/fabrication shop,
+towing, a price/quote/financing query, an informational question, or a non-English query.
 
 Examples: `body work shops near me`, `car body work repair`, `auto body works near me`,
 `paint and body shop near me`.
@@ -99,43 +113,30 @@ intent, even when the place is not in a known city list. Treat cities, neighborh
 regions, and their spaced or closed-up spellings as locations when the rest of the query
 is generic service wording. Do not infer a competing business from the location alone.
 Only an independently confirmed or unmistakably named business can override this rule.
+An English query that contains a Spanish-origin place name is still English local demand.
 
 Examples: `auto body shop new rochelle`, `dallas auto body shop`,
 `collision repair dallas`, `yonkers auto body shop`, `west chester auto body`,
-`westchester auto body`, `westwood collision center`.
+`westchester auto body`, `westwood collision center`, `el paso body shop`,
+`san jose collision repair`.
 
-### `POL-SPANISH-SERVICE-KEEP` — Spanish repair demand
+### `POL-AMBIGUOUS-KEEP` — Mixed signal with real repair intent
 
-KEEP Spanish collision, body-repair, straightening, or automotive-paint service demand,
-including `cerca de mi`. Spanish language alone is never negative. Clear Spanish DIY
-phrasing such as `como quitar` remains negative under `POL-DIY-HOWTO-NEGATIVE`.
+KEEP only when an approved KEEP signal is present and the rest of the query is mixed,
+weak, or contradictory, and no always-win NEGATIVE rule applies. Do not use this rule
+for signal-less queries, foreign-language queries, towing, price/quote/financing,
+informational questions, attorney/legal intent, custom fabrication, or interior/upholstery.
+Appraisal and insurance-adjuster queries that also carry a collision or claim signal
+remain KEEP; do not invent a negative for them.
 
-Examples: `choque cerca de mi`, `taller de enderezado y pintura cerca de mi`,
-`talleres de pintura automotriz cerca de mi`.
-
-### `POL-UNDEFINED-KEEP` — Owner-unlocked categories
-
-KEEP towing, free estimate/quote, payment/financing, cheap/affordable, attorney/legal,
-informational, appraisal/adjuster, model-year, and custom-body-shop queries unless
-another explicit KEEP rule applies. These categories remain undefined and must not be
-invented as negatives.
-
-Examples: `tow truck after accident`, `free quote collision repair`,
-`collision repair payment plan`, `car accident attorney near me`,
-`what is collision repair`, `can a rear bumper be repaired`, `car coloring price`,
-`custom body shop near me`.
-
-### `POL-AMBIGUOUS-KEEP` — Conservative fallback
-
-KEEP mixed, weak, contradictory, or insufficient cases. A cosmetic token, a foreign
-language, an unknown name, or an unknown location does not decide intent alone.
-Specifically KEEP bare generic `car` and `car near me`; they are not bare make/model or
-vehicle-plus-named-place queries.
+If it is unclear whether a token is a place, descriptor, or competing business, KEEP
+rather than inventing a competitor.
 
 ## NEGATIVE rules
 
-Each rule below requires clear full-query intent and yields `NEGATIVE_EXACT` only when no
-KEEP rule applies.
+Each remaining rule below requires clear full-query intent and yields `NEGATIVE_EXACT`
+only when no KEEP rule applies, except the always-win rules in decision-order step 2,
+which override KEEP.
 
 ### `POL-OWN-BRAND-NEGATIVE` — Advertised organization suppression
 
@@ -148,6 +149,59 @@ present.
 
 Examples for an organization named Auto Arena Body Shop: `auto arena body shop`,
 `auto arena collision repair`, `auto arena body shop near me`.
+
+### `POL-FOREIGN-LANGUAGE-NEGATIVE` — Non-English queries
+
+Always-win. Negative any query that is substantially non-English, including Spanish
+collision, body-repair, straightening, paint, or `cerca de mi` demand. Spanish or other
+foreign language alone is enough. English queries that merely contain a Spanish-origin
+US place name (`el paso`, `san jose`, `los angeles`, `las vegas`) stay KEEP under the
+geo/body/collision rules.
+
+Examples: `choque cerca de mi`, `taller de enderezado y pintura cerca de mi`,
+`talleres de pintura automotriz cerca de mi`, `hojalatero near me`, `carrozzeria`.
+
+### `POL-TOWING-NEGATIVE` — Towing and wrecker demand
+
+Always-win. Negative tow, towing, tow-truck, wrecker, impound, or roadside-towing
+intent. Collision, accident, crash, or wreck wording does not save the query; the
+searcher wants a tow, not a body shop.
+
+Examples: `tow truck near me`, `tow truck after accident`, `towing after collision`.
+
+### `POL-PRICE-SHOPPER-NEGATIVE` — Quotes, price, free, cheap, and financing
+
+Always-win. Negative queries whose commercial ask is a quote, estimate, price, cost,
+`how much`, calculator, free offer, cheap/affordable/discount wording, or
+payment/financing/budget plan. Collision or body-shop wording does not save these
+queries; the searcher is shopping price, not booking the repair.
+
+Examples: `free quote collision repair`, `collision repair payment plan`,
+`cheap collision repair`, `how much does collision repair cost`, `car coloring price`.
+
+### `POL-INFORMATIONAL-NEGATIVE` — Learn/explain questions
+
+Always-win. Negative encyclopedia or explanation intent: `what is`, `what's`, `how does`,
+`how do`, `can a`, definitions, `vs`/`difference between`, and similar research questions
+that are not asking to hire a shop. A service query that merely ends in a question mark
+(`body shop near me?`) is still KEEP.
+
+Examples: `what is collision repair`, `can a rear bumper be repaired`,
+`difference between body shop and collision center`.
+
+### `POL-NO-SERVICE-SIGNAL-NEGATIVE` — Signal-less fallback
+
+Negative queries with no approved KEEP signal. Bare generic vehicle wording is not
+enough. This is the aggressive default for insufficient intent.
+
+Examples: `car`, `car near me`, `cars`, `vehicle`.
+
+### `POL-CUSTOM-FABRICATION-NEGATIVE` — Custom and fabrication shops
+
+Always-win. Negative custom body shop, custom fabrication, fiberglass custom, or
+coachbuilding intent. Generic `body shop` without `custom`/`fabrication` remains KEEP.
+
+Examples: `custom body shop near me`, `custom fabrication auto body`.
 
 ### `POL-SALVAGE-JUNK-NEGATIVE` — Salvage and disposal
 
@@ -162,16 +216,25 @@ training intent.
 ### `POL-DIY-HOWTO-NEGATIVE` — Do-it-yourself instructions
 
 Negative clear DIY/how-to repair intent, including Spanish constructions such as
-`como quitar` or `como arreglar`. Spanish collision/body-shop service demand is KEEP.
+`como quitar` or `como arreglar`. Non-English DIY also matches
+`POL-FOREIGN-LANGUAGE-NEGATIVE`.
 
-Example: `como quitar golpes de granizo` is negative; `choque cerca de mi` is KEEP.
+Example: `como quitar golpes de granizo` is negative.
 
-### `POL-PARTS-ONLY-NEGATIVE` — Parts and non-service products
+### `POL-PARTS-ONLY-NEGATIVE` — Parts, interior, and upholstery
 
 Negative parts-only, kit, body-kit, splitter, interior/dashboard component, or
-upholstery-product intent when no collision/body repair service is sought. Also negative
-isolated component failures such as a broken hood latch when no collision/body signal is
-present.
+upholstery intent when the searcher is not asking for collision or body-shop repair.
+This covers both products and services: seats, leather, headliner, carpet, dash, interior
+trim, and upholstery repair or replacement. Do not KEEP an interior/upholstery query
+merely because it contains `repair` or `near me`. KEEP only when the query is clearly
+asking for collision or body repair and interior wording is incidental.
+
+Examples: `car upholstery repair near me`, `leather seat repair`, `headliner replacement`,
+`dashboard repair`, `carbon fiber splitter`.
+
+Also negative isolated component failures such as a broken hood latch when no
+collision/body signal is present.
 
 ### `POL-MECHANICAL-ONLY-NEGATIVE` — Mechanical service
 
@@ -221,7 +284,8 @@ center cincinnati`, `west chester auto body`, `westwood collision center`.
 ### `POL-BARE-VEHICLE-NEGATIVE` — Bare vehicle and low-intent geo
 
 Negative bare make/model, vehicle shopping, and low-intent vehicle-plus-place queries
-such as `car in dallas`, unless body/collision intent is present.
+such as `car in dallas`, unless body/collision intent is present. Bare `car` and
+`car near me` also match `POL-NO-SERVICE-SIGNAL-NEGATIVE`.
 
 ### `POL-KEYS-NEGATIVE` — Keys and locksmith
 
@@ -235,11 +299,13 @@ vehicle rebuild/project intent when no qualifying collision/body service is soug
 
 ### `POL-WRONG-OUTCOME-NEGATIVE` — Non-repair professional outcome
 
-Negative queries explicitly seeking collision consulting instead of a collision/body-shop
-service. Do not extend this rule to appraisal, adjuster, legal, or informational queries;
-those are undefined KEEP categories.
+Always-win. Negative queries seeking a non-repair professional outcome: collision
+consulting, attorney, lawyer, legal, or law-firm intent. Accident or collision wording
+does not save these queries; the searcher wants a lawyer or consultant, not a body shop.
+Do not extend this rule to appraisal or adjuster queries; those remain KEEP under
+`POL-AMBIGUOUS-KEEP` when a collision or claim signal is present.
 
-Example: `collision consultants`.
+Examples: `collision consultants`, `car accident attorney near me`.
 
 ## Meta rule
 
