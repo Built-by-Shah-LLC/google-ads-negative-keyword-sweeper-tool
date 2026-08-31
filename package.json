@@ -1,0 +1,23 @@
+{
+  "name": "google-ads-negative-keyword-sweeper-tool",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "eval:openai": "tsx scripts/evaluate-openai-models.ts",
+    "test": "node --import tsx --test test/**/*.test.ts",
+    "sweep": "tsx src/index.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/nodemailer": "^8.0.1",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0"
+  },
+  "dependencies": {
+    "nodemailer": "^9.0.5",
+    "pino": "^10.3.1"
+  }
+}

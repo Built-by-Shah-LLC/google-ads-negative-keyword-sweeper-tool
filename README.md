@@ -27,6 +27,130 @@ The code under `handoff/source_code/` is reference material. It is not the requi
 
 The legacy deterministic rule engine, stemming, competitor seeds, city heuristics, and `shouldExclude` behavior are not authoritative business policy.
 
+## Read-only TypeScript classifier
+
+The new application under `src/` is isolated from `legacy-reference/`. It currently performs only:
+
+1. Discover enabled leaf organizations under the configured MCC.
+2. Fetch Search and Performance Max reported search terms for the two most recent completed local calendar days (48 completed hours).
+3. Aggregate organization- and campaign-scoped candidates.
+4. Send the agent identity at `src/config/soul.md` as the system instruction, plus bounded organization-specific batches and the authoritative Markdown policy at `src/config/negative-keyword-rules.md`, to OpenAI's Responses API.
+5. Strictly validate the structured result and write ignored JSON artifacts under `runs/`.
+
+Each selected organization also receives one spreadsheet-safe aggregate file at:
+
+```text
+runs/{run_id}/organizations/{customer_id}/llm-decisions.csv
+```
+
+The CSV contains candidate context and validated decisions from every LLM batch. JSON remains the exact-fidelity source artifact; CSV cells that could execute as spreadsheet formulas are intentionally neutralized.
+
+Each run also writes `telemetry.json` and a reconciled `token-usage.json`. Each organization
+writes its own `token-usage.json`, `errors.json`, and `fixed-input-tokens.json`; every LLM
+batch output/error artifact also contains that batch's token usage. Telemetry includes stage latency, retry attempts, safe error
+categories, provider request IDs, and normalized OpenAI input/output/total/cached/reasoning
+token counts. Token totals include every generation that consumed tokens, including an
+invalid first response followed by a successful validation retry. Organization and run
+reports store a `reconciliation.reconciled` flag so discrepancies between batch, organization,
+and run totals are visible instead of silently accepted.
+
+“Fixed input tokens” means the provider-tokenized system instruction, complete Markdown
+rules, organization/date envelope with zero candidates, and generic output schema. It
+excludes candidate rows, batch-specific item ID enums, and output. This baseline is
+counted with the OpenAI Responses input-token endpoint for every selected organization and model;
+it is not estimated from characters. With rule version `2026-09-01.1`, the selected model is
+`gpt-5.6-luna`. Lower-priced models were evaluated, but they missed 38 of 72 labeled
+negative cases; Luna remains the least expensive evaluated model that preserves acceptable
+rule behavior. The recorded per-organization value is the source of truth because
+organization text, rule revisions, schemas, and model tokenizers can change it.
+
+The accepted LLM response contract is consistently camelCase:
+
+```json
+{
+  "decisions": [{
+    "itemId": "stable-input-id",
+    "decision": "KEEP",
+    "negativeText": null,
+    "ruleIds": ["POL-AMBIGUOUS-KEEP"],
+    "reason": "Short explanation",
+    "confidence": 0.5
+  }]
+}
+```
+
+Unexpected properties, missing/duplicate/unknown IDs, invalid or decision-incompatible
+rule IDs, rewritten exact negative text, non-finite confidence, and reasons over 240
+characters are rejected.
+
+It contains no Google Ads mutation code.
+
+Install and check it:
+
+```powershell
+npm install
+npm run check
+npm test
+```
+
+Run the live OpenAI comparison over all 124 handoff examples when evaluation spend is
+intentionally available:
+
+```powershell
+npm run eval:openai
+npm run eval:openai -- --models gpt-5-nano --batch-size 10
+```
+
+It writes an ignored `runs/eval-*/report.json` with overall agreement, KEEP-side
+accuracy, negative recall/precision, and false-positive/false-negative details. It never
+connects to or mutates Google Ads.
+
+The comparison evaluates `gpt-5-nano`, `gpt-5.4-nano`, `gpt-5.6-luna`, and `gpt-5.4-mini`, records
+quality metrics and token usage, and estimates cost from the pricing snapshot in the
+evaluation script. See [the recorded model evaluation](docs/OPENAI_MODEL_EVALUATION.md).
+
+Add an OpenAI key to the ignored `.env`, then run one organization first. An explicit
+`--date` is the end date of a two-day completed window:
+
+```powershell
+npm run sweep -- --date 2026-08-25 --organization-limit 1
+```
+
+Use a specific customer or deliberately select the entire MCC:
+
+```powershell
+npm run sweep -- --date 2026-08-25 --customer 1234567890
+npm run sweep -- --date 2026-08-25 --all-organizations
+```
+
+If `--date` is omitted, each organization uses its own two most recent completed local
+calendar days. Google Ads reports these rows by date rather than hour, so the window is
+two complete account-local dates. The model receives only organization name plus each
+candidate's item ID, search term, campaign name, ad-group name, matched keyword, and
+match type. Raw IDs, dates, status, channel, and performance metrics remain in local
+audit artifacts and are not sent to the LLM.
+
+The Cloud Run Job deployment in `scripts/deploy/deploy-gcloud.ps1` creates a daily Cloud
+Scheduler trigger and runs with `--all-organizations`. See `docs/DEPLOYMENT.md`; only one
+production scheduler should be enabled to avoid duplicate daily runs.
+
+## Terminal logs and error email
+
+Runtime output uses structured Pino logging rather than direct `console.log` calls. Set
+`LOG_LEVEL` to `trace`, `debug`, `info`, `warn`, `error`, `fatal`, or `silent`.
+
+Unhandled errors can send an SMTP email to the comma-separated recipients in
+`ERROR_EMAIL_TO`. Copy the SMTP settings from `.env.example`, set
+`ERROR_EMAIL_ENABLED=true`, and configure `ERROR_EMAIL_FROM`, `SMTP_HOST`, and the
+appropriate port/security/credentials. Email-delivery failures are logged and never
+replace the original pipeline failure.
+
+Handled-error emails are disabled by default. They can later be enabled without code
+changes by listing exact structured error codes in `ALERT_HANDLED_ERROR_CODES` or stages
+in `ALERT_HANDLED_ERROR_STAGES`; `*` selects all handled errors. Duplicate handled errors
+with the same code, stage, organization, batch, and message send only one email per
+process run.
+
 Files in `legacy-reference/` are provided for complete project context. When they conflict with `docs/ARCHITECTURE_DECISIONS.md`, the current architecture decisions control.
 
 ## Data handling

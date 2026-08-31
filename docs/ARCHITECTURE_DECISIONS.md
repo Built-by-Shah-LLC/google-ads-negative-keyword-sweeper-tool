@@ -52,18 +52,28 @@ Only an identical exact negative that already exists directly on that campaign i
 
 ## Context strategy
 
-The initial version does not require manually maintained per-account business profiles. It should use automatically available context where practical, including:
+The initial version does not require manually maintained per-account business profiles.
+The LLM payload is deliberately allowlisted to the semantic context currently shown by
+evaluation to be useful:
 
-- Account name and timezone
-- Channel
+- Account name
 - Search term
-- Campaign and ad-group names and identifiers
+- Campaign and ad-group names
 - Matched keyword and match type when available
+
+The collector and audit artifacts retain the broader automatically available context,
+but do not send it to the LLM by default:
+
+- Account timezone and identifiers
+- Channel and campaign/ad-group identifiers
 - Search-term status
 - Recent and historical impressions, clicks, cost, conversions, and conversion value
 - Landing-page context when reliably available
 - Campaign geographic targets when practical
 - Relevant prior reviewed decisions
+
+Adding a retained field to the LLM payload requires a measured quality benefit; this
+keeps input tokens and customer-data exposure bounded.
 
 The system uses one agency-wide collision-repair intent policy. Account-specific profiles may be added later if real-world evaluation shows they materially improve precision.
 
