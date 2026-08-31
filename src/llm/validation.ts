@@ -62,6 +62,7 @@ export function validateDecisions(
     if (new Set(ruleIds).size !== ruleIds.length) {
       throw new Error(`LLM returned duplicate rule IDs for '${itemId}'.`);
     }
+    assertRuleDecisionCompatibility(itemId, decision as Decision, ruleIds);
 
     const confidence = decisionObject.confidence;
     if (typeof confidence !== "number" || !Number.isFinite(confidence) || confidence < 0 || confidence > 1) {
@@ -84,6 +85,40 @@ export function validateDecisions(
   const missing = candidates.filter((candidate) => !seen.has(candidate.itemId));
   if (missing.length > 0) throw new Error(`LLM omitted ${missing.length} submitted item(s).`);
   return candidates.map((candidate) => decisionsById.get(candidate.itemId)!);
+}
+
+function assertRuleDecisionCompatibility(
+  itemId: string,
+  decision: Decision,
+  ruleIds: string[]
+): void {
+  const keepRuleIds = ruleIds.filter((ruleId) => ruleId.endsWith("-KEEP"));
+  const negativeRuleIds = ruleIds.filter((ruleId) => ruleId.endsWith("-NEGATIVE"));
+  const metaRuleIds = ruleIds.filter((ruleId) => ruleId === "POL-FULL-QUERY-EXACT");
+  const unsupportedRuleIds = ruleIds.filter((ruleId) =>
+    !ruleId.endsWith("-KEEP")
+    && !ruleId.endsWith("-NEGATIVE")
+    && ruleId !== "POL-FULL-QUERY-EXACT"
+  );
+
+  if (unsupportedRuleIds.length > 0) {
+    throw new Error(
+      `Rule IDs for '${itemId}' do not declare KEEP, NEGATIVE, or meta semantics: ${unsupportedRuleIds.join(", ")}.`
+    );
+  }
+  if (decision === "KEEP") {
+    if (keepRuleIds.length === 0 || negativeRuleIds.length > 0 || metaRuleIds.length > 0) {
+      throw new Error(
+        `KEEP for '${itemId}' must cite at least one KEEP rule and no NEGATIVE or meta rules.`
+      );
+    }
+    return;
+  }
+  if (negativeRuleIds.length === 0 || keepRuleIds.length > 0) {
+    throw new Error(
+      `NEGATIVE_EXACT for '${itemId}' must cite at least one NEGATIVE rule and no KEEP rules.`
+    );
+  }
 }
 
 function assertExactKeys(value: Record<string, unknown>, allowed: Set<string>, name: string): void {

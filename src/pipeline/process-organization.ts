@@ -14,6 +14,13 @@ export interface OrganizationTokenUsage extends LlmTokenUsage {
   fixedInputDefinition: string | null;
 }
 
+export interface BatchTokenUsage extends LlmTokenUsage {
+  batchId: string;
+  status: "VALIDATED" | "FAILED";
+  candidateCount: number;
+  generationRequests: number;
+}
+
 export interface OrganizationSummary {
   customerId: string;
   descriptiveName: string;
@@ -25,6 +32,7 @@ export interface OrganizationSummary {
   failedBatchCount: number;
   decisions: Record<string, number>;
   tokenUsage: OrganizationTokenUsage;
+  batchTokenUsage: BatchTokenUsage[];
   errorCount: number;
   error?: string;
 }
@@ -53,6 +61,7 @@ export async function processOrganization(
   let candidateCount = 0;
   let failedBatchCount = 0;
   let organizationUsage = emptyOrganizationUsage();
+  const batchTokenUsage: BatchTokenUsage[] = [];
   let fixedInput: FixedInputTokenCount | null = null;
   let fixedInputFailed = false;
 
@@ -105,6 +114,7 @@ export async function processOrganization(
         [],
         0,
         organizationUsage,
+        batchTokenUsage,
         false,
         dependencies.telemetry.errorsForOrganization(organization.customerId).length
       );
@@ -121,15 +131,15 @@ export async function processOrganization(
         rules: dependencies.rules,
         searchTerms: batch
       };
-      await dependencies.artifacts.write(`${basePath}/llm/batch-${batchId}-input.json`, {
-        provider: dependencies.classifier.provider,
-        model: dependencies.classifier.model,
-        ruleVersion: dependencies.rules.version,
-        promptVersion: dependencies.rules.promptVersion,
-        fixedInputTokens: fixedInput?.totalTokens ?? null,
-        ...context
-      });
       try {
+        await dependencies.artifacts.write(`${basePath}/llm/batch-${batchId}-input.json`, {
+          provider: dependencies.classifier.provider,
+          model: dependencies.classifier.model,
+          ruleVersion: dependencies.rules.version,
+          promptVersion: dependencies.rules.promptVersion,
+          fixedInputTokens: fixedInput?.totalTokens ?? null,
+          ...context
+        });
         const result = await dependencies.telemetry.track("LLM_CLASSIFICATION", {
           ...errorContext,
           batchId,
@@ -145,6 +155,13 @@ export async function processOrganization(
         );
         dependencies.telemetry.recordBatch(true);
         organizationUsage = addOrganizationUsage(organizationUsage, result.validated.usage, result.attempts.length);
+        batchTokenUsage.push(createBatchTokenUsage(
+          batchId,
+          "VALIDATED",
+          batch.length,
+          result.attempts.length,
+          result.validated.usage
+        ));
         await dependencies.artifacts.write(`${basePath}/llm/batch-${batchId}-output.json`, {
           status: "VALIDATED",
           provider: dependencies.classifier.provider,
@@ -161,21 +178,30 @@ export async function processOrganization(
         return result.validated.decisions;
       } catch (error) {
         failedBatchCount += 1;
-        dependencies.telemetry.recordBatch(false);
         const failure = error instanceof ClassificationFailure ? error : null;
         const attempts = failure?.attempts ?? [];
-        recordAttempts(
-          dependencies.telemetry,
-          attempts,
-          organization.customerId,
-          batchId,
-          dependencies.classifier.provider
-        );
         const failedUsage = attempts.reduce(
           (total, attempt) => addTokenUsage(total, attempt.usage),
           emptyTokenUsage()
         );
-        organizationUsage = addOrganizationUsage(organizationUsage, failedUsage, attempts.length);
+        if (!batchTokenUsage.some((item) => item.batchId === batchId)) {
+          dependencies.telemetry.recordBatch(false);
+          recordAttempts(
+            dependencies.telemetry,
+            attempts,
+            organization.customerId,
+            batchId,
+            dependencies.classifier.provider
+          );
+          organizationUsage = addOrganizationUsage(organizationUsage, failedUsage, attempts.length);
+          batchTokenUsage.push(createBatchTokenUsage(
+            batchId,
+            "FAILED",
+            batch.length,
+            attempts.length,
+            failedUsage
+          ));
+        }
         const serialized = serializeError(error, {
           stage: "LLM_CLASSIFICATION",
           organizationId: organization.customerId,
@@ -206,6 +232,7 @@ export async function processOrganization(
       decisions,
       failedBatchCount,
       organizationUsage,
+      batchTokenUsage,
       fixedInputFailed,
       dependencies.telemetry.errorsForOrganization(organization.customerId).length
     );
@@ -226,12 +253,18 @@ export async function processOrganization(
       failedBatchCount,
       decisions: { KEEP: 0, NEGATIVE_EXACT: 0 },
       tokenUsage: organizationUsage,
+      batchTokenUsage: [...batchTokenUsage].sort(compareBatchUsage),
       errorCount: dependencies.telemetry.errorsForOrganization(organization.customerId).length,
       error: errorMessage(error)
     };
     await dependencies.artifacts.write(`${basePath}/errors.json`, {
       errors: dependencies.telemetry.errorsForOrganization(organization.customerId)
     });
+    await dependencies.artifacts.write(`${basePath}/token-usage.json`, createOrganizationTokenUsageReport(
+      dependencies.classifier.provider,
+      dependencies.classifier.model,
+      summary
+    ));
     await dependencies.artifacts.write(`${basePath}/summary.json`, summary);
     return summary;
   }
@@ -271,6 +304,11 @@ async function writeOrganizationResults(
   await dependencies.artifacts.write(`${basePath}/errors.json`, {
     errors: dependencies.telemetry.errorsForOrganization(organization.customerId)
   });
+  await dependencies.artifacts.write(`${basePath}/token-usage.json`, createOrganizationTokenUsageReport(
+    dependencies.classifier.provider,
+    dependencies.classifier.model,
+    summary
+  ));
   await dependencies.artifacts.write(`${basePath}/summary.json`, summary);
 }
 
@@ -282,6 +320,7 @@ function createSummary(
   decisions: Array<{ decision: string }>,
   failedBatchCount: number,
   tokenUsage: OrganizationTokenUsage,
+  batchTokenUsage: BatchTokenUsage[],
   fixedInputFailed: boolean,
   errorCount: number
 ): OrganizationSummary {
@@ -302,7 +341,37 @@ function createSummary(
     failedBatchCount,
     decisions: counts,
     tokenUsage,
+    batchTokenUsage: [...batchTokenUsage].sort(compareBatchUsage),
     errorCount
+  };
+}
+
+export function createOrganizationTokenUsageReport(
+  provider: string,
+  model: string,
+  summary: OrganizationSummary
+): Record<string, unknown> {
+  const batchTotals = summary.batchTokenUsage.reduce((total, batch) => ({
+    ...addTokenUsage(total, batch),
+    generationRequests: total.generationRequests + batch.generationRequests
+  }), { ...emptyTokenUsage(), generationRequests: 0 });
+  const reconciled = tokenUsageFields().every((field) => batchTotals[field] === summary.tokenUsage[field])
+    && batchTotals.generationRequests === summary.tokenUsage.generationRequests;
+  return {
+    provider,
+    model,
+    customerId: summary.customerId,
+    fixedInputTokens: summary.tokenUsage.fixedInputTokens,
+    fixedInputDefinition: summary.tokenUsage.fixedInputDefinition,
+    batches: summary.batchTokenUsage,
+    totals: summary.tokenUsage,
+    reconciliation: {
+      reconciled,
+      batchTotals,
+      expectedBatchCount: summary.batchTokenUsage.length,
+      successfulBatches: summary.batchTokenUsage.filter((item) => item.status === "VALIDATED").length,
+      failedBatches: summary.batchTokenUsage.filter((item) => item.status === "FAILED").length
+    }
   };
 }
 
@@ -338,6 +407,24 @@ function addOrganizationUsage(
     fixedInputTokens: current.fixedInputTokens,
     fixedInputDefinition: current.fixedInputDefinition
   };
+}
+
+function createBatchTokenUsage(
+  batchId: string,
+  status: BatchTokenUsage["status"],
+  candidateCount: number,
+  generationRequests: number,
+  usage: LlmTokenUsage
+): BatchTokenUsage {
+  return { batchId, status, candidateCount, generationRequests, ...usage };
+}
+
+function compareBatchUsage(left: BatchTokenUsage, right: BatchTokenUsage): number {
+  return left.batchId.localeCompare(right.batchId);
+}
+
+function tokenUsageFields(): Array<keyof LlmTokenUsage> {
+  return ["inputTokens", "outputTokens", "totalTokens", "cachedInputTokens", "thoughtTokens"];
 }
 
 function recordAttempts(

@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { PipelineError } from "../src/observability/errors.js";
 import { RunTelemetry } from "../src/observability/run-telemetry.js";
+import { createRunTokenUsageReport } from "../src/pipeline/run-sweeper.js";
+import type { OrganizationSummary } from "../src/pipeline/process-organization.js";
 
 test("records stage failures with organization context and typed error metadata", async () => {
   const telemetry = new RunTelemetry();
@@ -55,4 +57,58 @@ test("aggregates actual LLM usage separately from fixed organization input", () 
     fixedInputTokens: 1_891,
     organizationsCounted: 1
   });
+});
+
+test("reconciles run token totals from organization and batch records", () => {
+  const summary: OrganizationSummary = {
+    customerId: "123",
+    descriptiveName: "Test Collision",
+    dateRange: { startDate: "2026-08-24", endDate: "2026-08-25" },
+    status: "SUCCEEDED",
+    rawRowCount: 2,
+    candidateCount: 2,
+    decisionCount: 2,
+    failedBatchCount: 0,
+    decisions: { KEEP: 2, NEGATIVE_EXACT: 0 },
+    tokenUsage: {
+      inputTokens: 200,
+      outputTokens: 40,
+      totalTokens: 240,
+      cachedInputTokens: 100,
+      thoughtTokens: 0,
+      generationRequests: 2,
+      fixedInputTokens: 321,
+      fixedInputDefinition: "fixed baseline"
+    },
+    batchTokenUsage: [{
+      batchId: "0001",
+      status: "VALIDATED",
+      candidateCount: 2,
+      generationRequests: 2,
+      inputTokens: 200,
+      outputTokens: 40,
+      totalTokens: 240,
+      cachedInputTokens: 100,
+      thoughtTokens: 0
+    }],
+    errorCount: 0
+  };
+  const totals = {
+    inputTokens: 200,
+    outputTokens: 40,
+    totalTokens: 240,
+    cachedInputTokens: 100,
+    thoughtTokens: 0,
+    generationRequests: 2,
+    successfulBatches: 1,
+    failedBatches: 0,
+    fixedInputTokens: 321,
+    organizationsCounted: 1
+  };
+
+  const report = createRunTokenUsageReport(totals, [summary]);
+
+  assert.equal(report.reconciliation.reconciled, true);
+  assert.deepEqual(report.reconciliation.organizationTotals, totals);
+  assert.equal(report.organizations[0]?.batchCount, 1);
 });

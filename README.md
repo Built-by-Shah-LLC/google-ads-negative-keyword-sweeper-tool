@@ -45,18 +45,23 @@ runs/{run_id}/organizations/{customer_id}/llm-decisions.csv
 
 The CSV contains candidate context and validated decisions from every LLM batch. JSON remains the exact-fidelity source artifact; CSV cells that could execute as spreadsheet formulas are intentionally neutralized.
 
-Each run also writes `telemetry.json`, and each organization writes `errors.json` and
-`fixed-input-tokens.json`. Telemetry includes stage latency, retry attempts, safe error
+Each run also writes `telemetry.json` and a reconciled `token-usage.json`. Each organization
+writes its own `token-usage.json`, `errors.json`, and `fixed-input-tokens.json`; every LLM
+batch output/error artifact also contains that batch's token usage. Telemetry includes stage latency, retry attempts, safe error
 categories, provider request IDs, and normalized OpenAI input/output/total/cached/reasoning
 token counts. Token totals include every generation that consumed tokens, including an
-invalid first response followed by a successful validation retry.
+invalid first response followed by a successful validation retry. Organization and run
+reports store a `reconciliation.reconciled` flag so discrepancies between batch, organization,
+and run totals are visible instead of silently accepted.
 
 “Fixed input tokens” means the provider-tokenized system instruction, complete Markdown
 rules, organization/date envelope with zero candidates, and generic output schema. It
 excludes candidate rows, batch-specific item ID enums, and output. This baseline is
 counted with the OpenAI Responses input-token endpoint for every selected organization and model;
-it is not estimated from characters. With rule version `2026-08-27.1`, model
-`gpt-5.6-luna`. The recorded per-organization value is the source of truth because
+it is not estimated from characters. With rule version `2026-08-31.2`, the selected model is
+`gpt-5.6-luna`. Lower-priced models were evaluated, but they missed 38 of 72 labeled
+negative cases; Luna remains the least expensive evaluated model that preserves acceptable
+rule behavior. The recorded per-organization value is the source of truth because
 organization text, rule revisions, schemas, and model tokenizers can change it.
 
 The accepted LLM response contract is consistently camelCase:
@@ -74,8 +79,9 @@ The accepted LLM response contract is consistently camelCase:
 }
 ```
 
-Unexpected properties, missing/duplicate/unknown IDs, invalid rule IDs, rewritten exact
-negative text, non-finite confidence, and reasons over 240 characters are rejected.
+Unexpected properties, missing/duplicate/unknown IDs, invalid or decision-incompatible
+rule IDs, rewritten exact negative text, non-finite confidence, and reasons over 240
+characters are rejected.
 
 It contains no Google Ads mutation code.
 
@@ -92,6 +98,7 @@ intentionally available:
 
 ```powershell
 npm run eval:openai
+npm run eval:openai -- --models gpt-5-nano --batch-size 10
 ```
 
 It writes an ignored `runs/eval-*/report.json` with overall agreement, KEEP-side

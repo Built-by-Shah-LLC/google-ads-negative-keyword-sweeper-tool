@@ -7,8 +7,8 @@ const rules: RuleSet = {
   version: "test",
   promptVersion: "test-prompt",
   sourcePath: "test-rules.md",
-  markdown: "### `RULE-1` — Rule",
-  ruleIds: ["RULE-1"]
+  markdown: "### `POL-COLLISION-KEEP` — Keep rule\n### `POL-CAREERS-NEGATIVE` — Negative rule\n### `POL-FULL-QUERY-EXACT` — Meta rule",
+  ruleIds: ["POL-COLLISION-KEEP", "POL-CAREERS-NEGATIVE", "POL-FULL-QUERY-EXACT"]
 };
 const candidate: ClassificationCandidate = {
   itemId: "item-1",
@@ -37,7 +37,7 @@ test("validates and orders one exact-negative decision", () => {
       itemId: "item-1",
       decision: "NEGATIVE_EXACT",
       negativeText: "free collision repair course",
-      ruleIds: ["RULE-1"],
+      ruleIds: ["POL-CAREERS-NEGATIVE", "POL-FULL-QUERY-EXACT"],
       reason: "Education intent",
       confidence: 0.9
     }]
@@ -51,7 +51,7 @@ test("rejects rewritten negative text", () => {
       itemId: "item-1",
       decision: "NEGATIVE_EXACT",
       negativeText: "collision repair course",
-      ruleIds: ["RULE-1"],
+      ruleIds: ["POL-CAREERS-NEGATIVE"],
       reason: "Education intent",
       confidence: 0.9
     }]
@@ -68,7 +68,7 @@ test("rejects the removed human-review decision", () => {
       itemId: "item-1",
       decision: "HUMAN_REVIEW",
       negativeText: null,
-      ruleIds: ["RULE-1"],
+      ruleIds: ["POL-COLLISION-KEEP"],
       reason: "Ambiguous intent",
       confidence: 0.5
     }]
@@ -81,10 +81,49 @@ test("rejects unexpected output fields even if a provider ignores the schema", (
       itemId: "item-1",
       decision: "KEEP",
       negativeText: null,
-      ruleIds: ["RULE-1"],
+      ruleIds: ["POL-COLLISION-KEEP"],
       reason: "Ambiguous",
       confidence: 0.5,
       mutation: "do-not-accept"
     }]
   }, [candidate], rules), /unexpected field/u);
+});
+
+test("rejects a negative decision that cites a KEEP rule", () => {
+  assert.throws(() => validateDecisions({
+    decisions: [{
+      itemId: "item-1",
+      decision: "NEGATIVE_EXACT",
+      negativeText: "free collision repair course",
+      ruleIds: ["POL-CAREERS-NEGATIVE", "POL-COLLISION-KEEP"],
+      reason: "Conflicting policy citations",
+      confidence: 0.9
+    }]
+  }, [candidate], rules), /at least one NEGATIVE rule and no KEEP rules/u);
+});
+
+test("rejects a KEEP decision that cites a NEGATIVE or meta rule", () => {
+  assert.throws(() => validateDecisions({
+    decisions: [{
+      itemId: "item-1",
+      decision: "KEEP",
+      negativeText: null,
+      ruleIds: ["POL-COLLISION-KEEP", "POL-FULL-QUERY-EXACT"],
+      reason: "Conflicting policy citations",
+      confidence: 0.9
+    }]
+  }, [candidate], rules), /at least one KEEP rule and no NEGATIVE or meta rules/u);
+});
+
+test("rejects a negative decision justified only by the exact-text meta rule", () => {
+  assert.throws(() => validateDecisions({
+    decisions: [{
+      itemId: "item-1",
+      decision: "NEGATIVE_EXACT",
+      negativeText: "free collision repair course",
+      ruleIds: ["POL-FULL-QUERY-EXACT"],
+      reason: "Missing business-intent rule",
+      confidence: 0.9
+    }]
+  }, [candidate], rules), /at least one NEGATIVE rule/u);
 });

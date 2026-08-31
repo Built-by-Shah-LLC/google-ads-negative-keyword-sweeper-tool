@@ -34,6 +34,12 @@ test("writes reconciled organization telemetry and token artifacts", async (cont
         searchTermView: { searchTerm: "collision repair near me", status: "NONE" },
         segments: { date: "2026-08-25", keyword: { info: { text: "collision repair", matchType: "BROAD" } } },
         metrics: { impressions: 4, clicks: 1, costMicros: 1000, conversions: 1, conversionsValue: 10 }
+      }, {
+        campaign: { id: "456", name: "Collision campaign" },
+        adGroup: { id: "789", name: "Body shop" },
+        searchTermView: { searchTerm: "auto body repair near me", status: "NONE" },
+        segments: { date: "2026-08-25", keyword: { info: { text: "body repair", matchType: "BROAD" } } },
+        metrics: { impressions: 3, clicks: 1, costMicros: 900, conversions: 0, conversionsValue: 0 }
       }];
     }
   } as unknown as GoogleAdsClient;
@@ -105,20 +111,27 @@ test("writes reconciled organization telemetry and token artifacts", async (cont
     artifacts,
     telemetry,
     rules,
-    batchSize: 30,
+    batchSize: 1,
     llmLimit: async (task) => task()
   });
 
   assert.equal(summary.status, "SUCCEEDED");
   assert.deepEqual(summary.dateRange, { startDate: "2026-08-24", endDate: "2026-08-25" });
-  assert.equal(summary.decisionCount, 1);
+  assert.equal(summary.decisionCount, 2);
   assert.equal(summary.tokenUsage.fixedInputTokens, 321);
-  assert.equal(summary.tokenUsage.inputTokens, 100);
+  assert.equal(summary.tokenUsage.inputTokens, 200);
+  assert.equal(summary.batchTokenUsage.length, 2);
   const fixed = JSON.parse(await readFile(join(artifacts.runDirectory, "organizations/123/fixed-input-tokens.json"), "utf8"));
   assert.equal(fixed.fixedInput.totalTokens, 321);
   const output = JSON.parse(await readFile(join(artifacts.runDirectory, "organizations/123/llm/batch-0001-output.json"), "utf8"));
   assert.equal(output.status, "VALIDATED");
   assert.equal(output.tokenUsage.outputTokens, 20);
+  const secondOutput = JSON.parse(await readFile(join(artifacts.runDirectory, "organizations/123/llm/batch-0002-output.json"), "utf8"));
+  assert.equal(secondOutput.tokenUsage.outputTokens, 20);
+  const usage = JSON.parse(await readFile(join(artifacts.runDirectory, "organizations/123/token-usage.json"), "utf8"));
+  assert.equal(usage.reconciliation.reconciled, true);
+  assert.equal(usage.batches.length, 2);
+  assert.equal(usage.reconciliation.batchTotals.totalTokens, 240);
   const errors = JSON.parse(await readFile(join(artifacts.runDirectory, "organizations/123/errors.json"), "utf8"));
   assert.deepEqual(errors.errors, []);
   assert.equal(queries.length, 2);

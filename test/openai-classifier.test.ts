@@ -14,8 +14,8 @@ const rules: RuleSet = {
   version: "test",
   promptVersion: "test-prompt",
   sourcePath: "test-rules.md",
-  markdown: "# Test rules\n\n### `RULE-1` — Rule\n\nKeep it.",
-  ruleIds: ["RULE-1"]
+  markdown: "# Test rules\n\n### `POL-COLLISION-KEEP` — Rule\n\nKeep it.",
+  ruleIds: ["POL-COLLISION-KEEP"]
 };
 const candidate: ClassificationCandidate = {
   itemId: "item-1",
@@ -55,7 +55,7 @@ test("OpenAI adapter requests structured output, sends only allowlisted columns,
       itemId: "item-1",
       decision: "KEEP",
       negativeText: null,
-      ruleIds: ["RULE-1"],
+      ruleIds: ["POL-COLLISION-KEEP"],
       reason: "Qualified collision intent",
       confidence: 0.95
     }], { input_tokens: 100, output_tokens: 20, total_tokens: 120 });
@@ -104,7 +104,7 @@ test("counts tokens from an invalid generation before a successful validation re
       itemId: "item-1",
       decision: "KEEP",
       negativeText: null,
-      ruleIds: ["RULE-1"],
+      ruleIds: ["POL-COLLISION-KEEP"],
       reason: "Qualified collision intent",
       confidence: 0.95
     }];
@@ -155,6 +155,47 @@ test("counts the fixed prompt with the OpenAI input-token endpoint", async (cont
   assert.equal(captured.url, "https://api.openai.com/v1/responses/input_tokens");
   assert.equal(captured.body?.store, undefined);
   assert.match(captured.body?.input, /"candidates":\[\]/u);
+});
+
+test("omits reasoning-only request controls for GPT-4 models", async (context) => {
+  const originalFetch = globalThis.fetch;
+  const requests: Record<string, any>[] = [];
+  context.after(() => { globalThis.fetch = originalFetch; });
+  globalThis.fetch = async (input, init) => {
+    const request = JSON.parse(String(init?.body)) as Record<string, any>;
+    requests.push(request);
+    if (String(input).endsWith("/input_tokens")) {
+      return new Response(JSON.stringify({ object: "response.input_tokens", input_tokens: 777 }), {
+        status: 200,
+        headers: { "x-request-id": "count-request" }
+      });
+    }
+    return responseWithDecisions([{
+      itemId: "item-1",
+      decision: "KEEP",
+      negativeText: null,
+      ruleIds: ["POL-COLLISION-KEEP"],
+      reason: "Qualified collision intent",
+      confidence: 0.95
+    }], { input_tokens: 100, output_tokens: 20, total_tokens: 120 });
+  };
+
+  for (const model of ["gpt-4.1-nano", "gpt-4o-mini"]) {
+    const classifier = new OpenAIKeywordClassifier({ ...llmConfig, model });
+    await classifier.classify(classificationContext);
+    await classifier.countFixedInputTokens({
+      account: classificationContext.account,
+      dateRange: classificationContext.dateRange,
+      rules
+    });
+  }
+
+  assert.equal(requests.length, 4);
+  for (const request of requests) {
+    assert.equal(request.reasoning, undefined);
+    assert.equal(request.text.verbosity, undefined);
+    assert.equal(request.text.format.type, "json_schema");
+  }
 });
 
 function responseWithDecisions(

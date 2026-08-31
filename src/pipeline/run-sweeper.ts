@@ -6,7 +6,7 @@ import { OpenAIKeywordClassifier } from "../llm/openai-classifier.js";
 import type { EmailAlertService } from "../notifications/email-alerts.js";
 import { PipelineError } from "../observability/errors.js";
 import { createLogger, type Logger } from "../observability/logger.js";
-import { RunTelemetry } from "../observability/run-telemetry.js";
+import { emptyTokenUsage, RunTelemetry, type TokenTotals } from "../observability/run-telemetry.js";
 import { RunArtifacts } from "../storage/run-artifacts.js";
 import { createLimiter } from "../util/concurrency.js";
 import { processOrganization, type OrganizationSummary } from "./process-organization.js";
@@ -153,6 +153,7 @@ async function finalizeRun(
 ): Promise<void> {
   const completedAt = new Date().toISOString();
   const telemetrySnapshot = telemetry.snapshot();
+  const tokenUsageReport = createRunTokenUsageReport(telemetrySnapshot.tokenUsage, summaries);
   const failed = summaries.filter((summary) => summary.status === "FAILED").length;
   const partial = summaries.filter((summary) => summary.status === "PARTIAL").length;
   const summary = {
@@ -172,11 +173,13 @@ async function finalizeRun(
     candidates: summaries.reduce((sum, item) => sum + item.candidateCount, 0),
     decisions: summaries.reduce((sum, item) => sum + item.decisionCount, 0),
     tokenUsage: telemetrySnapshot.tokenUsage,
+    tokenUsageReconciled: tokenUsageReport.reconciliation.reconciled,
     errorCount: telemetrySnapshot.errors.length,
     fatalError: fatalError ?? null,
     organizations: summaries
   };
   await artifacts.write("summary.json", summary);
+  await artifacts.write("token-usage.json", tokenUsageReport);
   await artifacts.write("telemetry.json", telemetrySnapshot);
   await artifacts.write("run-manifest.json", {
     ...manifestBase,
@@ -188,6 +191,58 @@ async function finalizeRun(
     fatalError: fatalError ?? null
   });
   await emailAlerts?.flush();
+}
+
+export function createRunTokenUsageReport(
+  telemetryTotals: TokenTotals,
+  summaries: OrganizationSummary[]
+): {
+  totals: TokenTotals;
+  organizations: Array<{
+    customerId: string;
+    status: OrganizationSummary["status"];
+    batchCount: number;
+    tokenUsage: OrganizationSummary["tokenUsage"];
+  }>;
+  reconciliation: {
+    reconciled: boolean;
+    organizationTotals: TokenTotals;
+  };
+} {
+  const organizationTotals: TokenTotals = {
+    ...emptyTokenUsage(),
+    generationRequests: 0,
+    successfulBatches: 0,
+    failedBatches: 0,
+    fixedInputTokens: 0,
+    organizationsCounted: 0
+  };
+  for (const summary of summaries) {
+    organizationTotals.inputTokens += summary.tokenUsage.inputTokens;
+    organizationTotals.outputTokens += summary.tokenUsage.outputTokens;
+    organizationTotals.totalTokens += summary.tokenUsage.totalTokens;
+    organizationTotals.cachedInputTokens += summary.tokenUsage.cachedInputTokens;
+    organizationTotals.thoughtTokens += summary.tokenUsage.thoughtTokens;
+    organizationTotals.generationRequests += summary.tokenUsage.generationRequests;
+    organizationTotals.successfulBatches += summary.batchTokenUsage.filter((item) => item.status === "VALIDATED").length;
+    organizationTotals.failedBatches += summary.batchTokenUsage.filter((item) => item.status === "FAILED").length;
+    if (summary.tokenUsage.fixedInputTokens !== null) {
+      organizationTotals.fixedInputTokens += summary.tokenUsage.fixedInputTokens;
+      organizationTotals.organizationsCounted += 1;
+    }
+  }
+  const reconciled = (Object.keys(telemetryTotals) as Array<keyof TokenTotals>)
+    .every((field) => telemetryTotals[field] === organizationTotals[field]);
+  return {
+    totals: telemetryTotals,
+    organizations: summaries.map((summary) => ({
+      customerId: summary.customerId,
+      status: summary.status,
+      batchCount: summary.batchTokenUsage.length,
+      tokenUsage: summary.tokenUsage
+    })),
+    reconciliation: { reconciled, organizationTotals }
+  };
 }
 
 function runStatus(summaries: OrganizationSummary[]): "SUCCEEDED" | "PARTIAL" | "FAILED" {

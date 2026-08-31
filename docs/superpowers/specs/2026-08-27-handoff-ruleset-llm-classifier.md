@@ -28,8 +28,9 @@ categories and followed an over-conservative KEEP bias on clear-junk categories.
 
 Classification behavior matches the handoff policy:
 
-- Owner-confirmed keeps are never negatived (body-work family, collision intent, own brand,
-  insurers, city+shop local demand, OEM+body).
+- Owner-confirmed keeps are never negatived (body-work family, collision intent,
+  insurers, city+shop local demand, OEM+body), except for the client-requested own-brand
+  suppression added on 2026-08-31.
 - Clearly-irrelevant categories are negatived (salvage, careers, DIY/how-to, parts-only,
   mechanical-only, glass/tint, competitors, bare vehicle/low-intent geo, keys, wrong-vehicle,
   cosmetic-only with zero collision signal).
@@ -57,9 +58,10 @@ Regression harness (`npm run eval:kimi`) over the 124 labeled rows. Targets vs b
    owner locks a rule. Overrides the historical "block free estimate" lock.
 3. **Spanish**: Spanish collision/repair demand → KEEP; Spanish DIY/how-to
    (`como quitar golpes de granizo`) → NEGATIVE.
-4. **Competitors**: national chains + named local shops → NEGATIVE; a query matching the
-   account's own name → KEEP.
+4. **Competitors**: national chains + named local shops → NEGATIVE.
 5. **Eval harness**: build as a permanent npm script.
+6. **Own brand amendment (2026-08-31)**: a query clearly containing the account's
+   distinctive own name → NEGATIVE_EXACT. Generic fragments of the name do not qualify.
 
 ## Proposed changes
 
@@ -72,7 +74,6 @@ KEEP-side rules:
 | `POL-COLLISION-KEEP` | collision/crash/accident/frame/unibody incl. insurance-claim language; cosmetic words do not matter | RISK-04 |
 | `POL-BODYWORK-KEEP` | body work / auto body / body shop + near me / city — the 12 owner-labeled false adds | RISK-01, RISK-27 |
 | `POL-OEM-BODY-KEEP` | brand + body shop / body work / collision ≠ dealer search | RISK-02 |
-| `POL-OWN-BRAND-KEEP` | query contains the account's own name | RISK-12 |
 | `POL-INSURER-KEEP` | insurer names; `aaa collision`/`aaa insurance` protected, bare `aaa` not | — |
 | `POL-GEO-LOCAL-KEEP` | any city + shop/collision language = local demand, even unlisted cities | RISK-03, RISK-11 |
 | `POL-AMBIGUOUS-KEEP` | mixed / insufficient / conflicting evidence → KEEP | RISK-20 |
@@ -81,6 +82,7 @@ NEGATIVE-side rules (only when the full query is clearly that intent):
 
 | Rule ID | Covers |
 |---|---|
+| `POL-OWN-BRAND-NEGATIVE` | client-requested suppression when the query clearly contains the account's distinctive own name |
 | `POL-SALVAGE-JUNK-NEGATIVE` | salvage yard, junkyard, pick-n-pull, cash-for-cars |
 | `POL-CAREERS-NEGATIVE` | jobs, hiring, salary, training, school |
 | `POL-DIY-HOWTO-NEGATIVE` | how-to, DIY, incl. Spanish `como quitar/arreglar` |
@@ -88,7 +90,7 @@ NEGATIVE-side rules (only when the full query is clearly that intent):
 | `POL-MECHANICAL-ONLY-NEGATIVE` | oil/brakes/engine/transmission/mechanic/alignment/tires, dealer service (`bmw service`) — no body/collision signal |
 | `POL-GLASS-TINT-NEGATIVE` | windshield/glass-only (safelite), window tint |
 | `POL-COSMETIC-ONLY-NEGATIVE` | PDR, dent-only, scratch, bumper-only, paint-only, detailing — zero collision signal (decision 1) |
-| `POL-COMPETITOR-NEGATIVE` | national chains + named local shops; never the account's own name (decision 4) |
+| `POL-COMPETITOR-NEGATIVE` | national chains + named local shops; own name uses `POL-OWN-BRAND-NEGATIVE` |
 | `POL-BARE-VEHICLE-NEGATIVE` | bare make/model, low-intent geo (`car in dallas`), car shopping |
 | `POL-KEYS-NEGATIVE` | car key / fob / locksmith |
 | `POL-WRONG-VEHICLE-NEGATIVE` | RV/motorhome, classic/antique, sprinter conversion |

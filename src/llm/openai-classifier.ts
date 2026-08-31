@@ -228,24 +228,38 @@ function createRequest(
   schema: Record<string, unknown>
 ): Record<string, unknown> {
   const prompt = buildClassifierPrompt(context);
-  return {
+  const text: Record<string, unknown> = {
+    format: {
+      type: "json_schema",
+      name: "negative_keyword_decisions",
+      strict: true,
+      schema
+    }
+  };
+  const request: Record<string, unknown> = {
     model,
     instructions: prompt.systemInstruction,
     input: prompt.userPrompt,
-    reasoning: { effort: "low" },
-    max_output_tokens: Math.min(65_536, 512 + Math.max(1, context.searchTerms.length) * 384),
-    text: {
-      verbosity: "low",
-      format: {
-        type: "json_schema",
-        name: "negative_keyword_decisions",
-        strict: true,
-        schema
-      }
-    },
+    max_output_tokens: Math.min(modelOutputTokenLimit(model), 512 + Math.max(1, context.searchTerms.length) * 384),
+    text,
     store: false,
     prompt_cache_key: `negative-keyword-sweeper:${context.rules.version}`
   };
+  if (supportsReasoningControls(model)) {
+    request.reasoning = { effort: "low" };
+    text.verbosity = "low";
+  }
+  return request;
+}
+
+function supportsReasoningControls(model: string): boolean {
+  return !model.startsWith("gpt-4");
+}
+
+function modelOutputTokenLimit(model: string): number {
+  if (model.startsWith("gpt-4o-mini")) return 16_384;
+  if (model.startsWith("gpt-4.1")) return 32_768;
+  return 65_536;
 }
 
 function extractResponseText(payload: Record<string, any>): string {

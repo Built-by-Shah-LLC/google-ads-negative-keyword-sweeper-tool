@@ -60,6 +60,21 @@ gcloud logging read "resource.type=cloud_run_job AND resource.labels.job_name=ne
 An explicit `--date` is the end date of a two-day completed window. Scheduled runs
 compute the two most recent completed dates separately in each organization's timezone.
 
+## Pause / resume the daily trigger
+
+To stop the automatic daily run without undeploying anything (the Cloud Run Job stays
+deployed and can still be executed manually):
+
+```powershell
+powershell -File scripts/deploy/pause-scheduler.ps1 -ProjectId YOUR_PROJECT_ID -Region us-central1
+
+# Re-enable the daily trigger later:
+powershell -File scripts/deploy/pause-scheduler.ps1 -ProjectId YOUR_PROJECT_ID -Region us-central1 -Resume
+```
+
+This only pauses the Cloud Scheduler job `negative-keyword-sweeper-daily`; nothing is
+deleted.
+
 ## Durable run artifacts
 
 Cloud Run Job storage is ephemeral. If durable JSON/CSV artifacts are required, mount a

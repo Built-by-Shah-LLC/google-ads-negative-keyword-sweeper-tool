@@ -17,6 +17,8 @@ import type {
 const logger = createLogger();
 const DEFAULT_MODELS = ["gpt-5-nano", "gpt-5.4-nano", "gpt-5.6-luna", "gpt-5.4-mini"];
 const PRICING_PER_MILLION: Record<string, { input: number; cached: number; output: number }> = {
+  "gpt-4.1-nano": { input: 0.10, cached: 0.025, output: 0.40 },
+  "gpt-4o-mini": { input: 0.15, cached: 0.075, output: 0.60 },
   "gpt-5-nano": { input: 0.05, cached: 0.005, output: 0.40 },
   "gpt-5.4-nano": { input: 0.20, cached: 0.02, output: 1.25 },
   "gpt-5.6-luna": { input: 0.20, cached: 0.02, output: 1.20 },
@@ -42,18 +44,20 @@ async function main(): Promise<void> {
   const csvPath = resolve(workspace, "handoff/02_LABELED_SEARCH_TERM_EXAMPLES.csv");
   const allRows = parseCsv(await readFile(csvPath, "utf8")) as LabeledRow[];
   const requestedIds = requestedExampleIds(process.argv.slice(2));
+  const batchSize = requestedBatchSize(process.argv.slice(2));
   const rows = requestedIds === null ? allRows : allRows.filter((row) => requestedIds.has(row.example_id));
   if (rows.length === 0) throw new Error("No labeled examples matched the requested IDs.");
 
   const artifacts = new RunArtifacts(workspace, `eval-openai-${timestamp()}`);
   const dateRange = { startDate: "2026-08-26", endDate: "2026-08-27" };
-  const groups = groupRows(rows);
+  const groups = groupRows(rows, batchSize);
   const modelReports: Record<string, unknown>[] = [];
   await artifacts.write("run-manifest.json", {
     status: "RUNNING",
     purpose: "OpenAI model comparison over handoff labeled examples",
     sourcePath: "handoff/02_LABELED_SEARCH_TERM_EXAMPLES.csv",
     exampleCount: rows.length,
+    batchSize,
     models,
     ruleVersion: rules.version,
     promptVersion: rules.promptVersion,
@@ -62,7 +66,7 @@ async function main(): Promise<void> {
   });
 
   for (const model of models) {
-    const classifier = new OpenAIKeywordClassifier({ apiKey, model, batchSize: 50, concurrency: 2 });
+    const classifier = new OpenAIKeywordClassifier({ apiKey, model, batchSize, concurrency: 2 });
     const decisions: ClassificationDecision[] = [];
     let usage = emptyTokenUsage();
     const limit = createLimiter(2);
@@ -99,6 +103,7 @@ async function main(): Promise<void> {
     status: "SUCCEEDED",
     purpose: "OpenAI model comparison over handoff labeled examples",
     exampleCount: rows.length,
+    batchSize,
     models,
     ruleVersion: rules.version,
     promptVersion: rules.promptVersion,
@@ -163,7 +168,7 @@ function estimatedCost(model: string, usage: LlmTokenUsage): number | null {
   return Math.round(cost * 100_000_000) / 100_000_000;
 }
 
-function groupRows(rows: LabeledRow[]): Array<{ organizationName: string; rows: LabeledRow[] }> {
+function groupRows(rows: LabeledRow[], batchSize: number): Array<{ organizationName: string; rows: LabeledRow[] }> {
   const groups = new Map<string, LabeledRow[]>();
   for (const row of rows) {
     const organizationName = /^Account name\s+(.+)$/iu.exec(row.campaign_context)?.[1] ?? "Evaluation Collision Center";
@@ -173,8 +178,8 @@ function groupRows(rows: LabeledRow[]): Array<{ organizationName: string; rows: 
   }
   return [...groups].flatMap(([organizationName, groupedRows]) => {
     const chunks: Array<{ organizationName: string; rows: LabeledRow[] }> = [];
-    for (let index = 0; index < groupedRows.length; index += 50) {
-      chunks.push({ organizationName, rows: groupedRows.slice(index, index + 50) });
+    for (let index = 0; index < groupedRows.length; index += batchSize) {
+      chunks.push({ organizationName, rows: groupedRows.slice(index, index + batchSize) });
     }
     return chunks;
   });
@@ -220,7 +225,7 @@ const OWNER_LOCKED_KEEP = new Set([
   "EX-095", "EX-087", "EX-073", "EX-097", "EX-113"
 ]);
 const OWNER_LOCKED_NEGATIVE = new Set([
-  "EX-013", "EX-017", "EX-061", "EX-115", "EX-116", "EX-117", "EX-118", "EX-119", "EX-030"
+  "EX-013", "EX-017", "EX-026", "EX-061", "EX-115", "EX-116", "EX-117", "EX-118", "EX-119", "EX-030"
 ]);
 
 function expectedDecision(row: LabeledRow): Decision {
@@ -299,6 +304,16 @@ function requestedExampleIds(argumentsList: string[]): Set<string> | null {
   const value = argumentsList[index + 1];
   if (!value) throw new Error("--ids requires a comma-separated list of example IDs.");
   return new Set(value.split(",").map((item) => item.trim()).filter(Boolean));
+}
+
+function requestedBatchSize(argumentsList: string[]): number {
+  const index = argumentsList.indexOf("--batch-size");
+  if (index < 0) return 50;
+  const value = Number(argumentsList[index + 1]);
+  if (!Number.isSafeInteger(value) || value < 1 || value > 50) {
+    throw new Error("--batch-size must be an integer from 1 through 50.");
+  }
+  return value;
 }
 
 function safePath(value: string): string {
