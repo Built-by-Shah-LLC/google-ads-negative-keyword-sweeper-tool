@@ -34,7 +34,7 @@ The new application under `src/` is isolated from `legacy-reference/`. It curren
 1. Discover enabled leaf organizations under the configured MCC.
 2. Fetch Search and Performance Max reported search terms for the two most recent completed local calendar days (48 completed hours).
 3. Aggregate organization- and campaign-scoped candidates.
-4. Send the agent identity at `src/config/soul.md` as the system instruction, plus bounded organization-specific batches and the authoritative Markdown policy at `src/config/negative-keyword-rules.md`, to OpenAI's Responses API.
+4. Send bounded organization-specific batches and the authoritative Markdown policy at `src/config/negative-keyword-rules.md` to OpenAI's Responses API.
 5. Strictly validate the structured result and write ignored JSON artifacts under `runs/`.
 
 Each selected organization also receives one spreadsheet-safe aggregate file at:

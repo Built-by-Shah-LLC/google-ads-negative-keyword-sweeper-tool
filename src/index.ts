@@ -2,7 +2,6 @@ import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { loadConfig, loadOperationalConfig, type EmailAlertConfig } from "./config/env.js";
 import { loadRuleSet } from "./config/rule-set.js";
-import { loadSoul } from "./config/soul.js";
 import { EmailAlertService } from "./notifications/email-alerts.js";
 import { runSweeper, type SweepOptions } from "./pipeline/run-sweeper.js";
 import { serializeError } from "./observability/errors.js";
@@ -11,7 +10,6 @@ import { createLogger, type Logger } from "./observability/logger.js";
 async function main(rootDirectory: string, logger: Logger, emailAlerts: EmailAlertService): Promise<void> {
   const options = parseArguments(process.argv.slice(2), rootDirectory);
   const config = await loadConfig(rootDirectory);
-  const soul = await loadSoul(rootDirectory);
   const rules = await loadRuleSet(rootDirectory);
 
   logger.info({
@@ -25,7 +23,7 @@ async function main(rootDirectory: string, logger: Logger, emailAlerts: EmailAle
     readOnly: true
   }, "Starting Google Ads classification pipeline");
 
-  const result = await runSweeper(config, soul, rules, options, { logger, emailAlerts });
+  const result = await runSweeper(config, rules, options, { logger, emailAlerts });
   logger.info({ ...result }, "Pipeline run finished");
   if (result.status === "FAILED") process.exitCode = 1;
 }

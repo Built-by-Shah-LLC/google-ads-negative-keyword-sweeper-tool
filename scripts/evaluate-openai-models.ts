@@ -1,7 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { loadRuleSet } from "../src/config/rule-set.js";
-import { loadSoul } from "../src/config/soul.js";
 import { OpenAIKeywordClassifier } from "../src/llm/openai-classifier.js";
 import { createLogger } from "../src/observability/logger.js";
 import { addTokenUsage, emptyTokenUsage } from "../src/observability/run-telemetry.js";
@@ -42,7 +41,6 @@ async function main(): Promise<void> {
   const apiKey = await loadOpenAIKey(workspace);
   const models = requestedModels(process.argv.slice(2));
   const rules = await loadRuleSet(workspace);
-  const soul = await loadSoul(workspace);
   const csvPath = resolve(workspace, "handoff/02_LABELED_SEARCH_TERM_EXAMPLES.csv");
   const allRows = parseCsv(await readFile(csvPath, "utf8")) as LabeledRow[];
   const requestedIds = requestedExampleIds(process.argv.slice(2));
@@ -61,7 +59,6 @@ async function main(): Promise<void> {
     exampleCount: rows.length,
     batchSize,
     models,
-    soulVersion: soul.version,
     ruleVersion: rules.version,
     promptVersion: rules.promptVersion,
     pricingSnapshotDate: "2026-08-31",
@@ -83,7 +80,6 @@ async function main(): Promise<void> {
           timeZone: organization.timeZone
         },
         dateRange,
-        soul,
         rules,
         searchTerms: candidates
       });
@@ -109,7 +105,6 @@ async function main(): Promise<void> {
     exampleCount: rows.length,
     batchSize,
     models,
-    soulVersion: soul.version,
     ruleVersion: rules.version,
     promptVersion: rules.promptVersion,
     pricingSnapshotDate: "2026-08-31",

@@ -1,4 +1,4 @@
-import type { DateRange, FixedInputTokenCount, LlmTokenUsage, Organization, RuleSet, Soul } from "../types.js";
+import type { DateRange, FixedInputTokenCount, LlmTokenUsage, Organization, RuleSet } from "../types.js";
 import type { GoogleAdsClient } from "../google-ads/client.js";
 import { aggregateCandidates, fetchSearchTermsForDateRange } from "../google-ads/search-terms.js";
 import { ClassificationFailure, type KeywordClassifier, type LlmGenerationAttempt } from "../llm/classifier.js";
@@ -42,7 +42,6 @@ interface ProcessOrganizationDependencies {
   classifier: KeywordClassifier;
   artifacts: RunArtifacts;
   telemetry: RunTelemetry;
-  soul: Soul;
   rules: RuleSet;
   batchSize: number;
   llmLimit: Limit;
@@ -89,7 +88,6 @@ export async function processOrganization(
       }, () => dependencies.classifier.countFixedInputTokens({
         account: organizationContext(organization),
         dateRange,
-        soul: dependencies.soul,
         rules: dependencies.rules
       }));
       organizationUsage.fixedInputTokens = fixedInput.totalTokens;
@@ -130,7 +128,6 @@ export async function processOrganization(
       const context = {
         account: organizationContext(organization),
         dateRange,
-        soul: dependencies.soul,
         rules: dependencies.rules,
         searchTerms: batch
       };

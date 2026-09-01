@@ -8,13 +8,7 @@ import type { ClassificationContext, KeywordClassifier } from "../src/llm/classi
 import { RunTelemetry } from "../src/observability/run-telemetry.js";
 import { processOrganization } from "../src/pipeline/process-organization.js";
 import { RunArtifacts } from "../src/storage/run-artifacts.js";
-import type { RuleSet, Soul } from "../src/types.js";
-
-const soul: Soul = {
-  version: "test-soul-v1",
-  sourcePath: "test-soul.md",
-  markdown: "# Soul\n\nYou are a Google Ads expert for auto body repair shops."
-};
+import type { RuleSet } from "../src/types.js";
 
 const rules: RuleSet = {
   version: "test-v1",
@@ -116,7 +110,6 @@ test("writes reconciled organization telemetry and token artifacts", async (cont
     classifier,
     artifacts,
     telemetry,
-    soul,
     rules,
     batchSize: 1,
     llmLimit: async (task) => task()
