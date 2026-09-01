@@ -1,6 +1,6 @@
 # Collision-repair search-term classification rules
 
-Rule set version: `2026-09-02.2`
+Rule set version: `2026-09-02.3`
 
 Prompt version: `collision-classifier-v6`
 
@@ -41,7 +41,8 @@ triggers are evidence, not policy.
    `POL-PAINT-COLOR-NEGATIVE`, `POL-COSMETIC-ONLY-NEGATIVE` (fender-bender and other
    small-incident slang), `POL-WRONG-OUTCOME-NEGATIVE`,
    `POL-CUSTOM-FABRICATION-NEGATIVE`, `POL-MECHANICAL-ONLY-NEGATIVE` (mechanic, service,
-   and repair-without-crash-event), and `POL-COMPETITOR-NEGATIVE`.
+   and repair-without-crash-event), `POL-WRONG-VEHICLE-NEGATIVE` (trucks, semis, RV,
+   Sprinter), and `POL-COMPETITOR-NEGATIVE`.
 3. Apply the remaining service-intent KEEP rules only after always-win negatives: OEM/make
    plus body or collision with no extra shop/dealer name, insurer plus body/collision/
    claim/approved, unambiguous place plus body/collision, then generic crash-event or
@@ -74,7 +75,8 @@ is still KEEP (`collision repair near me`, `crash collision repair near me`).
 `collision`, `crash`, `wreck`, or `totaled` prevents dent/scratch from being treated as
 a cosmetic-only job, so `major collision with frame damage and dents` stays KEEP.
 That carve-out does not apply to fender-bender slang, paint/color, mechanic, service,
-reviews/images, towing, price, a named part as the job, or a named competitor.
+reviews/images, towing, price, a named part as the job, a named competitor, or
+unsupported vehicles such as trucks, semis, RVs, and Sprinters.
 `fender bender` is not crash-event wording.
 
 This rule does not protect a clearly named competing business. Apply the leftover-token
@@ -90,8 +92,8 @@ including `frame repair near me` without crash-event wording, is `POL-PARTS-ONLY
 Aluminum, steel, or iron as material or parts shopping is negative; incidental metal
 wording on a crash-event query may remain KEEP.
 
-This rule does not protect towing, a price/quote/financing query, an informational
-question, reviews/images/photos, or a non-English query.
+This rule does not protect towing, trucks/semis/RVs/Sprinters, a price/quote/financing
+query, an informational question, reviews/images/photos, or a non-English query.
 
 Examples: `major collision with frame damage and dents`, `honda accord collision
 insurance claim`, `2022 camry rear end collision`, `crash collision near me`,
@@ -107,8 +109,9 @@ competitor. This rule cannot override those tokens. `car body work repair`,
 negative.
 
 This rule does not protect a clearly named competing business, a custom/fabrication shop,
-towing, a price/quote/financing query, an informational question, reviews/images/photos,
-or a non-English query. Use the leftover-token test in `POL-COMPETITOR-NEGATIVE`.
+towing, trucks/semis/RVs/Sprinters, a price/quote/financing query, an informational
+question, reviews/images/photos, or a non-English query. Use the leftover-token test
+in `POL-COMPETITOR-NEGATIVE`.
 
 Examples: `body work shops near me`, `auto body works near me`, `body shop near me`.
 
@@ -429,11 +432,27 @@ Negative car-key, key-fob, key-cutting, programming, or automotive-locksmith int
 
 ### `POL-WRONG-VEHICLE-NEGATIVE` — Unsupported vehicle type
 
-Negative RV/motorhome, classic/antique restoration, Sprinter/camper conversion, and
-vehicle rebuild/project intent when no qualifying collision/body service is sought.
-`sprinter van body` is wrong-vehicle intent even when the word conversion is omitted.
-Do not use this rule for `classic collisions` or other `classic` + collision/body-shop
-brand patterns; those are `POL-COMPETITOR-NEGATIVE`.
+Always-win for commercial and unsupported vehicles, even when collision, crash,
+accident, body-shop, OEM, insurer, or geo wording is present:
+
+- Trucks and heavy vehicles: `truck`, `trucks`, `semi`, `semi-truck`, `semi truck`,
+  `18-wheeler`, `eighteen wheeler`, `tractor trailer`, `big rig`, `box truck`,
+  `dump truck`, `garbage truck`, `commercial truck`, `heavy truck`, `tanker`
+- RV / motorhome
+- Sprinter, camper, and conversion vans (`sprinter van body` even when conversion
+  is omitted)
+
+Examples: `truck collision`, `semi truck accident`, `box truck body shop`,
+`rv collision repair`, `sprinter van body`. Collision wording does not save these.
+
+Do not fire on a clearly consumer pickup or light-duty named pickup. `pickup truck
+collision`, `f150 collision repair`, and `silverado body shop` stay KEEP under the
+collision/OEM rules. Tow queries use `POL-TOWING-NEGATIVE`, not this rule.
+
+Also negative classic/antique restoration and vehicle rebuild/project intent when no
+qualifying collision/body service is sought. Do not use this rule for
+`classic collisions` or other `classic` + collision/body-shop brand patterns; those
+are `POL-COMPETITOR-NEGATIVE`.
 
 ### `POL-WRONG-OUTCOME-NEGATIVE` — Non-repair professional outcome
 
