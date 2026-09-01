@@ -1,6 +1,6 @@
 # Collision-repair search-term classification rules
 
-Rule set version: `2026-09-02.3`
+Rule set version: `2026-09-02.4`
 
 Prompt version: `collision-classifier-v6`
 
@@ -38,8 +38,8 @@ triggers are evidence, not policy.
 2. Apply always-win NEGATIVE rules next. They override collision, body-shop, OEM, insurer,
    and geo KEEP rules: `POL-FOREIGN-LANGUAGE-NEGATIVE`, `POL-TOWING-NEGATIVE`,
    `POL-PRICE-SHOPPER-NEGATIVE`, `POL-INFORMATIONAL-NEGATIVE`, `POL-REVIEWS-NEGATIVE`,
-   `POL-PAINT-COLOR-NEGATIVE`, `POL-COSMETIC-ONLY-NEGATIVE` (fender-bender and other
-   small-incident slang), `POL-WRONG-OUTCOME-NEGATIVE`,
+   `POL-WEBSITE-NAV-NEGATIVE`, `POL-PAINT-COLOR-NEGATIVE`, `POL-COSMETIC-ONLY-NEGATIVE`
+   (fender-bender and other small-incident slang), `POL-WRONG-OUTCOME-NEGATIVE`,
    `POL-CUSTOM-FABRICATION-NEGATIVE`, `POL-MECHANICAL-ONLY-NEGATIVE` (mechanic, service,
    and repair-without-crash-event), `POL-WRONG-VEHICLE-NEGATIVE` (trucks, semis, RV,
    Sprinter), and `POL-COMPETITOR-NEGATIVE`.
@@ -110,8 +110,9 @@ negative.
 
 This rule does not protect a clearly named competing business, a custom/fabrication shop,
 towing, trucks/semis/RVs/Sprinters, a price/quote/financing query, an informational
-question, reviews/images/photos, or a non-English query. Use the leftover-token test
-in `POL-COMPETITOR-NEGATIVE`.
+question, reviews/images/photos, website or domain navigation, panel-beater trade slang,
+or a non-English query. Use the leftover-token test in `POL-COMPETITOR-NEGATIVE`.
+`panel beaters near me` is `POL-PARTS-ONLY-NEGATIVE`, not body-shop KEEP.
 
 Examples: `body work shops near me`, `auto body works near me`, `body shop near me`.
 
@@ -254,6 +255,22 @@ booking.
 
 Examples: `dallas collision center reviews`, `body shop photos`, `collision repair images`.
 
+### `POL-WEBSITE-NAV-NEGATIVE` — Website and domain navigation
+
+Always-win. Negative any query whose intent is to reach a website, domain, app, login,
+or online portal instead of hiring a local shop: a standalone `com`, `.com`, `dot com`,
+`www`, `http`, `website`, `web site`, `login`, `log in`, `sign in`, `app`, `portal`,
+or `online account` token. Insurer, OEM, body-shop, collision, or geo wording does not
+save these queries; the searcher is navigating to a site, not booking a repair.
+`usaa com bodyshop` is negative even though insurer wording is present.
+
+Do not fire on words that merely contain those letters inside a longer word
+(`commercial`, `comfort`, `compass`, `appointment`); the token must be standalone
+domain or website wording.
+
+Examples: `usaa com bodyshop`, `caliber collision dot com`, `body shop website`,
+`www body shop near me`, `geico com approved body shop`.
+
 ### `POL-PAINT-COLOR-NEGATIVE` — Paint, color, and repaint
 
 Always-win. Negative any mention of paint, painting, painter, repaint, color, colour,
@@ -310,6 +327,12 @@ without `collision`/`crash`/`wreck`/`totaled` wording. `accident bumper repair` 
 negative. `fender repair` and `fix a car door` are negative. `rear end collision repair`
 is KEEP under `POL-COLLISION-KEEP` because `collision` is present. `major collision with
 frame damage and dents` is KEEP; `frame repair near me` is negative.
+
+Panel-beater trade slang is a named-part panel service and is always negative, even with
+`near me` or a city: `panel beater`, `panel beaters`, `panel beating`. It is not
+protected body-shop demand under `POL-BODYWORK-KEEP`.
+
+Examples: `panel beaters near me`, `panel beating dallas`.
 
 Fender-bender and the same class of minor-incident slang are always negative under
 `POL-COSMETIC-ONLY-NEGATIVE`, even when `accident`, `repair`, or `near me` is present:
