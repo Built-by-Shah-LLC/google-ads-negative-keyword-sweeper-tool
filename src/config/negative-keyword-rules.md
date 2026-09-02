@@ -1,15 +1,17 @@
 # Collision-repair search-term classification rules
 
-Rule set version: `2026-09-02.4`
+Rule set version: `2026-09-02.5`
 
 Prompt version: `collision-classifier-v6`
 
 This is the authoritative policy sent to the LLM. It follows the controlling
 architecture decisions and the evidence in `handoff/`. The 2026-09-02 owner locks
-make competitor detection aggressive (unsure name vs place is negative), treat
-`repair` / `mechanic` / `service` as KEEP-killing tokens, treat paint/color/repaint
-as always-win negatives, and negative reviews/images/photos. Historical JavaScript
-triggers are evidence, not policy.
+make competitor detection aggressive (unsure name vs place is negative; registered
+`inc` / `llc` / `corp` suffixes are competitor evidence), treat `mechanic` /
+`service` and contiguous `auto repair` / `car repair` as KEEP-killing, treat
+body-attached `repair` (`auto body repair`, `body repair`) as KEEP, treat
+paint/color/repaint as always-win negatives, and negative reviews/images/photos.
+Historical JavaScript triggers are evidence, not policy.
 
 ## Output contract
 
@@ -41,8 +43,9 @@ triggers are evidence, not policy.
    `POL-WEBSITE-NAV-NEGATIVE`, `POL-PAINT-COLOR-NEGATIVE`, `POL-COSMETIC-ONLY-NEGATIVE`
    (fender-bender and other small-incident slang), `POL-WRONG-OUTCOME-NEGATIVE`,
    `POL-CUSTOM-FABRICATION-NEGATIVE`, `POL-MECHANICAL-ONLY-NEGATIVE` (mechanic, service,
-   and repair-without-crash-event), `POL-WRONG-VEHICLE-NEGATIVE` (trucks, semis, RV,
-   Sprinter), and `POL-COMPETITOR-NEGATIVE`.
+   contiguous auto/car repair, and repair with no body-shop or crash-event wording),
+   `POL-WRONG-VEHICLE-NEGATIVE` (trucks, semis, RV, Sprinter), and
+   `POL-COMPETITOR-NEGATIVE`.
 3. Apply the remaining service-intent KEEP rules only after always-win negatives: OEM/make
    plus body or collision with no extra shop/dealer name, insurer plus body/collision/
    claim/approved, unambiguous place plus body/collision, then generic crash-event or
@@ -56,11 +59,12 @@ triggers are evidence, not policy.
    itself.
 6. If the query still has no approved KEEP signal, use `POL-NO-SERVICE-SIGNAL-NEGATIVE`.
    Approved KEEP signals are crash-event wording (`collision`, `crash`, `wreck`,
-   `accident`, `totaled`, `rear ended`, `t-boned`, `hit my car`, `smashed`), body-shop
-   wording (`body`, `autobody`, `auto body`, `body shop`, `body work`) with no repair,
-   mechanic, service, paint, color, or repaint token, a recognized insurer name with
-   body/collision/claim/approved context, or make/model plus body/collision with no extra
-   shop/dealer name.
+   `accident`, `totaled`, `rear ended`, `t-boned`, `hit my car`, `smashed`); body-shop
+   wording (`body`, `autobody`, `auto body`, `body shop`, `body work`), including when
+   `repair` is attached to that body demand, unless a mechanic, service, paint, color,
+   repaint, or contiguous `auto repair` / `car repair` token is present; a recognized
+   insurer name with body/collision/claim/approved context; or make/model plus
+   body/collision with no extra shop/dealer name.
 7. If an approved KEEP signal is present, evidence is mixed or contradictory, and no
    always-win NEGATIVE rule applies, use `POL-AMBIGUOUS-KEEP`. Never use this rule for
    competitor vs place vs descriptor uncertainty.
@@ -102,11 +106,16 @@ insurance claim`, `2022 camry rear end collision`, `crash collision near me`,
 ### `POL-BODYWORK-KEEP` — Body-shop and body-work intent
 
 KEEP genuine generic automotive body work, body works, auto body, autobody, and body shop
-demand, including `near me`, city, and vehicle variations, only when the query does not
-contain `repair`, `mechanic`, `service`, `paint`, `color`, `repaint`, or a named
-competitor. This rule cannot override those tokens. `car body work repair`,
-`body shop mechanic`, `auto body service`, and `paint and body shop near me` are
-negative.
+demand, including `near me`, city, and vehicle variations. Body-shop wording plus
+`repair` / `repairs` is still KEEP: that is collision-body work, not mechanical
+service. `auto body repair near me`, `autobody repair`, `body repair near me`,
+`car body work repair`, and `body shop repair` are KEEP.
+
+This rule cannot override `mechanic`, `technician`, `specialist`, standalone `tech`,
+`service` / `services`, paint/color/repaint, contiguous mechanical `auto repair` or
+`car repair`, or a named competitor. `body shop mechanic`, `auto body service`,
+`auto repair and body shop`, `auto repair body shop`, and `paint and body shop near me`
+are negative.
 
 This rule does not protect a clearly named competing business, a custom/fabrication shop,
 towing, trucks/semis/RVs/Sprinters, a price/quote/financing query, an informational
@@ -114,7 +123,8 @@ question, reviews/images/photos, website or domain navigation, panel-beater trad
 or a non-English query. Use the leftover-token test in `POL-COMPETITOR-NEGATIVE`.
 `panel beaters near me` is `POL-PARTS-ONLY-NEGATIVE`, not body-shop KEEP.
 
-Examples: `body work shops near me`, `auto body works near me`, `body shop near me`.
+Examples: `body work shops near me`, `auto body works near me`, `body shop near me`,
+`auto body repair near me`, `body repair near me`, `car body work repair`.
 
 ### `POL-OEM-BODY-KEEP` — OEM plus body or collision intent
 
@@ -126,12 +136,15 @@ is not a named competitor unless the leftover-token test finds a separate shop o
 name (`crest cadillac collision center` is a dealer competitor; `cadillac body shop near
 me` is OEM demand).
 
-This rule does not save `repair` without crash-event wording, `mechanic`, `service`,
-paint/color/repaint, or a named competitor. `bmw body work repairs` is negative because
-of `repairs` with no crash-event token.
+This rule does not save `mechanic`, `service`, paint/color/repaint, contiguous
+`auto repair` / `car repair`, or a named competitor. Make plus body-shop wording plus
+`repair` is KEEP (`bmw body work repairs`, `cadillac auto body repair`). Make plus
+generic `repair shop` with no body or crash-event wording remains
+`POL-MECHANICAL-ONLY-NEGATIVE`.
 
 Examples: `cadillac body shop near me`, `bmw certified collision center`,
-`tesla collision center cincinnati`, `toyota collision center colerain`.
+`tesla collision center cincinnati`, `toyota collision center colerain`,
+`bmw body work repairs`, `cadillac auto body repair`.
 
 ### `POL-INSURER-KEEP` — Collision and claim insurer intent
 
@@ -140,14 +153,16 @@ recognized insurer plus `body shop`, `collision`, `claim`, `approved`, or local-
 wording such as `near me` when body or collision context is present. The insurer name
 supplies insurance context even when the words `insurance` or `claim` are absent.
 Insurer plus generic `repair shop` or `repair facility` without crash-event, body,
-claim, or approved wording is not enough; `repair` without crash-event is
-`POL-MECHANICAL-ONLY-NEGATIVE`. Explicitly mechanical services such as oil, brakes,
-tires, engine, or transmission are not protected. Protect `aaa insurance` and
-`aaa collision`, but not bare `aaa` or generic `aaa auto repair`.
+claim, or approved wording is not enough; that is `POL-MECHANICAL-ONLY-NEGATIVE`.
+Insurer plus body-shop wording plus `repair` is KEEP (`geico auto body repair shops`).
+Contiguous `auto repair` / `car repair` stays mechanical (`aaa auto repair`).
+Explicitly mechanical services such as oil, brakes, tires, engine, or transmission are
+not protected. Protect `aaa insurance` and `aaa collision`, but not bare `aaa` or
+generic `aaa auto repair`.
 
 Example: `state farm approved body shop near me` is insurer-assisted body-shop demand
-and is KEEP. `state farm repair shop near me` contains `repair` without crash-event
-wording and is negative.
+and is KEEP. `state farm repair shop near me` is generic repair-shop demand with no
+body or crash-event wording and is negative.
 
 ### `POL-GEO-LOCAL-KEEP` — Local body/collision demand
 
@@ -164,14 +179,15 @@ local demand. Only an independently confirmed or unmistakably named business can
 override this rule when the leftover is clearly only a place. An English query that
 contains a Spanish-origin place name is still English local demand.
 
-This rule does not save `repair` without crash-event wording, `mechanic`, `service`,
-or paint/color/repaint. `collision repair dallas` stays KEEP because `collision` is
-crash-event wording.
+This rule does not save `mechanic`, `service`, contiguous `auto repair` / `car repair`,
+or paint/color/repaint. City plus body-shop wording plus `repair` is KEEP
+(`dallas auto body repair`). `collision repair dallas` stays KEEP because `collision`
+is crash-event wording.
 
 Examples: `auto body shop new rochelle`, `dallas auto body shop`,
-`collision repair dallas`, `yonkers auto body shop`, `west chester auto body`,
-`westchester auto body`, `houston collision center`, `el paso body shop`,
-`san jose collision repair`.
+`dallas auto body repair`, `collision repair dallas`, `yonkers auto body shop`,
+`west chester auto body`, `westchester auto body`, `houston collision center`,
+`el paso body shop`, `san jose collision repair`.
 
 ### `POL-AMBIGUOUS-KEEP` — Mixed signal with real repair intent
 
@@ -179,8 +195,8 @@ KEEP only when an approved KEEP signal is present and the rest of the query is m
 weak, or contradictory, and no always-win NEGATIVE rule applies. Do not use this rule
 for signal-less queries, foreign-language queries, towing, price/quote/financing,
 informational questions, attorney/legal intent, custom fabrication, interior/upholstery,
-paint/color, mechanic/service, reviews/images, or competitor vs place vs descriptor
-uncertainty.
+paint/color, mechanic/service, contiguous `auto repair` / `car repair`, reviews/images,
+or competitor vs place vs descriptor uncertainty.
 
 If it is unclear whether a token is a place, descriptor, or competing business, negative
 under `POL-COMPETITOR-NEGATIVE`. Do not KEEP to avoid inventing a competitor.
@@ -351,29 +367,55 @@ Examples: `car upholstery repair near me`, `leather seat repair`, `headliner rep
 
 ### `POL-MECHANICAL-ONLY-NEGATIVE` — Mechanical service
 
+`auto repair` and `auto body repair` are different jobs. `auto repair` means mechanical
+work (oil change, oil leak, brakes, engine, transmission). `auto body repair` /
+`autobody repair` / `body repair` means collision-body work. Do not collapse those
+intents. This body-repair carve-out applies only to `repair`. It does not apply to
+`mechanic`, `technician`, `specialist`, `tech`, or `service`.
+
 Always-win for these tokens, even when body-shop or collision wording is also present:
 
 - `mechanic`, `technician`, `specialist`, and standalone `tech`
 - `service` or `services` as automotive service wording (`service collision`,
   `car service`, `auto service`, `full service`, `collision services`)
-- `repair`, `repairs`, or `repaired` when the query has no crash-event wording
-  (`collision`, `crash`, `wreck`, `accident`, `totaled`, `rear ended`, `t-boned`,
-  `hit my car`, `smashed`)
 
-`auto body repair`, `car body work repair`, `body shop mechanic near me`, and
-`service collision` are negative. `collision repair near me` and
-`crash repair shop near me` stay KEEP because crash-event wording is present.
+`body shop mechanic near me`, `auto body mechanics`, `auto body service`, and
+`service collision` are negative.
+
+Always-win for the contiguous mechanical phrases `auto repair`, `car repair`,
+`automobile repair`, and `automotive repair` (including `repairs` / `repaired` /
+`repairing`), even when body-shop wording appears elsewhere in the query. Contiguous
+means `auto` / `car` / `automobile` / `automotive` is immediately followed by `repair`
+with no body-shop token in between. `auto repair and body shop`, `auto repair body shop`,
+and `car repair body shop` are negative: the searcher asked for mechanical auto repair,
+not body repair. Crash-event wording still saves a query (`collision auto repair`
+stays KEEP under `POL-COLLISION-KEEP`).
+
+`auto body repair`, `autobody repair`, `auto-body repair`, `body repair`,
+`body shop repair`, and `body work repair` are not those phrases — `body` is inside
+the repair demand — so they KEEP under `POL-BODYWORK-KEEP` unless a mechanic / service /
+tech token, paint/color, cosmetic-only job, named-part scope, or named competitor
+applies. `car body work repair` is KEEP.
+
+Other `repair` / `repairs` / `repaired` / `repairing` with no body-shop wording and no
+crash-event wording (`collision`, `crash`, `wreck`, `accident`, `totaled`,
+`rear ended`, `t-boned`, `hit my car`, `smashed`) is mechanical-negative.
+`collision repair near me` and `crash repair shop near me` stay KEEP because
+crash-event wording is present.
+
 Insurer plus generic `repair shop` without crash-event, body, claim, or approved
-wording is negative. `state farm repair shop near me` is negative.
+wording is negative. `state farm repair shop near me` is negative. Insurer plus
+body-shop wording plus `repair` is KEEP (`geico auto body repair shops`).
 
 Also negative clearly mechanical-only oil, brake, engine, transmission, alignment,
 tire, exhaust, AC, dealer-service, and generic `car repair`, `auto repair`, `car service`,
-`auto care`, `repair shop`, `fix cars`, or equivalent demand with no crash-event signal.
-A make plus generic repair shop is mechanical unless crash-event wording is stated.
+`auto care`, `repair shop`, `fix cars`, or equivalent demand with no crash-event or
+body-shop signal. A make plus generic repair shop is mechanical unless crash-event or
+body-shop wording is stated. A make plus body repair is KEEP (`bmw body work repairs`).
 
 Examples: `oil change near me`, `engine repair dallas`, `range rover mechanic near me`,
 `auto body mechanics`, `body shop mechanic near me`, `service collision`,
-`car body work repair`.
+`auto repair near me`, `auto repair and body shop`, `state farm repair shop near me`.
 
 ### `POL-GLASS-TINT-NEGATIVE` — Glass and tint only
 
@@ -411,7 +453,7 @@ competitors. Use the leftover-token test:
 1. Strip geo wording (`near me`, city, neighborhood, region, state-as-location).
 2. Strip service vocabulary (`collision`, `crash`, `accident`, `wreck`, `body`,
    `autobody`, `auto body`, `body shop`, `body work`, `shop`, `center`, `car`, `auto`,
-   `vehicle`, and `repair` when crash-event wording is present).
+   `vehicle`, and `repair` when crash-event or body-shop wording is present).
 3. Strip recognized vehicle makes/models and insurer names.
 
 If a distinctive leftover remains, the query is a competitor. Brand-like leftovers
@@ -419,6 +461,13 @@ include `king`, `master`, `masters`, `classic`, `complete`, `elite`, `premier`, 
 `champions`, `solutions`, `on the go`, a personal name, or a dealer name. `classic`
 plus collision or body-shop wording is a shop name, not classic-car restoration, unless
 restoration, antique, or vintage-vehicle words are present.
+
+A leftover standalone registered-business suffix is competitor evidence even when the
+rest of the leftover is only a place plus body/collision wording: `inc`, `llc`, `corp`,
+`incorporated`, or `ltd`, including with a trailing period (`inc.`).
+`new rochelle auto body inc`, `yorktown auto body inc`, and `pelham collision llc`
+are named businesses. Do not fire on those letters inside a longer word (`include`,
+`lincoln`). Do not treat bare `co` or `company` as this signal.
 
 If the leftover is only a make/model, use `POL-OEM-BODY-KEEP`. If the leftover is only
 an unambiguous city, neighborhood, or region, use `POL-GEO-LOCAL-KEEP`. If nothing
@@ -428,20 +477,20 @@ to avoid inventing a competitor.
 
 Strong evidence also includes an exact supplied competitor name, a recognized national
 chain, a possessive personal/business name, an unmistakable multi-word brand phrase
-followed by `auto body`, `body shop`, `collision`, `auto repair`, or similar, or a
-`brand com` domain. Use `POL-OWN-BRAND-NEGATIVE`, not this rule, for the advertised
-organization's own name.
+followed by `auto body`, `body shop`, `collision`, `auto repair`, or similar, a
+`brand com` domain, or a registered-business suffix as above. Use
+`POL-OWN-BRAND-NEGATIVE`, not this rule, for the advertised organization's own name.
 
 Examples of competitor queries: `classic collisions`, `collision king`,
 `collision master`, `collision masters`, `collision on the go`, `complete collision`,
 `complete collision solutions`, `concourse collision`, `conor maynard body shop`,
 `crest cadillac collision center`, `crest collision plano`, `caliber collision`,
 `gerber collision and glass`, `steve's auto body`, `harvey's body shop dallas`,
-`sure shot collision`.
+`sure shot collision`, `new rochelle auto body inc`, `pelham collision llc`.
 Counterexamples that are generic demand, not competitor evidence: `crash collision`,
 `crash collision near me`, `crash collision repair near me`, `crash repair shop near me`,
 `crash collisions`, `toyota collision center cincinnati`, `west chester auto body`,
-`dallas auto body shop`, `cadillac body shop near me`.
+`dallas auto body shop`, `dallas auto body repair`, `cadillac body shop near me`.
 
 ### `POL-BARE-VEHICLE-NEGATIVE` — Bare vehicle and low-intent geo
 

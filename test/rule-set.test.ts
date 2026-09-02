@@ -16,6 +16,9 @@ test("loads the authoritative Markdown rule set with unique rule IDs", async () 
   assert.ok(rules.ruleIds.includes("POL-NO-SERVICE-SIGNAL-NEGATIVE"));
   assert.ok(rules.ruleIds.includes("POL-CUSTOM-FABRICATION-NEGATIVE"));
   assert.ok(rules.ruleIds.includes("POL-COSMETIC-ONLY-NEGATIVE"));
+  assert.ok(rules.ruleIds.includes("POL-PAINT-COLOR-NEGATIVE"));
+  assert.ok(rules.ruleIds.includes("POL-REVIEWS-NEGATIVE"));
+  assert.ok(rules.ruleIds.includes("POL-WEBSITE-NAV-NEGATIVE"));
   assert.ok(rules.ruleIds.includes("POL-DIY-HOWTO-NEGATIVE"));
   assert.ok(rules.ruleIds.includes("POL-OWN-BRAND-NEGATIVE"));
   assert.equal(rules.ruleIds.includes("POL-OWN-BRAND-KEEP"), false);
@@ -28,6 +31,11 @@ test("loads the authoritative Markdown rule set with unique rule IDs", async () 
   assert.match(rules.markdown, /tesla collision center cincinnati/iu);
   assert.match(rules.markdown, /state farm repair shop near me/iu);
   assert.match(rules.markdown, /west chester auto body/iu);
+  assert.match(rules.markdown, /auto body repair near me/iu);
+  assert.match(rules.markdown, /auto repair and body shop/iu);
+  assert.match(rules.markdown, /bmw body work repairs/iu);
+  assert.match(rules.markdown, /pelham collision llc/iu);
+  assert.match(rules.markdown, /new rochelle auto body inc/iu);
   assert.match(rules.markdown, /must cite at least one[\s\S]*`-NEGATIVE` rule/iu);
   assert.match(rules.markdown, /auto arena body shop near me/iu);
   assert.equal(new Set(rules.ruleIds).size, rules.ruleIds.length);
