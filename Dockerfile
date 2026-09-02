@@ -27,6 +27,6 @@ COPY --from=build /app/dist ./dist
 RUN mkdir -p /app/dist/runs
 
 # Cloud Run Jobs pass arguments via the job's args; default sweeps all organizations
-# over each organization's two most recent completed local calendar days.
+# over the single account-local calendar day 48 hours before execution.
 ENTRYPOINT ["node", "dist/src/index.js"]
 CMD ["--all-organizations"]

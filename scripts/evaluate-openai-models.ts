@@ -66,7 +66,16 @@ async function main(): Promise<void> {
   });
 
   for (const model of models) {
-    const classifier = new OpenAIKeywordClassifier({ apiKey, model, batchSize, concurrency: 2 });
+    const classifier = new OpenAIKeywordClassifier({
+      provider: "openai",
+      apiKey,
+      model,
+      baseUrl: "https://api.openai.com/v1",
+      batchSize,
+      concurrency: 2,
+      requestTimeoutMs: 600_000,
+      maxRetries: 4
+    });
     const decisions: ClassificationDecision[] = [];
     let usage = emptyTokenUsage();
     const limit = createLimiter(2);

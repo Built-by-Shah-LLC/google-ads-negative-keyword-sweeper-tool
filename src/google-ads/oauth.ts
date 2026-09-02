@@ -29,16 +29,18 @@ export class GoogleOAuthClient {
             client_secret: this.clientSecret,
             refresh_token: this.refreshToken,
             grant_type: "refresh_token"
-          })
+          }),
+          signal: AbortSignal.timeout(60_000)
         });
       } catch (error) {
         if (attempt < 2) {
           await wait(1000 * 2 ** attempt);
           continue;
         }
-        throw new PipelineError("Google OAuth refresh network request failed.", {
+        const timedOut = isTimeoutError(error);
+        throw new PipelineError(timedOut ? "Google OAuth refresh timed out after 60000ms." : "Google OAuth refresh network request failed.", {
           stage: "GOOGLE_OAUTH_REFRESH",
-          code: "GOOGLE_OAUTH_NETWORK_ERROR",
+          code: timedOut ? "GOOGLE_OAUTH_TIMEOUT" : "GOOGLE_OAUTH_NETWORK_ERROR",
           provider: "google-oauth",
           retryable: true,
           details: { attemptCount: attempt + 1 }
@@ -82,4 +84,8 @@ async function readJsonSafely(response: Response): Promise<Record<string, unknow
 
 function wait(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function isTimeoutError(error: unknown): boolean {
+  return error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
 }

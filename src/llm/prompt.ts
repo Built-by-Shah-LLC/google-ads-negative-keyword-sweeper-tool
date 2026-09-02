@@ -8,7 +8,7 @@ export function buildSystemInstruction(): string {
   return OPERATIONAL_GUARDRAILS;
 }
 
-export const FIXED_INPUT_DEFINITION = "OpenAI Responses input-token count for the exact shared system instruction (operational guardrails), complete Markdown rules, organization-name envelope with zero candidates, and generic response schema. Candidate rows, per-batch itemId enums, and generated output are excluded.";
+export const FIXED_INPUT_DEFINITION = "Provider-tokenized input count for the exact shared system instruction (operational guardrails), complete Markdown rules, organization-name envelope with zero candidates, and generic response schema. Candidate rows, per-batch itemId enums, and generated output are excluded.";
 
 export function buildClassifierPrompt(context: ClassificationContext): {
   systemInstruction: string;

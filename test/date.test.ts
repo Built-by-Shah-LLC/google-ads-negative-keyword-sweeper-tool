@@ -1,22 +1,22 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { lastTwoCompletedDatesInTimeZone, twoDayRangeEndingOn } from "../src/pipeline/process-organization.js";
+import { date48HoursBackInTimeZone, singleDateRange } from "../src/pipeline/process-organization.js";
 
-test("uses the organization's last two completed local calendar days", () => {
+test("uses the single organization-local calendar day 48 hours back", () => {
   const now = new Date("2026-08-26T02:00:00Z");
-  assert.deepEqual(lastTwoCompletedDatesInTimeZone("America/New_York", now), {
+  assert.deepEqual(date48HoursBackInTimeZone("America/New_York", now), {
     startDate: "2026-08-23",
-    endDate: "2026-08-24"
+    endDate: "2026-08-23"
   });
-  assert.deepEqual(lastTwoCompletedDatesInTimeZone("Asia/Tokyo", now), {
+  assert.deepEqual(date48HoursBackInTimeZone("Asia/Tokyo", now), {
     startDate: "2026-08-24",
-    endDate: "2026-08-25"
+    endDate: "2026-08-24"
   });
 });
 
-test("treats an explicit date as the 48-hour window end date", () => {
-  assert.deepEqual(twoDayRangeEndingOn("2026-08-25"), {
-    startDate: "2026-08-24",
+test("treats an explicit date as the exact processing date", () => {
+  assert.deepEqual(singleDateRange("2026-08-25"), {
+    startDate: "2026-08-25",
     endDate: "2026-08-25"
   });
 });

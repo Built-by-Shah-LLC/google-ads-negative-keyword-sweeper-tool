@@ -55,6 +55,8 @@ $SecretKeys = @(
   "GEMINI_API_KEY",
   "OPENAI_API_KEY",
   "KIMI_API_KEY",
+  "MOONSHOT_API_KEY",
+  "RESEND_API_KEY",
   "SMTP_PASSWORD"
 )
 
@@ -167,7 +169,7 @@ $jobArgs = @(
   "--service-account", $ServiceAccountEmail,
   "--set-secrets", ($secretEnvMappings -join ","),
   "--set-env-vars", ($plainEnvPairs -join ","),
-  "--task-timeout", "3600",
+  "--task-timeout", "21600",
   "--max-retries", "1",
   "--memory", "1Gi",
   "--args=--all-organizations"

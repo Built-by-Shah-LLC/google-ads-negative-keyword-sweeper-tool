@@ -32,23 +32,23 @@ The legacy deterministic rule engine, stemming, competitor seeds, city heuristic
 The new application under `src/` is isolated from `legacy-reference/`. It currently performs only:
 
 1. Discover enabled leaf organizations under the configured MCC.
-2. Fetch Search and Performance Max reported search terms for the two most recent completed local calendar days (48 completed hours).
+2. Fetch Search and Performance Max reported search terms for the single calendar day 48 hours before execution in `RUN_TIME_ZONE` (a September 3 run processes September 1 for every organization).
 3. Aggregate organization- and campaign-scoped candidates.
-4. Send bounded organization-specific batches and the authoritative Markdown policy at `src/config/negative-keyword-rules.md` to OpenAI's Responses API.
+4. Send bounded organization-specific batches and the authoritative Markdown policy at `src/config/negative-keyword-rules.md` to the selected LLM provider. Moonshot/Kimi is primary; OpenAI, Gemini, and the prior Kimi coding endpoint remain available through `LLM_PROVIDER`.
 5. Strictly validate the structured result and write ignored JSON artifacts under `runs/`.
 
-Each selected organization also receives one spreadsheet-safe aggregate file at:
+Each selected organization still receives the backward-compatible spreadsheet-safe CSV at:
 
 ```text
 runs/{run_id}/organizations/{customer_id}/llm-decisions.csv
 ```
 
-The CSV contains candidate context and validated decisions from every LLM batch. JSON remains the exact-fidelity source artifact; CSV cells that could execute as spreadsheet formulas are intentionally neutralized.
+Every run additionally creates one Excel workbook at `runs/{run_id}/negative-keyword-sweeper-{run_id}.xlsx`. It contains one worksheet per organization with run metadata, every KEEP and NEGATIVE_EXACT candidate, rule IDs, reasons, full rules, organization token totals, per-batch input/output token usage, batch counts, and related errors/timeouts. The workbook is sent through Resend after finalization when `RUN_REPORT_EMAIL_ENABLED=true`. CSV cannot contain worksheets, so `.xlsx` is used for the requested tabbed report. JSON remains the exact-fidelity source artifact; spreadsheet cells that could execute as formulas are intentionally neutralized.
 
 Each run also writes `telemetry.json` and a reconciled `token-usage.json`. Each organization
 writes its own `token-usage.json`, `errors.json`, and `fixed-input-tokens.json`; every LLM
 batch output/error artifact also contains that batch's token usage. Telemetry includes stage latency, retry attempts, safe error
-categories, provider request IDs, and normalized OpenAI input/output/total/cached/reasoning
+categories, provider request IDs, and normalized input/output/total/cached/reasoning
 token counts. Token totals include every generation that consumed tokens, including an
 invalid first response followed by a successful validation retry. Organization and run
 reports store a `reconciliation.reconciled` flag so discrepancies between batch, organization,
@@ -57,7 +57,7 @@ and run totals are visible instead of silently accepted.
 “Fixed input tokens” means the provider-tokenized system instruction, complete Markdown
 rules, organization/date envelope with zero candidates, and generic output schema. It
 excludes candidate rows, batch-specific item ID enums, and output. This baseline is
-counted with the OpenAI Responses input-token endpoint for every selected organization and model;
+counted with the selected provider's token-count endpoint for every selected organization and model;
 it is not estimated from characters. With rule version `2026-09-01.1`, the selected model is
 `gpt-5.6-luna`. Lower-priced models were evaluated, but they missed 38 of 72 labeled
 negative cases; Luna remains the least expensive evaluated model that preserves acceptable
@@ -109,11 +109,12 @@ The comparison evaluates `gpt-5-nano`, `gpt-5.4-nano`, `gpt-5.6-luna`, and `gpt-
 quality metrics and token usage, and estimates cost from the pricing snapshot in the
 evaluation script. See [the recorded model evaluation](docs/OPENAI_MODEL_EVALUATION.md).
 
-Add an OpenAI key to the ignored `.env`, then run one organization first. An explicit
-`--date` is the end date of a two-day completed window:
+Configure the selected provider key in the ignored `.env`, then run one organization first. An explicit
+`--date` is the exact account-local date to process:
 
 ```powershell
 npm run sweep -- --date 2026-08-25 --organization-limit 1
+npm run sweep -- --organization-limit 3 --candidate-limit-per-organization 10
 ```
 
 Use a specific customer or deliberately select the entire MCC:
@@ -123,9 +124,9 @@ npm run sweep -- --date 2026-08-25 --customer 1234567890
 npm run sweep -- --date 2026-08-25 --all-organizations
 ```
 
-If `--date` is omitted, each organization uses its own two most recent completed local
-calendar days. Google Ads reports these rows by date rather than hour, so the window is
-two complete account-local dates. The model receives only organization name plus each
+If `--date` is omitted, the run uses one calendar date two days before the current date in
+`RUN_TIME_ZONE`; that same date applies to every organization. Google Ads reports these rows
+by date rather than hour, so a September 3 execution queries September 1 only. The model receives only organization name plus each
 candidate's item ID, search term, campaign name, ad-group name, matched keyword, and
 match type. Raw IDs, dates, status, channel, and performance metrics remain in local
 audit artifacts and are not sent to the LLM.
@@ -134,7 +135,19 @@ The Cloud Run Job deployment in `scripts/deploy/deploy-gcloud.ps1` creates a dai
 Scheduler trigger and runs with `--all-organizations`. See `docs/DEPLOYMENT.md`; only one
 production scheduler should be enabled to avoid duplicate daily runs.
 
-## Terminal logs and error email
+## Provider selection, run reports, and error email
+
+`LLM_PROVIDER=moonshot` is the default and uses `MOONSHOT_API_KEY`,
+`MOONSHOT_BASE_URL=https://api.moonshot.ai/v1`, and `MOONSHOT_MODEL=kimi-k2.6`.
+Set `LLM_PROVIDER=openai`, `gemini`, or `kimi-code` to reactivate the corresponding
+provider-specific environment variables without a code change. LLM calls use configurable
+timeouts and retry budgets (`LLM_REQUEST_TIMEOUT_MS`, `LLM_MAX_ATTEMPTS`); exhausted
+timeouts are recorded against the relevant organization and batch and appear in its worksheet.
+
+Run workbooks are delivered by Resend using `RESEND_API_KEY`, `RUN_REPORT_EMAIL_TO`, and
+`RUN_REPORT_EMAIL_FROM`. Delivery uses a run-scoped idempotency key and configurable retry
+settings (`RESEND_REQUEST_TIMEOUT_MS`, `RESEND_MAX_ATTEMPTS`). Delivery status is written to
+`report-email.json`; a delivery failure is logged and recorded without discarding the local workbook.
 
 Runtime output uses structured Pino logging rather than direct `console.log` calls. Set
 `LOG_LEVEL` to `trace`, `debug`, `info`, `warn`, `error`, `fatal`, or `silent`.

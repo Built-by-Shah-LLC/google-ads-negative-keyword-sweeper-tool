@@ -1,7 +1,7 @@
 # Deploying to Google Cloud
 
 The sweeper is a batch CLI, so it deploys as a **Cloud Run Job** triggered daily by
-**Cloud Scheduler**. Secrets (Google Ads tokens, OpenAI key, SMTP password) live in
+**Cloud Scheduler**. Secrets (Google Ads tokens, LLM-provider keys, Resend key, SMTP password) live in
 **Secret Manager**; allowlisted non-secret settings become job environment variables.
 
 ## Architecture
@@ -13,7 +13,8 @@ Cloud Scheduler (daily cron)
 Cloud Run Job: negative-keyword-sweeper
         |
         +-- Google Ads API (read-only GAQL; no mutations exist in src/)
-        +-- OpenAI Responses API (classification)
+        +-- Moonshot/Kimi API by default (OpenAI/Gemini remain selectable)
+        +-- Resend API (per-run Excel workbook delivery)
 ```
 
 Run artifacts are written under `runs/` inside the container unless durable storage is
@@ -28,7 +29,8 @@ mounted as described below.
    gcloud auth login
    ```
 
-3. A populated `.env` in the repository root (see `.env.example`). The local
+3. A populated `.env` in the repository root (see `.env.example`), including the
+   selected LLM provider and the Resend run-report settings. The local
    `.env.openai` file may override the OpenAI key/model. Both files are ignored by Git
    and excluded from the container image.
 
@@ -48,7 +50,7 @@ daily trigger. The job defaults to `--all-organizations`.
 # Trigger a run immediately
 gcloud run jobs execute negative-keyword-sweeper --region us-central1 --project YOUR_PROJECT_ID
 
-# One-off two-day window ending on 2026-08-25 for one organization
+# One-off exact processing date for one organization
 gcloud run jobs execute negative-keyword-sweeper --region us-central1 --project YOUR_PROJECT_ID `
   --update-args "--date 2026-08-25,--organization-limit,1"
 
@@ -57,8 +59,8 @@ gcloud logging read "resource.type=cloud_run_job AND resource.labels.job_name=ne
   --project YOUR_PROJECT_ID --limit 50
 ```
 
-An explicit `--date` is the end date of a two-day completed window. Scheduled runs
-compute the two most recent completed dates separately in each organization's timezone.
+An explicit `--date` is the exact date queried. Scheduled runs use the single calendar
+date 48 hours before execution in `RUN_TIME_ZONE`, shared by every organization.
 
 ## Pause / resume the daily trigger
 
@@ -77,7 +79,7 @@ deleted.
 
 ## Durable run artifacts
 
-Cloud Run Job storage is ephemeral. If durable JSON/CSV artifacts are required, mount a
+Cloud Run Job storage is ephemeral. If durable JSON/CSV/XLSX artifacts are required, mount a
 Cloud Storage bucket with Cloud Storage FUSE:
 
 ```powershell

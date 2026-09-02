@@ -4,12 +4,12 @@
 
 This document is an architecture and delivery plan. It does not authorize or implement Google Ads negative-keyword mutations.
 
-Implementation status as of 2026-08-31: the repository contains a read-only TypeScript implementation through validated OpenAI classification and local JSON run artifacts. Google Ads mutation remains unimplemented. The OpenAI adapter and labeled-example comparison have been tested live.
+Implementation status as of 2026-09-03: the repository contains a read-only TypeScript implementation with selectable Moonshot/Kimi, OpenAI, Gemini, and Kimi coding adapters; local JSON/CSV artifacts; a consolidated XLSX workbook; and Resend delivery. Google Ads mutation remains unimplemented. The OpenAI adapter and labeled-example comparison were previously tested live; the reporting and Moonshot changes use unit tests and did not trigger a production run.
 
 The first delivery phase is read-only:
 
 1. Discover every enabled client account under the Built by Shah MCC.
-2. Fetch the two most recent completed local calendar days (48 completed hours) of reported search terms for every account.
+2. Fetch the single calendar day 48 hours before execution in the configured run timezone (for example, a September 3 run processes September 1) for every account.
 3. Load an authoritative, versioned negative-keyword rule set.
 4. Send the rules, account context, and reported terms to an LLM in bounded batches.
 5. Validate the LLM classifications and write immutable per-run audit artifacts.
@@ -289,7 +289,7 @@ Required output per candidate:
 }
 ```
 
-The provider integration is behind an adapter. The production adapter uses the OpenAI Responses API with low reasoning effort, strict JSON Schema output, prompt caching, and a configurable model. These settings reduce cost and variation but do not make a hosted LLM mathematically deterministic; deterministic application validation decides whether a response is accepted.
+The provider integration is behind an adapter. Moonshot/Kimi is primary and uses structured JSON Schema output with thinking disabled for bounded classification. OpenAI, Gemini, and the previous Kimi coding endpoint remain selectable through configuration. These settings reduce cost and variation but do not make a hosted LLM mathematically deterministic; deterministic application validation decides whether a response is accepted.
 
 Search terms are untrusted data. The prompt must state that their text is data, never instructions. The model receives no mutation tools or application secrets.
 

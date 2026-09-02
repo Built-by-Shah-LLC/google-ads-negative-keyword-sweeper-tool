@@ -2,14 +2,20 @@ import type { AppConfig } from "../config/env.js";
 import type { RuleSet } from "../types.js";
 import { GoogleAdsClient } from "../google-ads/client.js";
 import { fetchOrganizations } from "../google-ads/organizations.js";
-import { OpenAIKeywordClassifier } from "../llm/openai-classifier.js";
+import { createKeywordClassifier } from "../llm/classifier-factory.js";
 import type { EmailAlertService } from "../notifications/email-alerts.js";
+import type { RunReportEmailService } from "../notifications/run-report-email.js";
 import { PipelineError } from "../observability/errors.js";
 import { createLogger, type Logger } from "../observability/logger.js";
 import { emptyTokenUsage, RunTelemetry, type TokenTotals } from "../observability/run-telemetry.js";
 import { RunArtifacts } from "../storage/run-artifacts.js";
+import { createRunWorkbook } from "../storage/run-workbook.js";
 import { createLimiter } from "../util/concurrency.js";
-import { processOrganization, type OrganizationSummary } from "./process-organization.js";
+import {
+  date48HoursBackInTimeZone,
+  processOrganization,
+  type OrganizationSummary
+} from "./process-organization.js";
 
 export interface SweepOptions {
   rootDirectory: string;
@@ -17,11 +23,13 @@ export interface SweepOptions {
   customerId: string | null;
   organizationLimit: number | null;
   allOrganizations: boolean;
+  candidateLimitPerOrganization: number | null;
 }
 
 export interface SweepServices {
   logger?: Logger;
   emailAlerts?: EmailAlertService;
+  runReportEmail?: RunReportEmailService;
 }
 
 export async function runSweeper(config: AppConfig, rules: RuleSet, options: SweepOptions, services: SweepServices = {}): Promise<{
@@ -47,12 +55,16 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
     })
   });
   const googleAds = new GoogleAdsClient(config.googleAds, telemetry);
-  const classifier = new OpenAIKeywordClassifier(config.llm);
+  const classifier = createKeywordClassifier(config.llm);
   const startedAt = new Date().toISOString();
+  const processingDate = options.date
+    ?? date48HoursBackInTimeZone(config.processingTimeZone, new Date(startedAt)).startDate;
   const manifestBase = {
     runId: artifacts.runId,
     startedAt,
-    requestedDate: options.date,
+    requestedDate: processingDate,
+    requestedDateSource: options.date ? "COMMAND_LINE" : "AUTOMATIC_48_HOURS_BACK",
+    processingTimeZone: config.processingTimeZone,
     readOnly: true,
     ruleSet: {
       version: rules.version,
@@ -63,7 +75,8 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
     limits: {
       googleFetchConcurrency: config.googleFetchConcurrency,
       llmConcurrency: config.llm.concurrency,
-      llmBatchSize: config.llm.batchSize
+      llmBatchSize: config.llm.batchSize,
+      candidateLimitPerOrganization: options.candidateLimitPerOrganization
     }
   };
 
@@ -105,7 +118,7 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
     const llmLimit = createLimiter(config.llm.concurrency);
     summaries = await Promise.all(selected.map((organization) => fetchLimit(() => processOrganization(
       organization,
-      options.date,
+      processingDate,
       {
         googleAds,
         classifier,
@@ -113,12 +126,26 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
         telemetry,
         rules,
         batchSize: config.llm.batchSize,
+        candidateLimit: options.candidateLimitPerOrganization,
         llmLimit
       }
     ))));
 
-    const status = runStatus(summaries);
-    await finalizeRun(artifacts, telemetry, manifestBase, summaries, discoveredCount, selectedCount, status, services.emailAlerts);
+    const classificationStatus = runStatus(summaries);
+    const status = await finalizeRun(
+      artifacts,
+      telemetry,
+      manifestBase,
+      summaries,
+      discoveredCount,
+      selectedCount,
+      classificationStatus,
+      rules,
+      classifier.provider,
+      classifier.model,
+      services.emailAlerts,
+      services.runReportEmail
+    );
     logger.info({ status, organizationsSelected: selectedCount }, "Sweep run completed");
     return { runId: artifacts.runId, runDirectory: artifacts.runDirectory, status };
   } catch (error) {
@@ -132,7 +159,11 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
       discoveredCount,
       selectedCount,
       "FAILED",
+      rules,
+      classifier.provider,
+      classifier.model,
       services.emailAlerts,
+      services.runReportEmail,
       errorMessage(error)
     );
     logger.error({ status: "FAILED" }, "Sweep run failed");
@@ -148,15 +179,19 @@ async function finalizeRun(
   discoveredCount: number,
   selectedCount: number,
   status: "SUCCEEDED" | "PARTIAL" | "FAILED",
+  rules: RuleSet,
+  provider: string,
+  model: string,
   emailAlerts?: EmailAlertService,
+  runReportEmail?: RunReportEmailService,
   fatalError?: string
-): Promise<void> {
+): Promise<"SUCCEEDED" | "PARTIAL" | "FAILED"> {
   const completedAt = new Date().toISOString();
   const telemetrySnapshot = telemetry.snapshot();
   const tokenUsageReport = createRunTokenUsageReport(telemetrySnapshot.tokenUsage, summaries);
   const failed = summaries.filter((summary) => summary.status === "FAILED").length;
   const partial = summaries.filter((summary) => summary.status === "PARTIAL").length;
-  const summary = {
+  const summary: Record<string, unknown> = {
     runId: artifacts.runId,
     status,
     readOnly: true,
@@ -190,7 +225,83 @@ async function finalizeRun(
     errorCount: telemetrySnapshot.errors.length,
     fatalError: fatalError ?? null
   });
-  await emailAlerts?.flush();
+  let workbookWritten = false;
+  try {
+    const workbook = await createRunWorkbook({
+      runId: artifacts.runId,
+      runDirectory: artifacts.runDirectory,
+      status,
+      startedAt: String(manifestBase.startedAt),
+      completedAt,
+      provider,
+      model,
+      rules,
+      summaries
+    });
+    const filename = `negative-keyword-sweeper-${artifacts.runId}.xlsx`;
+    await artifacts.writeBuffer(filename, workbook);
+    workbookWritten = true;
+    const delivery = await runReportEmail?.send({
+      runId: artifacts.runId,
+      status,
+      workbook,
+      filename,
+      organizationCount: summaries.length,
+      inputTokens: telemetrySnapshot.tokenUsage.inputTokens,
+      outputTokens: telemetrySnapshot.tokenUsage.outputTokens
+    });
+    await artifacts.write("report-email.json", delivery ?? {
+      status: "NOT_CONFIGURED",
+      messageId: null,
+      attemptCount: 0,
+      sentAt: null
+    });
+    await emailAlerts?.flush();
+    return status;
+  } catch (error) {
+    const reportError = telemetry.error(error, {
+      stage: "RUN_REPORT_EMAIL",
+      code: "RUN_REPORT_DELIVERY_FAILED",
+      provider: "resend",
+      retryable: true
+    });
+    const finalStatus = status === "SUCCEEDED" ? "PARTIAL" : status;
+    await artifacts.write("report-email.json", { status: "FAILED", error: reportError });
+    const updatedTelemetry = telemetry.snapshot();
+    summary.status = finalStatus;
+    summary.errorCount = updatedTelemetry.errors.length;
+    await artifacts.write("summary.json", summary);
+    await artifacts.write("telemetry.json", updatedTelemetry);
+    await artifacts.write("run-manifest.json", {
+      ...manifestBase,
+      status: finalStatus,
+      completedAt,
+      organizationsDiscovered: discoveredCount,
+      organizationsSelected: selectedCount,
+      errorCount: updatedTelemetry.errors.length,
+      fatalError: fatalError ?? null
+    });
+    if (workbookWritten) {
+      try {
+        const updatedWorkbook = await createRunWorkbook({
+          runId: artifacts.runId,
+          runDirectory: artifacts.runDirectory,
+          status: finalStatus,
+          startedAt: String(manifestBase.startedAt),
+          completedAt,
+          provider,
+          model,
+          rules,
+          summaries
+        });
+        await artifacts.writeBuffer(`negative-keyword-sweeper-${artifacts.runId}.xlsx`, updatedWorkbook);
+      } catch {
+        // The original workbook remains available even if its status cell could not be refreshed.
+      }
+    }
+    await emailAlerts?.flush();
+    return finalStatus;
+  }
 }
 
 export function createRunTokenUsageReport(
