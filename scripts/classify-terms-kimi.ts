@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { loadRuleSet } from "../src/config/rule-set.js";
 import { buildClassifierPrompt, createResponseSchema } from "../src/llm/prompt.js";
+import { parseClassifierPayload } from "../src/llm/parse-classifier-payload.js";
 import { validateDecisions } from "../src/llm/validation.js";
 import { createLogger } from "../src/observability/logger.js";
 import { addTokenUsage, emptyTokenUsage } from "../src/observability/run-telemetry.js";
@@ -22,7 +23,7 @@ import type { ClassificationCandidate, ClassificationDecision, LlmTokenUsage } f
 const KIMI_CODING_BASE_URL = "https://api.kimi.com/coding/v1";
 const MOONSHOT_PLATFORM_BASE_URL = "https://api.moonshot.ai/v1";
 const MOONSHOT_DEFAULT_MODEL = "kimi-k2.6";
-const BATCH_SIZE = 50;
+const BATCH_SIZE = 25;
 
 const logger = createLogger();
 
@@ -96,7 +97,7 @@ async function main(): Promise<void> {
         rawResponse: call.payload
       });
       try {
-        const parsed = JSON.parse(extractKimiResponseText(call.payload)) as unknown;
+        const parsed = parseClassifierPayload(extractKimiResponseText(call.payload));
         decisions.push(...validateDecisions(parsed, batch, rules));
         succeeded = true;
       } catch (error) {
@@ -374,10 +375,9 @@ async function callKimi(baseUrl: string, apiKey: string, request: Record<string,
 function extractKimiResponseText(payload: Record<string, any>): string {
   const choice = payload.choices?.[0];
   if (!isRecord(choice)) throw new Error("Kimi response had no choice.");
-  if (choice.finish_reason !== "stop") throw new Error(`Kimi response did not finish normally (${String(choice.finish_reason)}).`);
   const message = choice.message;
   if (!isRecord(message) || typeof message.content !== "string" || message.content.trim() === "") {
-    throw new Error("Kimi returned no final response content.");
+    throw new Error(`Kimi returned no final response content (${String(choice.finish_reason || "no content")}).`);
   }
   return message.content;
 }

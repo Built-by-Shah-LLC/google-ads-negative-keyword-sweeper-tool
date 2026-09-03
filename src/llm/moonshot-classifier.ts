@@ -10,6 +10,7 @@ import {
   type LlmGenerationAttempt,
   type LlmHttpAttempt
 } from "./classifier.js";
+import { parseClassifierPayload } from "./parse-classifier-payload.js";
 import { buildClassifierPrompt, createResponseSchema, FIXED_INPUT_DEFINITION } from "./prompt.js";
 import { validateDecisions } from "./validation.js";
 
@@ -64,7 +65,7 @@ export class MoonshotKeywordClassifier implements KeywordClassifier {
       const usage = normalizeMoonshotUsage(call.payload.usage);
       accumulatedUsage = addTokenUsage(accumulatedUsage, usage);
       try {
-        const parsed = JSON.parse(extractResponseText(call.payload)) as unknown;
+        const parsed = parseClassifierPayload(extractResponseText(call.payload));
         const decisions = validateDecisions(parsed, context.searchTerms, context.rules);
         attempts.push({
           attempt: validationAttempt,
@@ -260,7 +261,9 @@ function createRequest(
       }
       : {
         thinking: { type: config.thinking },
-        max_tokens: Math.min(32_768, 512 + Math.max(1, context.searchTerms.length) * 384)
+        // Thinking tokens count against max_tokens. Keep the full 32k cap so a
+        // 25-term batch cannot truncate JSON the way a per-row heuristic can.
+        max_tokens: 32_768
       })
   };
 }
@@ -277,14 +280,16 @@ function extractResponseText(payload: Record<string, any>): string {
 
 export function normalizeMoonshotUsage(value: unknown): LlmTokenUsage {
   const usage = isRecord(value) ? value : {};
+  const promptDetails = isRecord(usage.prompt_tokens_details) ? usage.prompt_tokens_details : {};
+  const completionDetails = isRecord(usage.completion_tokens_details) ? usage.completion_tokens_details : {};
   const inputTokens = tokenNumber(usage.prompt_tokens);
   const outputTokens = tokenNumber(usage.completion_tokens);
   return {
     inputTokens,
     outputTokens,
     totalTokens: tokenNumber(usage.total_tokens) || inputTokens + outputTokens,
-    cachedInputTokens: tokenNumber(usage.cached_tokens),
-    thoughtTokens: tokenNumber(usage.reasoning_tokens)
+    cachedInputTokens: tokenNumber(usage.cached_tokens) || tokenNumber(promptDetails.cached_tokens),
+    thoughtTokens: tokenNumber(usage.reasoning_tokens) || tokenNumber(completionDetails.reasoning_tokens)
   };
 }
 

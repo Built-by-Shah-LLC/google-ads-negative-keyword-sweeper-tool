@@ -10,6 +10,7 @@ import {
   type LlmGenerationAttempt,
   type LlmHttpAttempt
 } from "./classifier.js";
+import { parseClassifierPayload } from "./parse-classifier-payload.js";
 import { buildClassifierPrompt, createResponseSchema, FIXED_INPUT_DEFINITION } from "./prompt.js";
 import { validateDecisions } from "./validation.js";
 
@@ -62,7 +63,7 @@ export class OpenAIKeywordClassifier implements KeywordClassifier {
       const usage = normalizeOpenAIUsage(call.payload.usage);
       accumulatedUsage = addTokenUsage(accumulatedUsage, usage);
       try {
-        const parsed = JSON.parse(extractResponseText(call.payload)) as unknown;
+        const parsed = parseClassifierPayload(extractResponseText(call.payload));
         const decisions = validateDecisions(parsed, context.searchTerms, context.rules);
         attempts.push({
           attempt: validationAttempt,
