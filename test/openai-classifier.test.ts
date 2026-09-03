@@ -5,10 +5,14 @@ import { OpenAIKeywordClassifier } from "../src/llm/openai-classifier.js";
 import type { ClassificationCandidate, RuleSet } from "../src/types.js";
 
 const llmConfig: AppConfig["llm"] = {
+  provider: "openai",
   apiKey: "test-key",
   model: "gpt-test-model",
+  baseUrl: "https://api.openai.com/v1",
   batchSize: 50,
-  concurrency: 3
+  concurrency: 3,
+  requestTimeoutMs: 600_000,
+  maxRetries: 4
 };
 const rules: RuleSet = {
   version: "test",

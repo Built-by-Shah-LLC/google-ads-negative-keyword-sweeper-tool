@@ -116,7 +116,7 @@ test("writes reconciled organization telemetry and token artifacts", async (cont
   });
 
   assert.equal(summary.status, "SUCCEEDED");
-  assert.deepEqual(summary.dateRange, { startDate: "2026-08-24", endDate: "2026-08-25" });
+  assert.deepEqual(summary.dateRange, { startDate: "2026-08-25", endDate: "2026-08-25" });
   assert.equal(summary.decisionCount, 2);
   assert.equal(summary.tokenUsage.fixedInputTokens, 321);
   assert.equal(summary.tokenUsage.inputTokens, 200);
@@ -135,5 +135,5 @@ test("writes reconciled organization telemetry and token artifacts", async (cont
   const errors = JSON.parse(await readFile(join(artifacts.runDirectory, "organizations/123/errors.json"), "utf8"));
   assert.deepEqual(errors.errors, []);
   assert.equal(queries.length, 2);
-  assert.ok(queries.every((query) => query.includes("segments.date BETWEEN '2026-08-24' AND '2026-08-25'")));
+  assert.ok(queries.every((query) => query.includes("segments.date BETWEEN '2026-08-25' AND '2026-08-25'")));
 });

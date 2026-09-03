@@ -51,7 +51,8 @@ export class GoogleAdsClient {
               "login-customer-id": this.config.loginCustomerId,
               "content-type": "application/json"
             },
-            body: JSON.stringify(body)
+            body: JSON.stringify(body),
+            signal: AbortSignal.timeout(300_000)
           }
         );
       } catch (error) {
@@ -63,9 +64,10 @@ export class GoogleAdsClient {
           await wait(1000 * 2 ** attempt);
           continue;
         }
-        throw new PipelineError("Google Ads network request failed.", {
+        const timedOut = isTimeoutError(error);
+        throw new PipelineError(timedOut ? "Google Ads request timed out after 300000ms." : "Google Ads network request failed.", {
           stage: "GOOGLE_ADS_REQUEST",
-          code: "GOOGLE_ADS_NETWORK_ERROR",
+          code: timedOut ? "GOOGLE_ADS_TIMEOUT" : "GOOGLE_ADS_NETWORK_ERROR",
           provider: "google-ads",
           retryable: true,
           organizationId: customerIdFromPath(path)
@@ -209,4 +211,8 @@ async function safeErrorMessage(response: Response): Promise<string> {
 
 function wait(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function isTimeoutError(error: unknown): boolean {
+  return error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
 }

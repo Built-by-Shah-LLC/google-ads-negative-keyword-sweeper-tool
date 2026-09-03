@@ -20,6 +20,10 @@ export class RunArtifacts {
   }
 
   async writeText(relativePath: string, value: string): Promise<void> {
+    await this.writeBuffer(relativePath, Buffer.from(value, "utf8"));
+  }
+
+  async writeBuffer(relativePath: string, value: Uint8Array): Promise<void> {
     try {
       const target = resolve(this.runDirectory, relativePath);
       if (target !== this.runDirectory && !target.startsWith(this.runDirectory + sep)) {
@@ -27,7 +31,7 @@ export class RunArtifacts {
       }
       await mkdir(dirname(target), { recursive: true });
       const temporary = `${target}.${randomUUID()}.tmp`;
-      await writeFile(temporary, value, "utf8");
+      await writeFile(temporary, value);
       await rename(temporary, target);
     } catch (error) {
       this.onWriteError?.(error, relativePath);

@@ -11,13 +11,20 @@ export interface AppConfig {
     refreshToken: string;
   };
   llm: {
+    provider: LlmProvider;
     apiKey: string;
     model: string;
+    baseUrl: string;
     batchSize: number;
     concurrency: number;
+    requestTimeoutMs: number;
+    maxRetries: number;
   };
+  processingTimeZone: string;
   googleFetchConcurrency: number;
 }
+
+export type LlmProvider = "moonshot" | "openai" | "gemini" | "kimi-code";
 
 export interface LoggingConfig {
   level: "trace" | "debug" | "info" | "warn" | "error" | "fatal" | "silent";
@@ -43,9 +50,22 @@ export type EmailAlertConfig = {
   };
 };
 
+export type RunReportEmailConfig = {
+  enabled: false;
+} | {
+  enabled: true;
+  apiKey: string;
+  recipients: string[];
+  from: string;
+  subjectPrefix: string;
+  requestTimeoutMs: number;
+  maxRetries: number;
+};
+
 export interface OperationalConfig {
   logging: LoggingConfig;
   emailAlerts: EmailAlertConfig;
+  runReportEmail: RunReportEmailConfig;
 }
 
 function parseDotEnv(source: string): Record<string, string> {
@@ -110,11 +130,13 @@ export async function loadOperationalConfig(rootDirectory = process.cwd()): Prom
 
   const handledErrorCodes = commaSeparated(env.ALERT_HANDLED_ERROR_CODES);
   const handledErrorStages = commaSeparated(env.ALERT_HANDLED_ERROR_STAGES);
+  const runReportEmail = loadRunReportEmailConfig(env);
   const enabled = booleanValue(env.ERROR_EMAIL_ENABLED, false, "ERROR_EMAIL_ENABLED");
   if (!enabled) {
     return {
       logging: { level: level as LoggingConfig["level"] },
-      emailAlerts: { enabled: false, handledErrorCodes, handledErrorStages }
+      emailAlerts: { enabled: false, handledErrorCodes, handledErrorStages },
+      runReportEmail
     };
   }
 
@@ -142,6 +164,7 @@ export async function loadOperationalConfig(rootDirectory = process.cwd()): Prom
   }
   return {
     logging: { level: level as LoggingConfig["level"] },
+    runReportEmail,
     emailAlerts: {
       enabled: true,
       recipients,
@@ -156,15 +179,17 @@ export async function loadOperationalConfig(rootDirectory = process.cwd()): Prom
 
 export async function loadConfig(rootDirectory = process.cwd()): Promise<AppConfig> {
   const env = await loadEnvironment(rootDirectory);
+  const provider = llmProvider(env.LLM_PROVIDER);
+  const providerConfig = selectedProviderConfig(provider, env);
   const required = [
     "GOOGLE_ADS_DEVELOPER_TOKEN",
     "GOOGLE_ADS_LOGIN_CUSTOMER_ID",
     "GOOGLE_ADS_CLIENT_ID",
     "GOOGLE_ADS_CLIENT_SECRET",
-    "GOOGLE_ADS_REFRESH_TOKEN",
-    "OPENAI_API_KEY"
+    "GOOGLE_ADS_REFRESH_TOKEN"
   ] as const;
-  const missing = required.filter((name) => !env[name]);
+  const missing: string[] = required.filter((name) => !env[name]);
+  if (!providerConfig.apiKey) missing.push(providerConfig.apiKeyVariable);
   if (missing.length > 0) {
     throw new Error(`Missing required configuration: ${missing.join(", ")}`);
   }
@@ -179,11 +204,94 @@ export async function loadConfig(rootDirectory = process.cwd()): Promise<AppConf
       refreshToken: env.GOOGLE_ADS_REFRESH_TOKEN!
     },
     llm: {
-      apiKey: env.OPENAI_API_KEY!,
-      model: env.OPENAI_MODEL || env.LLM_MODEL || "gpt-5.6-luna",
+      provider,
+      apiKey: providerConfig.apiKey,
+      model: providerConfig.model,
+      baseUrl: providerConfig.baseUrl,
       batchSize: positiveInteger(env.LLM_BATCH_SIZE, 50, "LLM_BATCH_SIZE"),
-      concurrency: positiveInteger(env.LLM_CONCURRENCY, 3, "LLM_CONCURRENCY")
+      concurrency: positiveInteger(env.LLM_CONCURRENCY, 3, "LLM_CONCURRENCY"),
+      requestTimeoutMs: positiveInteger(env.LLM_REQUEST_TIMEOUT_MS, 600_000, "LLM_REQUEST_TIMEOUT_MS"),
+      maxRetries: positiveInteger(env.LLM_MAX_ATTEMPTS, 5, "LLM_MAX_ATTEMPTS") - 1
     },
+    processingTimeZone: timeZoneValue(env.RUN_TIME_ZONE || "Europe/Moscow", "RUN_TIME_ZONE"),
     googleFetchConcurrency: positiveInteger(env.GOOGLE_FETCH_CONCURRENCY, 5, "GOOGLE_FETCH_CONCURRENCY")
+  };
+}
+
+function timeZoneValue(value: string, name: string): string {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: value }).format(new Date());
+    return value;
+  } catch {
+    throw new Error(`${name} must be a valid IANA timezone, such as Europe/Moscow.`);
+  }
+}
+
+function llmProvider(value: string | undefined): LlmProvider {
+  const normalized = (value || "moonshot").trim().toLowerCase();
+  if (normalized === "google-gemini") return "gemini";
+  if (normalized === "kimi" || normalized === "moonshot-kimi") return "moonshot";
+  if (normalized === "moonshot" || normalized === "openai" || normalized === "gemini" || normalized === "kimi-code") {
+    return normalized;
+  }
+  throw new Error("LLM_PROVIDER must be moonshot, openai, gemini, or kimi-code.");
+}
+
+function selectedProviderConfig(
+  provider: LlmProvider,
+  env: Record<string, string | undefined>
+): { apiKeyVariable: string; apiKey: string; model: string; baseUrl: string } {
+  if (provider === "openai") {
+    return {
+      apiKeyVariable: "OPENAI_API_KEY",
+      apiKey: env.OPENAI_API_KEY || "",
+      model: env.OPENAI_MODEL || env.LLM_MODEL || "gpt-5-mini",
+      baseUrl: "https://api.openai.com/v1"
+    };
+  }
+  if (provider === "gemini") {
+    return {
+      apiKeyVariable: "GEMINI_API_KEY",
+      apiKey: env.GEMINI_API_KEY || "",
+      model: env.GEMINI_MODEL || env.LLM_MODEL || "gemini-3.1-flash-lite",
+      baseUrl: "https://generativelanguage.googleapis.com/v1beta"
+    };
+  }
+  if (provider === "kimi-code") {
+    return {
+      apiKeyVariable: "KIMI_API_KEY",
+      apiKey: env.KIMI_API_KEY || "",
+      model: env.KIMI_MODEL || env.LLM_MODEL || "kimi-for-coding",
+      baseUrl: (env.KIMI_BASE_URL || "https://api.kimi.com/coding/v1").replace(/\/$/u, "")
+    };
+  }
+  return {
+    apiKeyVariable: "MOONSHOT_API_KEY",
+    apiKey: env.MOONSHOT_API_KEY || "",
+    model: env.MOONSHOT_MODEL || env.LLM_MODEL || "kimi-k2.6",
+    baseUrl: (env.MOONSHOT_BASE_URL || "https://api.moonshot.ai/v1").replace(/\/$/u, "")
+  };
+}
+
+function loadRunReportEmailConfig(env: Record<string, string | undefined>): RunReportEmailConfig {
+  const enabled = booleanValue(env.RUN_REPORT_EMAIL_ENABLED, false, "RUN_REPORT_EMAIL_ENABLED");
+  if (!enabled) return { enabled: false };
+  const recipients = commaSeparated(env.RUN_REPORT_EMAIL_TO);
+  const missing = [
+    !env.RESEND_API_KEY ? "RESEND_API_KEY" : null,
+    recipients.length === 0 ? "RUN_REPORT_EMAIL_TO" : null,
+    !env.RUN_REPORT_EMAIL_FROM ? "RUN_REPORT_EMAIL_FROM" : null
+  ].filter((item): item is string => item !== null);
+  if (missing.length > 0) {
+    throw new Error(`Run report email is enabled but configuration is missing: ${missing.join(", ")}`);
+  }
+  return {
+    enabled: true,
+    apiKey: env.RESEND_API_KEY!,
+    recipients,
+    from: env.RUN_REPORT_EMAIL_FROM!,
+    subjectPrefix: env.RUN_REPORT_EMAIL_SUBJECT_PREFIX || "[Negative Keyword Sweeper]",
+    requestTimeoutMs: positiveInteger(env.RESEND_REQUEST_TIMEOUT_MS, 60_000, "RESEND_REQUEST_TIMEOUT_MS"),
+    maxRetries: positiveInteger(env.RESEND_MAX_ATTEMPTS, 5, "RESEND_MAX_ATTEMPTS") - 1
   };
 }

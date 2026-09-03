@@ -44,6 +44,7 @@ interface ProcessOrganizationDependencies {
   telemetry: RunTelemetry;
   rules: RuleSet;
   batchSize: number;
+  candidateLimit?: number | null;
   llmLimit: Limit;
 }
 
@@ -53,8 +54,8 @@ export async function processOrganization(
   dependencies: ProcessOrganizationDependencies
 ): Promise<OrganizationSummary> {
   const dateRange = requestedDate
-    ? twoDayRangeEndingOn(requestedDate)
-    : lastTwoCompletedDatesInTimeZone(organization.timeZone);
+    ? singleDateRange(requestedDate)
+    : date48HoursBackInTimeZone(organization.timeZone);
   const basePath = `organizations/${organization.customerId}`;
   const errorContext = { organizationId: organization.customerId };
   let rawRowCount = 0;
@@ -77,9 +78,21 @@ export async function processOrganization(
       rows
     });
 
-    const candidates = aggregateCandidates(rows);
+    const availableCandidates = aggregateCandidates(rows);
+    const candidates = dependencies.candidateLimit === null || dependencies.candidateLimit === undefined
+      ? availableCandidates
+      : availableCandidates.slice(0, dependencies.candidateLimit);
     candidateCount = candidates.length;
-    await dependencies.artifacts.write(`${basePath}/candidates.json`, { organization, dateRange, candidates });
+    await dependencies.artifacts.write(`${basePath}/candidates.json`, {
+      organization,
+      dateRange,
+      candidateSelection: {
+        availableCount: availableCandidates.length,
+        processedCount: candidates.length,
+        limitApplied: dependencies.candidateLimit ?? null
+      },
+      candidates
+    });
 
     try {
       fixedInput = await dependencies.telemetry.track("LLM_FIXED_TOKEN_COUNT", {
@@ -459,7 +472,7 @@ function recordAttempts(
   }
 }
 
-export function lastTwoCompletedDatesInTimeZone(timeZone: string, now = new Date()): DateRange {
+export function date48HoursBackInTimeZone(timeZone: string, now = new Date()): DateRange {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone,
     year: "numeric",
@@ -468,19 +481,16 @@ export function lastTwoCompletedDatesInTimeZone(timeZone: string, now = new Date
   }).formatToParts(now);
   const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
   const localMidnightUtc = Date.UTC(Number(values.year), Number(values.month) - 1, Number(values.day));
-  const endDate = new Date(localMidnightUtc - 86_400_000).toISOString().slice(0, 10);
-  return twoDayRangeEndingOn(endDate);
+  const processingDate = new Date(localMidnightUtc - 2 * 86_400_000).toISOString().slice(0, 10);
+  return { startDate: processingDate, endDate: processingDate };
 }
 
-export function twoDayRangeEndingOn(endDate: string): DateRange {
-  const parsed = new Date(`${endDate}T00:00:00Z`);
-  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== endDate) {
-    throw new Error(`Invalid end date '${endDate}'. Expected YYYY-MM-DD.`);
+export function singleDateRange(date: string): DateRange {
+  const parsed = new Date(`${date}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date) {
+    throw new Error(`Invalid date '${date}'. Expected YYYY-MM-DD.`);
   }
-  return {
-    startDate: new Date(parsed.getTime() - 86_400_000).toISOString().slice(0, 10),
-    endDate
-  };
+  return { startDate: date, endDate: date };
 }
 
 function formatDateRange(dateRange: DateRange): string {

@@ -13,9 +13,10 @@ import {
 import { buildClassifierPrompt, createResponseSchema, FIXED_INPUT_DEFINITION } from "./prompt.js";
 import { validateDecisions } from "./validation.js";
 
-const RETRYABLE_STATUS = new Set([408, 409, 429, 500, 502, 503, 504]);
-export class OpenAIKeywordClassifier implements KeywordClassifier {
-  readonly provider = "openai";
+const RETRYABLE_STATUS = new Set([408, 429, 500, 502, 503, 504]);
+
+export class GeminiKeywordClassifier implements KeywordClassifier {
+  readonly provider = "google-gemini";
   readonly model: string;
 
   constructor(private readonly config: AppConfig["llm"]) {
@@ -24,7 +25,7 @@ export class OpenAIKeywordClassifier implements KeywordClassifier {
 
   async classify(context: ClassificationContext): Promise<ClassificationResult> {
     if (context.searchTerms.length === 0) throw new Error("Cannot classify an empty search-term batch.");
-    const request = createRequest(this.model, context, createResponseSchema(
+    const request = createRequest(context, createResponseSchema(
       context.searchTerms.map((term) => term.itemId),
       context.rules.ruleIds
     ));
@@ -34,11 +35,11 @@ export class OpenAIKeywordClassifier implements KeywordClassifier {
     let lastError: Error | null = null;
 
     for (let validationAttempt = 1; validationAttempt <= 2; validationAttempt += 1) {
-      let call: OpenAICallResult;
+      let call: GeminiCallResult;
       try {
-        call = await this.callOpenAI(request);
+        call = await this.callEndpoint("generateContent", request, "LLM_REQUEST");
       } catch (error) {
-        const requestError = error instanceof OpenAIRequestError ? error : null;
+        const requestError = error instanceof GeminiRequestError ? error : null;
         attempts.push({
           attempt: validationAttempt,
           outcome: "REQUEST_FAILED",
@@ -49,7 +50,7 @@ export class OpenAIKeywordClassifier implements KeywordClassifier {
           rawResponse: null
         });
         throw new ClassificationFailure(
-          `OpenAI request failed: ${errorMessage(error)}`,
+          `Gemini request failed: ${errorMessage(error)}`,
           request,
           attempts,
           lastResponse,
@@ -59,7 +60,7 @@ export class OpenAIKeywordClassifier implements KeywordClassifier {
       }
 
       lastResponse = call.payload;
-      const usage = normalizeOpenAIUsage(call.payload.usage);
+      const usage = normalizeGeminiUsage(call.payload.usageMetadata);
       accumulatedUsage = addTokenUsage(accumulatedUsage, usage);
       try {
         const parsed = JSON.parse(extractResponseText(call.payload)) as unknown;
@@ -95,7 +96,7 @@ export class OpenAIKeywordClassifier implements KeywordClassifier {
     }
 
     throw new ClassificationFailure(
-      `OpenAI returned invalid structured output twice: ${lastError?.message || "unknown error"}`,
+      `Gemini returned invalid structured output twice: ${lastError?.message || "unknown error"}`,
       request,
       attempts,
       lastResponse,
@@ -107,17 +108,11 @@ export class OpenAIKeywordClassifier implements KeywordClassifier {
   async countFixedInputTokens(
     context: Omit<ClassificationContext, "searchTerms">
   ): Promise<FixedInputTokenCount> {
-    const request = createRequest(this.model, { ...context, searchTerms: [] }, createResponseSchema([], context.rules.ruleIds));
-    const countRequest = {
-      model: request.model,
-      instructions: request.instructions,
-      input: request.input,
-      reasoning: request.reasoning,
-      text: request.text
-    };
-    const call = await this.callEndpoint(`${this.config.baseUrl}/responses/input_tokens`, countRequest, "LLM_FIXED_TOKEN_COUNT");
-    if (!nonNegativeNumber(call.payload.input_tokens)) {
-      throw new PipelineError("OpenAI input-token response omitted input_tokens.", {
+    const request = createRequest({ ...context, searchTerms: [] }, createResponseSchema([], context.rules.ruleIds));
+    const countBody = { generateContentRequest: { model: `models/${this.model}`, ...request } };
+    const call = await this.callEndpoint("countTokens", countBody, "LLM_FIXED_TOKEN_COUNT");
+    if (!nonNegativeNumber(call.payload.totalTokens)) {
+      throw new PipelineError("Gemini countTokens response omitted totalTokens.", {
         stage: "LLM_FIXED_TOKEN_COUNT",
         code: "LLM_COUNT_TOKENS_INVALID_RESPONSE",
         provider: this.provider,
@@ -126,7 +121,7 @@ export class OpenAIKeywordClassifier implements KeywordClassifier {
       });
     }
     return {
-      totalTokens: call.payload.input_tokens,
+      totalTokens: call.payload.totalTokens,
       countedAt: new Date().toISOString(),
       definition: FIXED_INPUT_DEFINITION,
       model: this.model,
@@ -136,16 +131,13 @@ export class OpenAIKeywordClassifier implements KeywordClassifier {
     };
   }
 
-  private callOpenAI(request: Record<string, unknown>): Promise<OpenAICallResult> {
-    return this.callEndpoint(`${this.config.baseUrl}/responses`, request, "LLM_REQUEST");
-  }
-
   private async callEndpoint(
-    url: string,
+    operation: "generateContent" | "countTokens",
     request: Record<string, unknown>,
     stage: "LLM_REQUEST" | "LLM_FIXED_TOKEN_COUNT"
-  ): Promise<OpenAICallResult> {
+  ): Promise<GeminiCallResult> {
     const attempts: LlmHttpAttempt[] = [];
+    const url = `${this.config.baseUrl}/models/${encodeURIComponent(this.model)}:${operation}`;
     for (let attempt = 0; attempt <= this.config.maxRetries; attempt += 1) {
       const startedAt = new Date().toISOString();
       const started = performance.now();
@@ -153,31 +145,22 @@ export class OpenAIKeywordClassifier implements KeywordClassifier {
       try {
         response = await fetch(url, {
           method: "POST",
-          headers: {
-            authorization: `Bearer ${this.config.apiKey}`,
-            "content-type": "application/json"
-          },
+          headers: { "x-goog-api-key": this.config.apiKey, "content-type": "application/json" },
           body: JSON.stringify(request),
           signal: AbortSignal.timeout(this.config.requestTimeoutMs)
         });
       } catch (error) {
         const retrying = attempt < this.config.maxRetries;
-        const timedOut = isTimeoutError(error);
-        attempts.push(httpAttempt(
-          attempt + 1,
-          startedAt,
-          started,
-          null,
-          null,
-          retrying,
-          timedOut ? `Request timed out after ${this.config.requestTimeoutMs}ms` : errorMessage(error)
-        ));
+        const detail = isTimeoutError(error)
+          ? `Request timed out after ${this.config.requestTimeoutMs}ms`
+          : errorMessage(error);
+        attempts.push(httpAttempt(attempt + 1, startedAt, started, null, null, retrying, detail));
         if (retrying) {
           await wait(backoffMs(attempt));
           continue;
         }
-        throw new OpenAIRequestError(
-          timedOut ? `OpenAI request timed out after ${this.config.requestTimeoutMs}ms.` : "OpenAI network request failed.",
+        throw new GeminiRequestError(
+          isTimeoutError(error) ? `Gemini request timed out after ${this.config.requestTimeoutMs}ms.` : "Gemini network request failed.",
           attempts,
           null,
           { cause: asError(error) }
@@ -185,44 +168,41 @@ export class OpenAIKeywordClassifier implements KeywordClassifier {
       }
 
       const payload = await readJsonSafely(response);
-      const requestId = response.headers.get("x-request-id") || (isRecord(payload) && typeof payload.id === "string" ? payload.id : null);
+      const requestId = response.headers.get("x-request-id") || response.headers.get("x-goog-request-id");
       if (!response.ok || !isRecord(payload)) {
         const detail = safeErrorMessage(payload);
-        const retrying = RETRYABLE_STATUS.has(response.status) && attempt < this.config.maxRetries;
+        const permanentQuotaFailure = response.status === 429 && /prepayment credits are depleted/iu.test(detail);
+        const retrying = RETRYABLE_STATUS.has(response.status) && attempt < this.config.maxRetries && !permanentQuotaFailure;
         attempts.push(httpAttempt(attempt + 1, startedAt, started, response.status, requestId, retrying, detail));
         if (retrying) {
           await wait(retryDelayMs(response, attempt));
           continue;
         }
-        throw new OpenAIRequestError(
-          `HTTP ${response.status}: ${detail}`,
-          attempts,
-          requestId,
-          { cause: new PipelineError(detail, {
+        throw new GeminiRequestError(`HTTP ${response.status}: ${detail}`, attempts, requestId, {
+          cause: new PipelineError(detail, {
             stage,
             code: "LLM_HTTP_ERROR",
             provider: this.provider,
             statusCode: response.status,
             requestId,
-            retryable: RETRYABLE_STATUS.has(response.status)
-          }) }
-        );
+            retryable: RETRYABLE_STATUS.has(response.status) && !permanentQuotaFailure
+          })
+        });
       }
-
       attempts.push(httpAttempt(attempt + 1, startedAt, started, response.status, requestId, false, null, "SUCCEEDED"));
       return { payload, requestId, attempts };
     }
-    throw new OpenAIRequestError("OpenAI retry loop ended unexpectedly.", attempts, null);
+    throw new GeminiRequestError("Gemini retry loop ended unexpectedly.", attempts, null);
   }
 }
 
-interface OpenAICallResult {
+interface GeminiCallResult {
   payload: Record<string, any>;
   requestId: string | null;
   attempts: LlmHttpAttempt[];
 }
 
-class OpenAIRequestError extends Error {
+class GeminiRequestError extends Error {
   constructor(
     message: string,
     readonly attempts: LlmHttpAttempt[],
@@ -230,77 +210,49 @@ class OpenAIRequestError extends Error {
     options?: ErrorOptions
   ) {
     super(message, options);
-    this.name = "OpenAIRequestError";
+    this.name = "GeminiRequestError";
   }
 }
 
-function createRequest(
-  model: string,
-  context: ClassificationContext,
-  schema: Record<string, unknown>
-): Record<string, unknown> {
+function createRequest(context: ClassificationContext, responseSchema: Record<string, unknown>): Record<string, unknown> {
   const prompt = buildClassifierPrompt(context);
-  const text: Record<string, unknown> = {
-    format: {
-      type: "json_schema",
-      name: "negative_keyword_decisions",
-      strict: true,
-      schema
+  return {
+    systemInstruction: { parts: [{ text: prompt.systemInstruction }] },
+    contents: [{ role: "user", parts: [{ text: prompt.userPrompt }] }],
+    generationConfig: {
+      candidateCount: 1,
+      temperature: 0,
+      seed: 260826,
+      maxOutputTokens: Math.min(65_536, 512 + Math.max(1, context.searchTerms.length) * 512),
+      responseMimeType: "application/json",
+      responseJsonSchema: responseSchema
     }
   };
-  const request: Record<string, unknown> = {
-    model,
-    instructions: prompt.systemInstruction,
-    input: prompt.userPrompt,
-    max_output_tokens: Math.min(modelOutputTokenLimit(model), 512 + Math.max(1, context.searchTerms.length) * 384),
-    text,
-    store: false,
-    prompt_cache_key: `negative-keyword-sweeper:${context.rules.version}`
-  };
-  if (supportsReasoningControls(model)) {
-    request.reasoning = { effort: "low" };
-    text.verbosity = "low";
-  }
-  return request;
-}
-
-function supportsReasoningControls(model: string): boolean {
-  return !model.startsWith("gpt-4");
-}
-
-function modelOutputTokenLimit(model: string): number {
-  if (model.startsWith("gpt-4o-mini")) return 16_384;
-  if (model.startsWith("gpt-4.1")) return 32_768;
-  return 65_536;
 }
 
 function extractResponseText(payload: Record<string, any>): string {
-  const content = Array.isArray(payload.output)
-    ? payload.output.flatMap((item: unknown) => isRecord(item) && Array.isArray(item.content) ? item.content : [])
-    : [];
-  const text = content
-    .filter((item: unknown) => isRecord(item) && item.type === "output_text" && typeof item.text === "string")
-    .map((item: Record<string, any>) => item.text)
-    .join("");
-  if (!text) {
-    const detail = payload.error?.message || payload.incomplete_details?.reason || payload.status || "no output text";
-    throw new Error(`OpenAI response had no output text (${detail}).`);
+  const candidate = payload.candidates?.[0];
+  const parts = candidate?.content?.parts;
+  if (!Array.isArray(parts)) {
+    const reason = candidate?.finishReason || payload.promptFeedback?.blockReason || "no candidate returned";
+    throw new Error(`Gemini response had no content (${reason}).`);
   }
+  const text = parts.map((part: unknown) => isRecord(part) && typeof part.text === "string" ? part.text : "").join("");
+  if (!text) throw new Error("Gemini response contained no text.");
   return text;
 }
 
-export function normalizeOpenAIUsage(value: unknown): LlmTokenUsage {
+export function normalizeGeminiUsage(value: unknown): LlmTokenUsage {
   const usage = isRecord(value) ? value : {};
-  const inputDetails = isRecord(usage.input_tokens_details) ? usage.input_tokens_details : {};
-  const outputDetails = isRecord(usage.output_tokens_details) ? usage.output_tokens_details : {};
-  const inputTokens = tokenNumber(usage.input_tokens);
-  const outputTokens = tokenNumber(usage.output_tokens);
+  const inputTokens = tokenNumber(usage.promptTokenCount);
+  const outputTokens = tokenNumber(usage.candidatesTokenCount);
+  const thoughtTokens = tokenNumber(usage.thoughtsTokenCount);
   return {
     inputTokens,
     outputTokens,
-    totalTokens: tokenNumber(usage.total_tokens) || inputTokens + outputTokens,
-    cachedInputTokens: tokenNumber(inputDetails.cached_tokens),
-    thoughtTokens: tokenNumber(outputDetails.reasoning_tokens)
+    totalTokens: tokenNumber(usage.totalTokenCount) || inputTokens + outputTokens + thoughtTokens,
+    cachedInputTokens: tokenNumber(usage.cachedContentTokenCount),
+    thoughtTokens
   };
 }
 
@@ -338,6 +290,13 @@ function tokenNumber(value: unknown): number {
   return nonNegativeNumber(value) ? value : 0;
 }
 
+function safeErrorMessage(payload: unknown): string {
+  const error = isRecord(payload) && isRecord(payload.error) ? payload.error : null;
+  const code = typeof error?.status === "string" ? error.status : typeof error?.code === "string" ? error.code : "UNKNOWN";
+  const message = typeof error?.message === "string" ? error.message : "No message returned";
+  return `${code}: ${message}`;
+}
+
 function retryDelayMs(response: Response, attempt: number): number {
   const retryAfter = response.headers.get("retry-after");
   const seconds = retryAfter && /^\d+(?:\.\d+)?$/u.test(retryAfter) ? Number(retryAfter) : 0;
@@ -348,13 +307,6 @@ function backoffMs(attempt: number): number {
   return 1000 * 2 ** attempt;
 }
 
-function safeErrorMessage(payload: unknown): string {
-  const error = isRecord(payload) && isRecord(payload.error) ? payload.error : null;
-  const code = typeof error?.code === "string" ? error.code : "UNKNOWN";
-  const message = typeof error?.message === "string" ? error.message : "No message returned";
-  return `${code}: ${message}`;
-}
-
 async function readJsonSafely(response: Response): Promise<unknown> {
   try {
     return await response.json();
@@ -363,12 +315,12 @@ async function readJsonSafely(response: Response): Promise<unknown> {
   }
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 function isTimeoutError(error: unknown): boolean {
   return error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function asError(error: unknown): Error {
