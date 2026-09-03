@@ -120,4 +120,14 @@ test("creates one organization worksheet with decisions, batch tokens, rules, an
   assert.match(values, /Free-item intent/u);
   assert.match(values, /timed out after 600000ms/u);
   assert.match(values, /POL-FREE-NEGATIVE/u);
+
+  // Rows classified as negative keywords must be highlighted light red (FFF4CCCC).
+  const sheet = workbook.worksheets[0]!;
+  let negativeRowFill: string | undefined;
+  sheet.eachRow((row) => {
+    if (row.getCell(21).value === "NEGATIVE_EXACT") {
+      negativeRowFill = (row.getCell(21).fill as ExcelJS.FillPattern)?.fgColor?.argb;
+    }
+  });
+  assert.equal(negativeRowFill, "FFF4CCCC");
 });

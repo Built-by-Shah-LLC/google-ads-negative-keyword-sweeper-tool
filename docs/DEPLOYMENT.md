@@ -41,8 +41,16 @@ powershell -File scripts/deploy/deploy-gcloud.ps1 -ProjectId YOUR_PROJECT_ID -Re
 ```
 
 The script is idempotent; re-run it after code changes to rebuild and redeploy.
-Optional parameters `-Schedule "0 6 * * *"` and `-ScheduleTimeZone "UTC"` control the
-daily trigger. The job defaults to `--all-organizations`.
+Optional parameters `-Schedule "0 6 * * *"` and `-ScheduleTimeZone "America/Los_Angeles"`
+control the daily trigger — the default fires at **6:00 AM Pacific** (PST/PDT). The job
+defaults to `--all-organizations`.
+
+Run scope is controlled by two `.env` settings (uploaded as plain job env vars):
+
+- `CAMPAIGN_NAME_CONTAINS` — only campaigns whose name contains this text
+  (case-insensitive) are handled. Defaults to `Built by Shah`; set it empty to disable.
+- `ACCOUNT_ALLOWLIST` — comma-separated customer IDs (dashes optional) or account-name
+  fragments. Empty means every enabled leaf account under the MCC.
 
 ## Operate
 

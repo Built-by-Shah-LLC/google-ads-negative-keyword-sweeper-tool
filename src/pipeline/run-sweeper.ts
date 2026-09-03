@@ -1,7 +1,7 @@
 import type { AppConfig } from "../config/env.js";
 import type { RuleSet } from "../types.js";
 import { GoogleAdsClient } from "../google-ads/client.js";
-import { fetchOrganizations } from "../google-ads/organizations.js";
+import { fetchOrganizations, filterOrganizationsByAllowlist } from "../google-ads/organizations.js";
 import { createKeywordClassifier } from "../llm/classifier-factory.js";
 import type { EmailAlertService } from "../notifications/email-alerts.js";
 import type { RunReportEmailService } from "../notifications/run-report-email.js";
@@ -72,6 +72,10 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
       promptVersion: rules.promptVersion
     },
     llm: { provider: classifier.provider, model: classifier.model },
+    filters: {
+      campaignNameContains: config.campaignNameContains,
+      accountAllowlistEntries: config.accountAllowlist.length
+    },
     limits: {
       googleFetchConcurrency: config.googleFetchConcurrency,
       llmConcurrency: config.llm.concurrency,
@@ -92,10 +96,11 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
       fetchOrganizations(googleAds, config.googleAds.loginCustomerId)
     );
     discoveredCount = discovered.length;
-    let selected = discovered;
+    const eligible = filterOrganizationsByAllowlist(discovered, config.accountAllowlist);
+    let selected = eligible;
     if (options.customerId) {
       const customerId = options.customerId.replaceAll("-", "");
-      selected = discovered.filter((organization) => organization.customerId === customerId);
+      selected = eligible.filter((organization) => organization.customerId === customerId);
       if (selected.length === 0) {
         throw new PipelineError(
           `Customer ${customerId} was not found as an enabled leaf account.`,
@@ -103,16 +108,18 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
         );
       }
     } else if (!options.allOrganizations) {
-      selected = discovered.slice(0, options.organizationLimit ?? 1);
+      selected = eligible.slice(0, options.organizationLimit ?? 1);
     }
     if (selected.length === 0) {
       throw new PipelineError(
-        "No enabled leaf organizations were selected; refusing to report an empty successful run.",
+        config.accountAllowlist.length > 0
+          ? "No enabled leaf organizations matched the account allowlist; refusing to report an empty successful run."
+          : "No enabled leaf organizations were selected; refusing to report an empty successful run.",
         { stage: "ORGANIZATION_SELECTION", code: "NO_ORGANIZATIONS_SELECTED", retryable: false }
       );
     }
     selectedCount = selected.length;
-    await artifacts.write("organizations.json", { discovered, selected });
+    await artifacts.write("organizations.json", { discovered, eligible, selected });
 
     const fetchLimit = createLimiter(config.googleFetchConcurrency);
     const llmLimit = createLimiter(config.llm.concurrency);
@@ -127,6 +134,7 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
         rules,
         batchSize: config.llm.batchSize,
         candidateLimit: options.candidateLimitPerOrganization,
+        campaignNameContains: config.campaignNameContains,
         llmLimit
       }
     ))));

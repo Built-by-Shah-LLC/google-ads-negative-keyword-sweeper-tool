@@ -23,6 +23,16 @@ export interface AppConfig {
   };
   processingTimeZone: string;
   googleFetchConcurrency: number;
+  /**
+   * Only campaigns whose name contains this text (case-insensitive) are handled.
+   * Defaults to "Built by Shah"; set CAMPAIGN_NAME_CONTAINS to an empty value to disable.
+   */
+  campaignNameContains: string | null;
+  /**
+   * Optional allowlist of accounts to process: customer IDs (digits, dashes ignored)
+   * or case-insensitive account-name fragments. Empty means every enabled leaf account.
+   */
+  accountAllowlist: string[];
 }
 
 export type LlmProvider = "moonshot" | "openai" | "gemini" | "kimi-code";
@@ -216,8 +226,16 @@ export async function loadConfig(rootDirectory = process.cwd()): Promise<AppConf
       maxRetries: positiveInteger(env.LLM_MAX_ATTEMPTS, 5, "LLM_MAX_ATTEMPTS") - 1
     },
     processingTimeZone: timeZoneValue(env.RUN_TIME_ZONE || "Europe/Moscow", "RUN_TIME_ZONE"),
-    googleFetchConcurrency: positiveInteger(env.GOOGLE_FETCH_CONCURRENCY, 5, "GOOGLE_FETCH_CONCURRENCY")
+    googleFetchConcurrency: positiveInteger(env.GOOGLE_FETCH_CONCURRENCY, 5, "GOOGLE_FETCH_CONCURRENCY"),
+    campaignNameContains: campaignNameContainsValue(env.CAMPAIGN_NAME_CONTAINS),
+    accountAllowlist: commaSeparated(env.ACCOUNT_ALLOWLIST)
   };
+}
+
+function campaignNameContainsValue(value: string | undefined): string | null {
+  if (value === undefined) return "Built by Shah";
+  const trimmed = value.trim();
+  return trimmed === "" ? null : trimmed;
 }
 
 function timeZoneValue(value: string, name: string): string {

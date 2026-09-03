@@ -23,6 +23,9 @@ interface OrganizationArtifacts {
   errors: SerializedError[];
 }
 
+// Light red highlight for rows whose candidate was classified as a negative keyword.
+const LIGHT_RED_ARGB = "FFF4CCCC";
+
 export async function createRunWorkbook(input: RunWorkbookInput): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "Google Ads Negative Keyword Sweeper";
@@ -205,7 +208,7 @@ function addOrganizationSheet(
   const decisionsById = new Map(artifacts.decisions.map((decision) => [decision.itemId, decision]));
   for (const candidate of artifacts.candidates) {
     const decision = decisionsById.get(candidate.itemId);
-    sheet.addRow([
+    const decisionRow = sheet.addRow([
       decision ? "VALIDATED" : "MISSING_OR_FAILED",
       safeCell(summary.customerId),
       safeCell(summary.descriptiveName),
@@ -234,6 +237,9 @@ function addOrganizationSheet(
       input.provider,
       input.model
     ]);
+    if (decision?.decision === "NEGATIVE_EXACT") {
+      decisionRow.fill = { type: "pattern", pattern: "solid", fgColor: { argb: LIGHT_RED_ARGB } };
+    }
   }
   if (artifacts.candidates.length === 0) sheet.addRow(["No candidates were fetched for this organization."]);
 

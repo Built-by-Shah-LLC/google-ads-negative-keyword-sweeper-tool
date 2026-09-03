@@ -1,4 +1,4 @@
-import type { DateRange, FixedInputTokenCount, LlmTokenUsage, Organization, RuleSet } from "../types.js";
+import type { DateRange, FixedInputTokenCount, LlmTokenUsage, Organization, RuleSet, SearchTermRow } from "../types.js";
 import type { GoogleAdsClient } from "../google-ads/client.js";
 import { aggregateCandidates, fetchSearchTermsForDateRange } from "../google-ads/search-terms.js";
 import { ClassificationFailure, type KeywordClassifier, type LlmGenerationAttempt } from "../llm/classifier.js";
@@ -45,6 +45,7 @@ interface ProcessOrganizationDependencies {
   rules: RuleSet;
   batchSize: number;
   candidateLimit?: number | null;
+  campaignNameContains?: string | null;
   llmLimit: Limit;
 }
 
@@ -78,7 +79,8 @@ export async function processOrganization(
       rows
     });
 
-    const availableCandidates = aggregateCandidates(rows);
+    const scopedRows = filterRowsByCampaignName(rows, dependencies.campaignNameContains);
+    const availableCandidates = aggregateCandidates(scopedRows);
     const candidates = dependencies.candidateLimit === null || dependencies.candidateLimit === undefined
       ? availableCandidates
       : availableCandidates.slice(0, dependencies.candidateLimit);
@@ -87,6 +89,9 @@ export async function processOrganization(
       organization,
       dateRange,
       candidateSelection: {
+        campaignNameContains: dependencies.campaignNameContains ?? null,
+        rawRowCount: rows.length,
+        scopedRowCount: scopedRows.length,
         availableCount: availableCandidates.length,
         processedCount: candidates.length,
         limitApplied: dependencies.candidateLimit ?? null
@@ -495,6 +500,15 @@ export function singleDateRange(date: string): DateRange {
 
 function formatDateRange(dateRange: DateRange): string {
   return `${dateRange.startDate}..${dateRange.endDate}`;
+}
+
+export function filterRowsByCampaignName(
+  rows: SearchTermRow[],
+  campaignNameContains: string | null | undefined
+): SearchTermRow[] {
+  const needle = campaignNameContains?.trim().toLocaleLowerCase("en-US");
+  if (!needle) return rows;
+  return rows.filter((row) => row.campaignName.toLocaleLowerCase("en-US").includes(needle));
 }
 
 function errorMessage(error: unknown): string {

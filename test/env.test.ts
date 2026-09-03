@@ -104,6 +104,68 @@ test("rejects incomplete enabled email configuration", async () => {
   }
 });
 
+test("loads run-scope filters with 'Built by Shah' as the default campaign filter", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "sweeper-filter-config-"));
+  try {
+    await writeFile(join(directory, ".env"), [
+      "GOOGLE_ADS_DEVELOPER_TOKEN=developer",
+      "GOOGLE_ADS_LOGIN_CUSTOMER_ID=123-456-7890",
+      "GOOGLE_ADS_CLIENT_ID=client",
+      "GOOGLE_ADS_CLIENT_SECRET=secret",
+      "GOOGLE_ADS_REFRESH_TOKEN=refresh",
+      "MOONSHOT_API_KEY=moonshot-test-key"
+    ].join("\n"), "utf8");
+
+    const defaults = await loadConfig(directory);
+    assert.equal(defaults.campaignNameContains, "Built by Shah");
+    assert.deepEqual(defaults.accountAllowlist, []);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("parses campaign filter override and account allowlist", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "sweeper-filter-config-"));
+  try {
+    await writeFile(join(directory, ".env"), [
+      "GOOGLE_ADS_DEVELOPER_TOKEN=developer",
+      "GOOGLE_ADS_LOGIN_CUSTOMER_ID=123-456-7890",
+      "GOOGLE_ADS_CLIENT_ID=client",
+      "GOOGLE_ADS_CLIENT_SECRET=secret",
+      "GOOGLE_ADS_REFRESH_TOKEN=refresh",
+      "MOONSHOT_API_KEY=moonshot-test-key",
+      "CAMPAIGN_NAME_CONTAINS=Custom Agency",
+      "ACCOUNT_ALLOWLIST=884-749-9121, Auto Arena Body Shop ,8500809656"
+    ].join("\n"), "utf8");
+
+    const config = await loadConfig(directory);
+    assert.equal(config.campaignNameContains, "Custom Agency");
+    assert.deepEqual(config.accountAllowlist, ["884-749-9121", "Auto Arena Body Shop", "8500809656"]);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("blank campaign filter disables campaign filtering", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "sweeper-filter-config-"));
+  try {
+    await writeFile(join(directory, ".env"), [
+      "GOOGLE_ADS_DEVELOPER_TOKEN=developer",
+      "GOOGLE_ADS_LOGIN_CUSTOMER_ID=123-456-7890",
+      "GOOGLE_ADS_CLIENT_ID=client",
+      "GOOGLE_ADS_CLIENT_SECRET=secret",
+      "GOOGLE_ADS_REFRESH_TOKEN=refresh",
+      "MOONSHOT_API_KEY=moonshot-test-key",
+      "CAMPAIGN_NAME_CONTAINS="
+    ].join("\n"), "utf8");
+
+    const config = await loadConfig(directory);
+    assert.equal(config.campaignNameContains, null);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("loads Resend run-report email configuration", async () => {
   const directory = await mkdtemp(join(tmpdir(), "sweeper-report-email-config-"));
   try {

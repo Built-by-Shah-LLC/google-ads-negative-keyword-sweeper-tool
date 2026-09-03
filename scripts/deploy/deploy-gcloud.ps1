@@ -33,7 +33,8 @@ param(
   [string]$RepoName = "negative-keyword-sweeper",
   [string]$ServiceAccountName = "sweeper-runner",
   [string]$Schedule = "0 6 * * *",
-  [string]$ScheduleTimeZone = "UTC"
+  # 6:00 AM Pacific Time (America/Los_Angeles handles PST/PDT automatically).
+  [string]$ScheduleTimeZone = "America/Los_Angeles"
 )
 
 $ProjectRoot = Resolve-Path (Join-Path $PSScriptRoot "..\..")
@@ -159,6 +160,9 @@ foreach ($key in $config.Keys) {
   if (-not $config[$key]) { continue }
   $plainEnvPairs += "$key=$($config[$key])"
 }
+# Values may contain commas (RUN_REPORT_EMAIL_TO, ACCOUNT_ALLOWLIST), so use ';' as
+# the gcloud list delimiter via the ^;^ escape prefix instead of the default comma.
+$plainEnvVarsArg = "^;^" + ($plainEnvPairs -join ";")
 
 Write-Host "==> Creating/updating Cloud Run Job '$JobName'"
 $jobArgs = @(
@@ -168,7 +172,7 @@ $jobArgs = @(
   "--project", $ProjectId,
   "--service-account", $ServiceAccountEmail,
   "--set-secrets", ($secretEnvMappings -join ","),
-  "--set-env-vars", ($plainEnvPairs -join ","),
+  "--set-env-vars", $plainEnvVarsArg,
   "--task-timeout", "21600",
   "--max-retries", "1",
   "--memory", "1Gi",
