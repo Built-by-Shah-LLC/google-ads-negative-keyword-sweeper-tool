@@ -54,6 +54,7 @@ test("uses Moonshot as primary while retaining provider-specific model settings"
     assert.equal(config.llm.apiKey, "moonshot-test-key");
     assert.equal(config.llm.model, "kimi-k2.6");
     assert.equal(config.llm.baseUrl, "https://api.moonshot.ai/v1");
+    assert.equal(config.llm.thinking, "enabled");
     assert.equal(config.llm.requestTimeoutMs, 600_000);
     assert.equal(config.llm.maxRetries, 4);
     assert.equal(config.processingTimeZone, "Europe/Moscow");

@@ -9,6 +9,7 @@ const llmConfig: AppConfig["llm"] = {
   apiKey: "test-key",
   model: "gpt-test-model",
   baseUrl: "https://api.openai.com/v1",
+  thinking: "disabled",
   batchSize: 50,
   concurrency: 3,
   requestTimeoutMs: 600_000,

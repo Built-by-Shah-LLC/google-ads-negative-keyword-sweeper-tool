@@ -15,6 +15,7 @@ export interface AppConfig {
     apiKey: string;
     model: string;
     baseUrl: string;
+    thinking: "enabled" | "disabled";
     batchSize: number;
     concurrency: number;
     requestTimeoutMs: number;
@@ -208,6 +209,7 @@ export async function loadConfig(rootDirectory = process.cwd()): Promise<AppConf
       apiKey: providerConfig.apiKey,
       model: providerConfig.model,
       baseUrl: providerConfig.baseUrl,
+      thinking: thinkingMode(provider, env.MOONSHOT_THINKING),
       batchSize: positiveInteger(env.LLM_BATCH_SIZE, 50, "LLM_BATCH_SIZE"),
       concurrency: positiveInteger(env.LLM_CONCURRENCY, 3, "LLM_CONCURRENCY"),
       requestTimeoutMs: positiveInteger(env.LLM_REQUEST_TIMEOUT_MS, 600_000, "LLM_REQUEST_TIMEOUT_MS"),
@@ -225,6 +227,22 @@ function timeZoneValue(value: string, name: string): string {
   } catch {
     throw new Error(`${name} must be a valid IANA timezone, such as Europe/Moscow.`);
   }
+}
+
+function thinkingMode(
+  provider: LlmProvider,
+  value: string | undefined
+): "enabled" | "disabled" {
+  if (provider !== "moonshot") return "disabled";
+  if (value === undefined || value === "") return "enabled";
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "enabled" || normalized === "on" || normalized === "true" || normalized === "1") {
+    return "enabled";
+  }
+  if (normalized === "disabled" || normalized === "off" || normalized === "false" || normalized === "0") {
+    return "disabled";
+  }
+  throw new Error("MOONSHOT_THINKING must be enabled or disabled.");
 }
 
 function llmProvider(value: string | undefined): LlmProvider {

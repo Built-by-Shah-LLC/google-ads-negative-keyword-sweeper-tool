@@ -245,7 +245,6 @@ function createRequest(
       { role: "system", content: prompt.systemInstruction },
       { role: "user", content: prompt.userPrompt }
     ],
-    max_completion_tokens: Math.min(65_536, 512 + Math.max(1, context.searchTerms.length) * 384),
     response_format: {
       type: "json_schema",
       json_schema: {
@@ -255,8 +254,14 @@ function createRequest(
       }
     },
     ...(config.provider === "kimi-code"
-      ? { reasoning_effort: "low" }
-      : { thinking: { type: "disabled" } })
+      ? {
+        reasoning_effort: "low",
+        max_completion_tokens: Math.min(65_536, 512 + Math.max(1, context.searchTerms.length) * 384)
+      }
+      : {
+        thinking: { type: config.thinking },
+        max_tokens: Math.min(32_768, 512 + Math.max(1, context.searchTerms.length) * 384)
+      })
   };
 }
 

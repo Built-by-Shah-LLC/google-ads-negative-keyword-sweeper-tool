@@ -10,6 +10,7 @@ const config: AppConfig["llm"] = {
   apiKey: "test-key",
   model: "kimi-k2.6",
   baseUrl: "https://api.moonshot.ai/v1",
+  thinking: "enabled",
   batchSize: 50,
   concurrency: 3,
   requestTimeoutMs: 600_000,
@@ -102,7 +103,7 @@ test("Moonshot adapter uses structured output and normalizes per-request tokens"
   assert.equal(fixed.totalTokens, 777);
   assert.equal(requests[0]?.url, "https://api.moonshot.ai/v1/chat/completions");
   assert.equal(requests[0]?.body.response_format.type, "json_schema");
-  assert.equal(requests[0]?.body.thinking.type, "disabled");
+  assert.equal(requests[0]?.body.thinking.type, "enabled");
   assert.equal(requests[1]?.url, "https://api.moonshot.ai/v1/tokenizers/estimate-token-count");
 });
 

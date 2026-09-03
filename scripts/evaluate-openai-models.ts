@@ -71,6 +71,7 @@ async function main(): Promise<void> {
       apiKey,
       model,
       baseUrl: "https://api.openai.com/v1",
+      thinking: "disabled",
       batchSize,
       concurrency: 2,
       requestTimeoutMs: 600_000,
