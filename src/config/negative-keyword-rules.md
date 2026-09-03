@@ -1,6 +1,6 @@
 # Collision-repair search-term classification rules
 
-Rule set version: `2026-09-03.2`
+Rule set version: `2026-09-03.3`
 
 Prompt version: `collision-classifier-v6`
 
@@ -13,7 +13,9 @@ body-attached `repair` (`auto body repair`, `body repair`) as KEEP, treat
 paint/color/repaint as always-win negatives, and negative reviews/images/photos.
 The 2026-09-03 locks add always-win negatives for rating/best-of wording, question
 openers (not a trailing `?` alone), 24/7 and 24-hour hours, quick/fast/minor small
-jobs, mobile coming-to-you service, motorcycles/bikes/scooters/ATVs, and Lucid; drop `specialist` from the
+jobs, mobile coming-to-you service, motorcycles/bikes/scooters/ATVs, and Lucid; make
+inspections, hole-fill small jobs, and `aluminum` / `steel` / `iron` always-win
+(even with body-shop wording); drop `specialist` from the
 mechanical kill list; and KEEP the closed origin-adjective list `korean` /
 `german` / `italian` / `european` / `japanese` only when body-shop wording is
 present. Historical JavaScript triggers are evidence, not policy.
@@ -48,8 +50,9 @@ present. Historical JavaScript triggers are evidence, not policy.
    (reviews, ratings, stars, and `best`), `POL-HOURS-247-NEGATIVE`,
    `POL-SMALL-SPEED-NEGATIVE` (`quick`, `fast`, `minor`), `POL-MOBILE-SERVICE-NEGATIVE`,
    `POL-WEBSITE-NAV-NEGATIVE`,
-   `POL-PAINT-COLOR-NEGATIVE`, `POL-COSMETIC-ONLY-NEGATIVE` (fender-bender and other
-   small-incident slang), `POL-WRONG-OUTCOME-NEGATIVE`, `POL-CUSTOM-FABRICATION-NEGATIVE`,
+   `POL-PAINT-COLOR-NEGATIVE`, `POL-COSMETIC-ONLY-NEGATIVE` (fender-bender, hole-fill,
+   and other small-incident slang), `POL-METAL-MATERIAL-NEGATIVE` (aluminum, steel,
+   iron), `POL-INSPECTION-NEGATIVE`, `POL-WRONG-OUTCOME-NEGATIVE`, `POL-CUSTOM-FABRICATION-NEGATIVE`,
    `POL-MECHANICAL-ONLY-NEGATIVE` (mechanic, technician, standalone tech, service,
    contiguous auto/car repair, and repair with no body-shop or crash-event wording;
    `specialist` is not on this list), `POL-WRONG-VEHICLE-NEGATIVE` (trucks, semis, RV,
@@ -90,10 +93,10 @@ collision repair and certified collision repair demand. Crash-event wording plus
 is still KEEP (`collision repair near me`, `crash collision repair near me`).
 `collision`, `crash`, `wreck`, or `totaled` prevents dent/scratch from being treated as
 a cosmetic-only job, so `major collision with frame damage and dents` stays KEEP.
-That carve-out does not apply to fender-bender slang, paint/color, mechanic, service,
-reviews/ratings/stars/`best`, towing, price, 24/7 or 24-hour hours, `quick` / `fast` /
-`minor`, mobile coming-to-you service, a named part as the job, a named competitor, or
-unsupported vehicles such as
+That carve-out does not apply to fender-bender slang, hole-fill small jobs, paint/color,
+mechanic, service, reviews/ratings/stars/`best`, towing, price, 24/7 or 24-hour hours,
+`quick` / `fast` / `minor`, mobile coming-to-you service, inspections, aluminum/steel/iron,
+a named part as the job, a named competitor, or unsupported vehicles such as
 trucks, semis, RVs, Sprinters, motorcycles, bikes, scooters, ATVs, and Lucid.
 `fender bender` is not crash-event wording.
 
@@ -111,13 +114,14 @@ distinctive leftover and are `POL-COMPETITOR-NEGATIVE`.
 Frame, unibody, or chassis wording is KEEP only as damage description on a crash-event
 query (`major collision with frame damage and dents`). A named-part or zone repair,
 including `frame repair near me` without crash-event wording, is `POL-PARTS-ONLY-NEGATIVE`.
-Aluminum, steel, or iron as material or parts shopping is negative; incidental metal
-wording on a crash-event query may remain KEEP.
+Aluminum, steel, or iron is always `POL-METAL-MATERIAL-NEGATIVE`, including
+`aluminum certified body shop`. Collision wording does not save it.
 
 This rule does not protect towing, unsupported vehicles (trucks, semis, RVs, Sprinters,
 motorcycles, bikes, scooters, ATVs, Lucid), a price/quote/financing query, an
 informational question opener, reviews/ratings/stars/`best`, 24/7 or 24-hour hours,
-`quick` / `fast` / `minor` small-job wording, mobile coming-to-you service, or a
+`quick` / `fast` / `minor` small-job wording, mobile coming-to-you service,
+inspections, aluminum/steel/iron, hole-fill small jobs, or a
 non-English query.
 
 Examples: `major collision with frame damage and dents`, `honda accord collision
@@ -157,7 +161,8 @@ This rule does not protect a clearly named competing business, a custom/fabricat
 towing, unsupported vehicles (trucks, semis, RVs, Sprinters, motorcycles, bikes,
 scooters, ATVs, Lucid), a price/quote/financing query, an informational question
 opener, reviews/ratings/stars/`best`, 24/7 or 24-hour hours, `quick` / `fast` /
-`minor` small-job wording, mobile coming-to-you service, website or domain navigation,
+`minor` small-job wording, mobile coming-to-you service, inspections,
+aluminum/steel/iron, hole-fill small jobs, website or domain navigation,
 panel-beater trade slang,
 or a non-English query. Use the leftover-token test in `POL-COMPETITOR-NEGATIVE`.
 `panel beaters near me` is `POL-PARTS-ONLY-NEGATIVE`, not body-shop KEEP.
@@ -180,7 +185,8 @@ me` is OEM demand).
 
 Never use this rule for Lucid. `lucid`, `lucid motors`, `lucid air`, and `lucid gravity`
 are unsupported makes under `POL-WRONG-VEHICLE-NEGATIVE`, even with body-shop or
-collision wording.
+collision wording. `aluminum` / `steel` / `iron` plus body-shop or certified wording
+is `POL-METAL-MATERIAL-NEGATIVE`, not OEM KEEP (`aluminum certified body shop`).
 
 This rule does not save `mechanic`, `service`, paint/color/repaint, contiguous
 `auto repair` / `car repair`, or a named competitor. Make plus body-shop wording plus
@@ -256,15 +262,16 @@ for signal-less queries, foreign-language queries, towing, price/quote/financing
 informational question openers, attorney/legal intent, custom fabrication,
 interior/upholstery, paint/color, mechanic/service, contiguous `auto repair` /
 `car repair`, reviews/ratings/stars/`best`, 24/7 or 24-hour hours, `quick` / `fast` /
-`minor`, mobile coming-to-you service, unsupported vehicles including Lucid, or
-competitor vs place vs descriptor
+`minor`, mobile coming-to-you service, inspections, aluminum/steel/iron, hole-fill
+small jobs, unsupported vehicles including Lucid, or competitor vs place vs descriptor
 uncertainty.
 
 If it is unclear whether a token is a place, descriptor, or competing business, negative
 under `POL-COMPETITOR-NEGATIVE`. Do not KEEP to avoid inventing a competitor.
 
 Appraisal and insurance-adjuster queries that also carry a collision or claim signal
-remain KEEP; do not invent a negative for them.
+remain KEEP; do not invent a negative for them. Inspection wording is not appraisal:
+`post collision repair inspection` is `POL-INSPECTION-NEGATIVE`.
 
 ## NEGATIVE rules
 
@@ -503,10 +510,11 @@ Fender-bender and the same class of minor-incident slang are always negative und
 `fender bender near me`. Do not treat that idiom as crash-event wording or as OEM
 `fender` demand.
 
-Aluminum, steel, or iron as material or parts shopping is negative
-(`aluminum hood`, `steel bumper`, `iron parts`). Incidental metal wording on a
-crash-event query may remain KEEP under `POL-COLLISION-KEEP`. Isolated component
-failures such as a broken hood latch with no collision/body signal are negative.
+Aluminum, steel, or iron uses `POL-METAL-MATERIAL-NEGATIVE`, which always wins even
+with body-shop or collision wording (`aluminum certified body shop`, `aluminum hood`).
+Do not KEEP those under this rule as "incidental metal" or as a shop certification.
+Isolated component failures such as a broken hood latch with no collision/body signal
+are negative.
 
 Examples: `car upholstery repair near me`, `leather seat repair`, `headliner replacement`,
 `dashboard repair`, `carbon fiber splitter`, `accident bumper repair`,
@@ -599,6 +607,38 @@ Dent, ding, scratch, and bumper-scuff follow a different test than paint:
 Also negative detailing, buffing, or clear-coat demand when the full query is clearly
 cosmetic and has no `collision`, `crash`, `wreck`, or `totaled` signal.
 Paint, color, and repaint use `POL-PAINT-COLOR-NEGATIVE`, which always wins.
+
+Always-win for hole-fill and the same class of small cheap body jobs, even when
+body-shop, collision, or geo wording is present: `fill holes`, `fill hole`,
+`filling holes`, `fill holes in car body`, `holes in car body`, `hole in car body`,
+`patch holes`, `patch a hole`, `rust hole`, `rust holes`. Do not fire on `pothole`
+or `potholes`. This is a DIY/small-job ask, not collision-body demand.
+
+### `POL-METAL-MATERIAL-NEGATIVE` — Aluminum, steel, and iron
+
+Always-win. Negative any query that contains standalone `aluminum`, `aluminium`,
+`steel`, or `iron`, including shop-certification and body-shop wording.
+Collision, body-shop, OEM, insurer, or geo wording does not save these queries.
+`aluminum certified body shop`, `aluminum body repair`, `steel bumper`, and
+`iron parts` are negative.
+
+Do not fire on those letters inside a longer word (`ironing`). `stainless steel`
+still matches standalone `steel`. Do not KEEP these as incidental damage
+description or as an aluminum-capable shop qualifier.
+
+### `POL-INSPECTION-NEGATIVE` — Inspections
+
+Always-win. Negative any query whose ask is an inspection, inspect, inspector, or
+post-repair inspection. Collision, body-shop, OEM, insurer, or geo wording does
+not save these queries; the searcher wants an inspection, not a body-shop booking.
+`post collision repair inspection near me` is negative.
+
+Do not fire on those letters inside a longer word. Appraisal and insurance-adjuster
+queries without inspection wording stay under `POL-AMBIGUOUS-KEEP` when a collision
+or claim signal is present.
+
+Examples: `post collision repair inspection near me`, `collision inspection`,
+`body shop inspection`, `car inspection after accident`.
 
 ### `POL-COMPETITOR-NEGATIVE` — Other repair businesses
 
@@ -712,7 +752,8 @@ Always-win. Negative queries seeking a non-repair professional outcome: collisio
 consulting, attorney, lawyer, legal, or law-firm intent. Accident or collision wording
 does not save these queries; the searcher wants a lawyer or consultant, not a body shop.
 Do not extend this rule to appraisal or adjuster queries; those remain KEEP under
-`POL-AMBIGUOUS-KEEP` when a collision or claim signal is present.
+`POL-AMBIGUOUS-KEEP` when a collision or claim signal is present. Inspection wording
+uses `POL-INSPECTION-NEGATIVE`, not this rule.
 
 Examples: `collision consultants`, `car accident attorney near me`.
 

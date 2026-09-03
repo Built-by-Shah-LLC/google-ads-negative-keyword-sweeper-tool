@@ -21,6 +21,8 @@ test("loads the authoritative Markdown rule set with unique rule IDs", async () 
   assert.ok(rules.ruleIds.includes("POL-HOURS-247-NEGATIVE"));
   assert.ok(rules.ruleIds.includes("POL-SMALL-SPEED-NEGATIVE"));
   assert.ok(rules.ruleIds.includes("POL-MOBILE-SERVICE-NEGATIVE"));
+  assert.ok(rules.ruleIds.includes("POL-METAL-MATERIAL-NEGATIVE"));
+  assert.ok(rules.ruleIds.includes("POL-INSPECTION-NEGATIVE"));
   assert.ok(rules.ruleIds.includes("POL-WEBSITE-NAV-NEGATIVE"));
   assert.ok(rules.ruleIds.includes("POL-DIY-HOWTO-NEGATIVE"));
   assert.ok(rules.ruleIds.includes("POL-OWN-BRAND-NEGATIVE"));
@@ -49,6 +51,9 @@ test("loads the authoritative Markdown rule set with unique rule IDs", async () 
   assert.match(rules.markdown, /quick body shop/iu);
   assert.match(rules.markdown, /mobile body shop/iu);
   assert.match(rules.markdown, /does tesla do body work/iu);
+  assert.match(rules.markdown, /fill holes in car body/iu);
+  assert.match(rules.markdown, /aluminum certified body shop/iu);
+  assert.match(rules.markdown, /post collision repair inspection near me/iu);
   assert.equal(new Set(rules.ruleIds).size, rules.ruleIds.length);
 });
 
