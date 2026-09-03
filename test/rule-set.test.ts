@@ -18,6 +18,9 @@ test("loads the authoritative Markdown rule set with unique rule IDs", async () 
   assert.ok(rules.ruleIds.includes("POL-COSMETIC-ONLY-NEGATIVE"));
   assert.ok(rules.ruleIds.includes("POL-PAINT-COLOR-NEGATIVE"));
   assert.ok(rules.ruleIds.includes("POL-REVIEWS-NEGATIVE"));
+  assert.ok(rules.ruleIds.includes("POL-HOURS-247-NEGATIVE"));
+  assert.ok(rules.ruleIds.includes("POL-SMALL-SPEED-NEGATIVE"));
+  assert.ok(rules.ruleIds.includes("POL-MOBILE-SERVICE-NEGATIVE"));
   assert.ok(rules.ruleIds.includes("POL-WEBSITE-NAV-NEGATIVE"));
   assert.ok(rules.ruleIds.includes("POL-DIY-HOWTO-NEGATIVE"));
   assert.ok(rules.ruleIds.includes("POL-OWN-BRAND-NEGATIVE"));
@@ -37,7 +40,15 @@ test("loads the authoritative Markdown rule set with unique rule IDs", async () 
   assert.match(rules.markdown, /pelham collision llc/iu);
   assert.match(rules.markdown, /new rochelle auto body inc/iu);
   assert.match(rules.markdown, /must cite at least one[\s\S]*`-NEGATIVE` rule/iu);
-  assert.match(rules.markdown, /auto arena body shop near me/iu);
+  assert.match(rules.markdown, /best body shop near me/iu);
+  assert.match(rules.markdown, /korean body shop/iu);
+  assert.match(rules.markdown, /24\/7 body shop/iu);
+  assert.match(rules.markdown, /motorcycle crash repairs near me/iu);
+  assert.match(rules.markdown, /lucid body shop/iu);
+  assert.match(rules.markdown, /auto body specialists/iu);
+  assert.match(rules.markdown, /quick body shop/iu);
+  assert.match(rules.markdown, /mobile body shop/iu);
+  assert.match(rules.markdown, /does tesla do body work/iu);
   assert.equal(new Set(rules.ruleIds).size, rules.ruleIds.length);
 });
 
