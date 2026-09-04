@@ -1,4 +1,5 @@
 import type { AppConfig } from "../config/env.js";
+import { Agent, type Dispatcher } from "undici";
 import { PipelineError } from "../observability/errors.js";
 import { addTokenUsage, emptyTokenUsage } from "../observability/run-telemetry.js";
 import type { FixedInputTokenCount, LlmTokenUsage, ValidatedBatch } from "../types.js";
@@ -19,10 +20,21 @@ const RETRYABLE_STATUS = new Set([408, 409, 429, 500, 502, 503, 504]);
 export class MoonshotKeywordClassifier implements KeywordClassifier {
   readonly provider: string;
   readonly model: string;
+  // Node's global fetch (bundled undici) enforces a 300s headersTimeout by default,
+  // which kills slow thinking-model requests long before requestTimeoutMs is
+  // reached. Global fetch also rejects dispatchers from the npm undici build, so
+  // this client calls the dispatcher's own request() API with socket timeouts
+  // sitting just above the app's abort timeout, letting the app timeout govern.
+  private readonly dispatcher: Dispatcher;
 
-  constructor(private readonly config: AppConfig["llm"]) {
+  constructor(private readonly config: AppConfig["llm"], dispatcher?: Dispatcher) {
     this.provider = config.provider === "kimi-code" ? "kimi-code" : "moonshot-kimi";
     this.model = config.model;
+    this.dispatcher = dispatcher ?? new Agent({
+      headersTimeout: config.requestTimeoutMs + 30_000,
+      bodyTimeout: config.requestTimeoutMs + 30_000,
+      connectTimeout: 30_000
+    });
   }
 
   async classify(context: ClassificationContext): Promise<ClassificationResult> {
@@ -144,12 +156,17 @@ export class MoonshotKeywordClassifier implements KeywordClassifier {
     stage: "LLM_REQUEST" | "LLM_FIXED_TOKEN_COUNT"
   ): Promise<MoonshotCallResult> {
     const attempts: LlmHttpAttempt[] = [];
+    const baseUrl = new URL(this.config.baseUrl);
+    const origin = baseUrl.origin;
+    const basePath = baseUrl.pathname.replace(/\/$/u, "");
     for (let attempt = 0; attempt <= this.config.maxRetries; attempt += 1) {
       const startedAt = new Date().toISOString();
       const started = performance.now();
-      let response: Response;
+      let response: Dispatcher.ResponseData;
       try {
-        response = await fetch(`${this.config.baseUrl}${path}`, {
+        response = await this.dispatcher.request({
+          origin,
+          path: `${basePath}${path}`,
           method: "POST",
           headers: {
             authorization: `Bearer ${this.config.apiKey}`,
@@ -185,31 +202,31 @@ export class MoonshotKeywordClassifier implements KeywordClassifier {
         );
       }
 
-      const payload = await readJsonSafely(response);
-      const requestId = response.headers.get("x-request-id")
-        || response.headers.get("msh-request-id")
+      const payload = await readJsonSafely(response.body);
+      const requestId = headerValue(response.headers, "x-request-id")
+        || headerValue(response.headers, "msh-request-id")
         || (isRecord(payload) && typeof payload.id === "string" ? payload.id : null);
-      if (!response.ok || !isRecord(payload)) {
+      if (response.statusCode < 200 || response.statusCode >= 300 || !isRecord(payload)) {
         const detail = safeErrorMessage(payload);
-        const retrying = RETRYABLE_STATUS.has(response.status) && attempt < this.config.maxRetries;
-        attempts.push(httpAttempt(attempt + 1, startedAt, started, response.status, requestId, retrying, detail));
+        const retrying = RETRYABLE_STATUS.has(response.statusCode) && attempt < this.config.maxRetries;
+        attempts.push(httpAttempt(attempt + 1, startedAt, started, response.statusCode, requestId, retrying, detail));
         if (retrying) {
-          await wait(retryDelayMs(response, attempt));
+          await wait(retryDelayMs(response.headers, attempt));
           continue;
         }
-        throw new MoonshotRequestError(`HTTP ${response.status}: ${detail}`, attempts, requestId, {
+        throw new MoonshotRequestError(`HTTP ${response.statusCode}: ${detail}`, attempts, requestId, {
           cause: new PipelineError(detail, {
             stage,
             code: "LLM_HTTP_ERROR",
             provider: this.provider,
-            statusCode: response.status,
+            statusCode: response.statusCode,
             requestId,
-            retryable: RETRYABLE_STATUS.has(response.status)
+            retryable: RETRYABLE_STATUS.has(response.statusCode)
           })
         });
       }
 
-      attempts.push(httpAttempt(attempt + 1, startedAt, started, response.status, requestId, false, null, "SUCCEEDED"));
+      attempts.push(httpAttempt(attempt + 1, startedAt, started, response.statusCode, requestId, false, null, "SUCCEEDED"));
       return { payload, requestId, attempts };
     }
     throw new MoonshotRequestError("Moonshot retry loop ended unexpectedly.", attempts, null);
@@ -327,8 +344,14 @@ function tokenNumber(value: unknown): number {
   return nonNegativeNumber(value) ? value : 0;
 }
 
-function retryDelayMs(response: Response, attempt: number): number {
-  const retryAfter = response.headers.get("retry-after");
+function headerValue(headers: Dispatcher.ResponseData["headers"], name: string): string | null {
+  const value = headers[name];
+  if (Array.isArray(value)) return value[0] ?? null;
+  return typeof value === "string" ? value : null;
+}
+
+function retryDelayMs(headers: Dispatcher.ResponseData["headers"], attempt: number): number {
+  const retryAfter = headerValue(headers, "retry-after");
   const seconds = retryAfter && /^\d+(?:\.\d+)?$/u.test(retryAfter) ? Number(retryAfter) : 0;
   return Math.max(backoffMs(attempt), seconds * 1000) + Math.floor(Math.random() * 250);
 }
@@ -344,9 +367,9 @@ function safeErrorMessage(payload: unknown): string {
   return `${code}: ${message}`;
 }
 
-async function readJsonSafely(response: Response): Promise<unknown> {
+async function readJsonSafely(body: Dispatcher.ResponseData["body"]): Promise<unknown> {
   try {
-    return await response.json();
+    return JSON.parse(await body.text());
   } catch {
     return null;
   }

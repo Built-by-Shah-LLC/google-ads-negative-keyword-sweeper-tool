@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import type { Dispatcher } from "undici";
 import type { AppConfig } from "../src/config/env.js";
 import { ClassificationFailure } from "../src/llm/classifier.js";
 import { MoonshotKeywordClassifier } from "../src/llm/moonshot-classifier.js";
@@ -50,40 +51,59 @@ const context = {
   searchTerms: [candidate]
 };
 
-test("Moonshot adapter uses structured output and normalizes per-request tokens", async (t) => {
-  const originalFetch = globalThis.fetch;
-  const requests: Array<{ url: string; body: Record<string, any> }> = [];
-  t.after(() => { globalThis.fetch = originalFetch; });
-  globalThis.fetch = async (input, init) => {
-    const body = JSON.parse(String(init?.body)) as Record<string, any>;
-    requests.push({ url: String(input), body });
-    if (String(input).endsWith("estimate-token-count")) {
-      return new Response(JSON.stringify({ data: { total_tokens: 777 } }), {
-        status: 200,
-        headers: { "x-request-id": "estimate-1" }
-      });
+function fakeDispatcher(
+  handler: (url: string, body: Record<string, any>) => { statusCode: number; headers?: Record<string, string>; payload: unknown }
+): Dispatcher {
+  return {
+    request: async (opts: { origin: string; path: string; body: unknown }) => {
+      const url = `${opts.origin}${opts.path}`;
+      const body = JSON.parse(String(opts.body)) as Record<string, any>;
+      const result = handler(url, body);
+      return {
+        statusCode: result.statusCode,
+        headers: result.headers ?? {},
+        body: { text: async () => JSON.stringify(result.payload) }
+      };
     }
-    return new Response(JSON.stringify({
-      id: "completion-1",
-      choices: [{
-        finish_reason: "stop",
-        message: {
-          role: "assistant",
-          content: JSON.stringify({ decisions: [{
-            itemId: "item-1",
-            decision: "KEEP",
-            negativeText: null,
-            ruleIds: ["POL-COLLISION-KEEP"],
-            reason: "Qualified collision intent",
-            confidence: 0.99
-          }] })
-        }
-      }],
-      usage: { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120, cached_tokens: 8 }
-    }), { status: 200, headers: { "x-request-id": "request-1" } });
-  };
+  } as unknown as Dispatcher;
+}
 
-  const classifier = new MoonshotKeywordClassifier(config);
+test("Moonshot adapter uses structured output and normalizes per-request tokens", async () => {
+  const requests: Array<{ url: string; body: Record<string, any> }> = [];
+  const dispatcher = fakeDispatcher((url, body) => {
+    requests.push({ url, body });
+    if (url.endsWith("estimate-token-count")) {
+      return {
+        statusCode: 200,
+        headers: { "x-request-id": "estimate-1" },
+        payload: { data: { total_tokens: 777 } }
+      };
+    }
+    return {
+      statusCode: 200,
+      headers: { "x-request-id": "request-1" },
+      payload: {
+        id: "completion-1",
+        choices: [{
+          finish_reason: "stop",
+          message: {
+            role: "assistant",
+            content: JSON.stringify({ decisions: [{
+              itemId: "item-1",
+              decision: "KEEP",
+              negativeText: null,
+              ruleIds: ["POL-COLLISION-KEEP"],
+              reason: "Qualified collision intent",
+              confidence: 0.99
+            }] })
+          }
+        }],
+        usage: { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120, cached_tokens: 8 }
+      }
+    };
+  });
+
+  const classifier = new MoonshotKeywordClassifier(config, dispatcher);
   const result = await classifier.classify(context);
   const fixed = await classifier.countFixedInputTokens({
     account: context.account,
@@ -108,49 +128,51 @@ test("Moonshot adapter uses structured output and normalizes per-request tokens"
   assert.equal(requests[1]?.url, "https://api.moonshot.ai/v1/tokenizers/estimate-token-count");
 });
 
-test("Moonshot adapter accepts a fenced bare JSON array from thinking models", async (t) => {
-  const originalFetch = globalThis.fetch;
-  t.after(() => { globalThis.fetch = originalFetch; });
-  globalThis.fetch = async () => new Response(JSON.stringify({
-    id: "completion-array",
-    choices: [{
-      finish_reason: "stop",
-      message: {
-        role: "assistant",
-        content: "```json\n" + JSON.stringify([{
-          itemId: "item-1",
-          decision: "KEEP",
-          negativeText: null,
-          ruleIds: ["POL-COLLISION-KEEP"],
-          reason: "Qualified collision intent",
-          confidence: 0.99,
-          extra: "ignore-me"
-        }]) + "\n```"
+test("Moonshot adapter accepts a fenced bare JSON array from thinking models", async () => {
+  const dispatcher = fakeDispatcher(() => ({
+    statusCode: 200,
+    headers: { "x-request-id": "request-array" },
+    payload: {
+      id: "completion-array",
+      choices: [{
+        finish_reason: "stop",
+        message: {
+          role: "assistant",
+          content: "```json\n" + JSON.stringify([{
+            itemId: "item-1",
+            decision: "KEEP",
+            negativeText: null,
+            ruleIds: ["POL-COLLISION-KEEP"],
+            reason: "Qualified collision intent",
+            confidence: 0.99,
+            extra: "ignore-me"
+          }]) + "\n```"
+        }
+      }],
+      usage: {
+        prompt_tokens: 100,
+        completion_tokens: 40,
+        total_tokens: 140,
+        prompt_tokens_details: { cached_tokens: 8 },
+        completion_tokens_details: { reasoning_tokens: 25 }
       }
-    }],
-    usage: {
-      prompt_tokens: 100,
-      completion_tokens: 40,
-      total_tokens: 140,
-      prompt_tokens_details: { cached_tokens: 8 },
-      completion_tokens_details: { reasoning_tokens: 25 }
     }
-  }), { status: 200, headers: { "x-request-id": "request-array" } });
+  }));
 
-  const classifier = new MoonshotKeywordClassifier(config);
+  const classifier = new MoonshotKeywordClassifier(config, dispatcher);
   const result = await classifier.classify(context);
   assert.equal(result.validated.decisions[0]?.decision, "KEEP");
   assert.equal(result.validated.usage.cachedInputTokens, 8);
   assert.equal(result.validated.usage.thoughtTokens, 25);
 });
 
-test("Moonshot adapter records an exhausted timeout against the failed request", async (t) => {
-  const originalFetch = globalThis.fetch;
-  t.after(() => { globalThis.fetch = originalFetch; });
-  globalThis.fetch = async () => {
-    throw new DOMException("The operation timed out", "TimeoutError");
-  };
-  const classifier = new MoonshotKeywordClassifier({ ...config, requestTimeoutMs: 1234 });
+test("Moonshot adapter records an exhausted timeout against the failed request", async () => {
+  const dispatcher = {
+    request: async () => {
+      throw new DOMException("The operation timed out", "TimeoutError");
+    }
+  } as unknown as Dispatcher;
+  const classifier = new MoonshotKeywordClassifier({ ...config, requestTimeoutMs: 1234 }, dispatcher);
   await assert.rejects(
     () => classifier.classify(context),
     (error: unknown) => {
