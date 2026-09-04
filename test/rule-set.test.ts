@@ -49,6 +49,10 @@ test("loads the authoritative Markdown rule set with unique rule IDs", async () 
   assert.match(rules.markdown, /lucid body shop/iu);
   assert.match(rules.markdown, /auto body specialists/iu);
   assert.match(rules.markdown, /quick body shop/iu);
+  assert.match(rules.markdown, /same day collision repair/iu);
+  assert.match(rules.markdown, /rebuild salvage car/iu);
+  assert.match(rules.markdown, /rebuild car/iu);
+  assert.ok(rules.ruleIds.includes("POL-SALVAGE-JUNK-NEGATIVE"));
   assert.match(rules.markdown, /mobile body shop/iu);
   assert.match(rules.markdown, /does tesla do body work/iu);
   assert.match(rules.markdown, /fill holes in car body/iu);

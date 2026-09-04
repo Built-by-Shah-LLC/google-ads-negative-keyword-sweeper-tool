@@ -1,6 +1,6 @@
 # Collision-repair search-term classification rules
 
-Rule set version: `2026-09-04.1`
+Rule set version: `2026-09-04.2`
 
 Prompt version: `collision-classifier-v6`
 
@@ -13,14 +13,17 @@ body-attached `repair` (`auto body repair`, `body repair`) as KEEP, treat
 paint/color/repaint as always-win negatives, and negative reviews/images/photos.
 The 2026-09-04 lock KEEPs `best` / `top rated` / `highest rated` shop-finding
 queries (`best autobody shop`) and still negatives `reviews` / photos / ratings
-as the research object. The 2026-09-03 locks add always-win negatives for question
-openers (not a trailing `?` alone), 24/7 and 24-hour hours, quick/fast/minor small
-jobs, mobile coming-to-you service, motorcycles/bikes/scooters/ATVs, and Lucid; make
-inspections, hole-fill small jobs, and `aluminum` / `steel` / `iron` always-win
-(even with body-shop wording); drop `specialist` from the
-mechanical kill list; and KEEP the closed origin-adjective list `korean` /
-`german` / `italian` / `european` / `japanese` only when body-shop wording is
-present. Historical JavaScript triggers are evidence, not policy.
+as the research object. Same-day / one-day collision repair or fix is an always-win
+small rush job (`POL-SMALL-SPEED-NEGATIVE`): real collision work is not same-day,
+so that ask is a minor fix. Salvage-title and rebuild-car demand is an always-win
+junk/project negative (`POL-SALVAGE-JUNK-NEGATIVE`). The 2026-09-03 locks add
+always-win negatives for question openers (not a trailing `?` alone), 24/7 and
+24-hour hours, quick/fast/minor small jobs, mobile coming-to-you service,
+motorcycles/bikes/scooters/ATVs, and Lucid; make inspections, hole-fill small jobs,
+and `aluminum` / `steel` / `iron` always-win (even with body-shop wording); drop
+`specialist` from the mechanical kill list; and KEEP the closed origin-adjective
+list `korean` / `german` / `italian` / `european` / `japanese` only when body-shop
+wording is present. Historical JavaScript triggers are evidence, not policy.
 
 ## Output contract
 
@@ -51,7 +54,9 @@ present. Historical JavaScript triggers are evidence, not policy.
    `POL-PRICE-SHOPPER-NEGATIVE`, `POL-INFORMATIONAL-NEGATIVE`,
    `POL-REVIEWS-NEGATIVE` (reviews, photos, and ratings-as-research; not `best` or
    top-rated shop-finding), `POL-HOURS-247-NEGATIVE`,
-   `POL-SMALL-SPEED-NEGATIVE` (`quick`, `fast`, `minor`), `POL-MOBILE-SERVICE-NEGATIVE`,
+   `POL-SMALL-SPEED-NEGATIVE` (`quick`, `fast`, `minor`, `same day`, `one day`),
+   `POL-MOBILE-SERVICE-NEGATIVE`, `POL-SALVAGE-JUNK-NEGATIVE` (salvage, junk rebuild,
+   rebuild-car),
    `POL-WEBSITE-NAV-NEGATIVE`,
    `POL-PAINT-COLOR-NEGATIVE`, `POL-COSMETIC-ONLY-NEGATIVE` (fender-bender, hole-fill,
    and other small-incident slang), `POL-METAL-MATERIAL-NEGATIVE` (aluminum, steel,
@@ -272,8 +277,9 @@ for signal-less queries, foreign-language queries, towing, price/quote/financing
 informational question openers, attorney/legal intent, custom fabrication,
 interior/upholstery, paint/color, mechanic/service, contiguous `auto repair` /
 `car repair`, reviews/photos, 24/7 or 24-hour hours, `quick` / `fast` /
-`minor`, mobile coming-to-you service, inspections, aluminum/steel/iron, hole-fill
-small jobs, unsupported vehicles including Lucid, or competitor vs place vs descriptor
+`minor` / `same day` / `one day`, salvage or rebuild-car demand, mobile
+coming-to-you service, inspections, aluminum/steel/iron, hole-fill small jobs,
+unsupported vehicles including Lucid, or competitor vs place vs descriptor
 uncertainty.
 
 If it is unclear whether a token is a place, descriptor, or competing business, negative
@@ -409,20 +415,28 @@ as `2024`, or those digits inside a longer token):
 Examples: `24/7 body shop`, `24 7 collision repair`, `open 24 hours body shop`,
 `24 hour auto body near me`.
 
-### `POL-SMALL-SPEED-NEGATIVE` — Quick, fast, and minor jobs
+### `POL-SMALL-SPEED-NEGATIVE` — Quick, fast, minor, and same-day jobs
 
-Always-win. Negative small, cheap, or rush jobs signaled by standalone `quick`,
-`fast`, or `minor` (including `quickly`, `faster`, `fastest`). Collision, body-shop,
-OEM, insurer, or geo wording does not save these queries; the searcher wants a
-low-cost or light-touch job, not a full collision repair.
+Always-win. Negative small, cheap, or rush jobs. Collision, body-shop, OEM, insurer,
+repair, fix, or geo wording does not save these queries. A real collision repair is
+not finished the same day; `same day collision repair` and `same day fix` are
+parking-lot / minor-fix demand, not a body-shop booking.
+
+Fire on standalone tokens and phrases:
+
+- `quick`, `fast`, or `minor` (including `quickly`, `faster`, `fastest`)
+- `same day`, `same-day`, `sameday`
+- `one day`, `one-day`, `oneday`, `1 day`, `1-day`
 
 Do not fire on these letters inside a longer word (`belfast`, `breakfast`,
-`minority`). Do not invent extras such as `express`, `same day`, or
-`while you wait`. Mobile coming-to-you service uses `POL-MOBILE-SERVICE-NEGATIVE`,
-not this rule.
+`minority`). Do not invent extras such as `express` or `while you wait`.
+Shop hours such as `24/7` or `24 hour` use `POL-HOURS-247-NEGATIVE`, not this
+rule. Mobile coming-to-you service uses `POL-MOBILE-SERVICE-NEGATIVE`.
 
 Examples: `quick body shop`, `fast auto body`, `fast collision repair near me`,
-`minor collision`, `minor collision repair`, `minor body shop`.
+`minor collision`, `minor collision repair`, `minor body shop`,
+`same day collision repair`, `same day collision repair near me`,
+`same-day fix`, `same day auto body`, `one day collision repair`.
 
 ### `POL-MOBILE-SERVICE-NEGATIVE` — Coming-to-you / mobile shops
 
@@ -481,10 +495,32 @@ coachbuilding intent. Generic `body shop` without `custom`/`fabrication` remains
 
 Examples: `custom body shop near me`, `custom fabrication auto body`.
 
-### `POL-SALVAGE-JUNK-NEGATIVE` — Salvage and disposal
+### `POL-SALVAGE-JUNK-NEGATIVE` — Salvage, junk, and rebuild-car demand
 
-Negative salvage yards, junkyards, pick-n-pull, parts inventory, cash-for-cars, or
-wrecked-vehicle disposal intent.
+Always-win. Negative salvage-title, junk, and rebuild-a-car demand. Collision,
+body-shop, OEM, insurer, or geo wording does not save these queries; the searcher
+wants a junk/project rebuild, not a retail collision repair.
+
+Fire on:
+
+- Salvage-yard and disposal intent: salvage yard, junkyard, pick-n-pull, parts
+  inventory, cash-for-cars
+- Vehicle-condition salvage: standalone `salvage`, `salvaged`, `salvage title`,
+  `rebuilt title`
+- Rebuild-a-car / junk-car rebuild: `rebuild salvage`, `salvage rebuild`,
+  `rebuild salvage car`, `rebuild car`, `rebuild cars`, `car rebuild`,
+  `rebuild a car`, `rebuild vehicle`, `vehicle rebuild`, `rebuild junk`,
+  `junk car rebuild`, `restomod`, and contiguous `rebuild auto` where `auto` is
+  its own token (`rebuild auto` is this rule; `rebuild autobody` is body-shop
+  plus rebuild-car and is still this rule)
+
+Do not fire on `rebuild` inside a longer word, and do not fire on `rebuild` alone
+with no car / vehicle / auto / salvage / junk / title wording.
+Classic/antique restoration without salvage or rebuild-car wording stays
+`POL-WRONG-VEHICLE-NEGATIVE`.
+
+Examples: `salvage yard near me`, `rebuild salvage car`, `rebuild car`,
+`salvage title body shop`, `car rebuild shop`, `restomod collision`.
 
 ### `POL-CAREERS-NEGATIVE` — Employment and training
 
@@ -765,10 +801,11 @@ Do not fire on a clearly consumer pickup or light-duty named pickup. `pickup tru
 collision`, `f150 collision repair`, and `silverado body shop` stay KEEP under the
 collision/OEM rules. Tow queries use `POL-TOWING-NEGATIVE`, not this rule.
 
-Also negative classic/antique restoration and vehicle rebuild/project intent when no
-qualifying collision/body service is sought. Do not use this rule for
-`classic collisions` or other `classic` + collision/body-shop brand patterns; those
-are `POL-COMPETITOR-NEGATIVE`.
+Also negative classic/antique restoration when no qualifying collision/body service
+is sought. Salvage-title, junk-car, and rebuild-car / `restomod` demand uses
+`POL-SALVAGE-JUNK-NEGATIVE`, which always wins even with collision or body-shop
+wording. Do not use this rule for `classic collisions` or other `classic` +
+collision/body-shop brand patterns; those are `POL-COMPETITOR-NEGATIVE`.
 
 ### `POL-WRONG-OUTCOME-NEGATIVE` — Non-repair professional outcome
 
