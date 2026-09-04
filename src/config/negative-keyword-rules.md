@@ -1,6 +1,6 @@
 # Collision-repair search-term classification rules
 
-Rule set version: `2026-09-03.3`
+Rule set version: `2026-09-04.1`
 
 Prompt version: `collision-classifier-v6`
 
@@ -11,7 +11,9 @@ make competitor detection aggressive (unsure name vs place is negative; register
 `service` and contiguous `auto repair` / `car repair` as KEEP-killing, treat
 body-attached `repair` (`auto body repair`, `body repair`) as KEEP, treat
 paint/color/repaint as always-win negatives, and negative reviews/images/photos.
-The 2026-09-03 locks add always-win negatives for rating/best-of wording, question
+The 2026-09-04 lock KEEPs `best` / `top rated` / `highest rated` shop-finding
+queries (`best autobody shop`) and still negatives `reviews` / photos / ratings
+as the research object. The 2026-09-03 locks add always-win negatives for question
 openers (not a trailing `?` alone), 24/7 and 24-hour hours, quick/fast/minor small
 jobs, mobile coming-to-you service, motorcycles/bikes/scooters/ATVs, and Lucid; make
 inspections, hole-fill small jobs, and `aluminum` / `steel` / `iron` always-win
@@ -46,8 +48,9 @@ present. Historical JavaScript triggers are evidence, not policy.
    service-intent KEEP rule.
 2. Apply always-win NEGATIVE rules next. They override collision, body-shop, OEM, insurer,
    and geo KEEP rules: `POL-FOREIGN-LANGUAGE-NEGATIVE`, `POL-TOWING-NEGATIVE`,
-   `POL-PRICE-SHOPPER-NEGATIVE`, `POL-INFORMATIONAL-NEGATIVE`, `POL-REVIEWS-NEGATIVE`
-   (reviews, ratings, stars, and `best`), `POL-HOURS-247-NEGATIVE`,
+   `POL-PRICE-SHOPPER-NEGATIVE`, `POL-INFORMATIONAL-NEGATIVE`,
+   `POL-REVIEWS-NEGATIVE` (reviews, photos, and ratings-as-research; not `best` or
+   top-rated shop-finding), `POL-HOURS-247-NEGATIVE`,
    `POL-SMALL-SPEED-NEGATIVE` (`quick`, `fast`, `minor`), `POL-MOBILE-SERVICE-NEGATIVE`,
    `POL-WEBSITE-NAV-NEGATIVE`,
    `POL-PAINT-COLOR-NEGATIVE`, `POL-COSMETIC-ONLY-NEGATIVE` (fender-bender, hole-fill,
@@ -94,7 +97,7 @@ is still KEEP (`collision repair near me`, `crash collision repair near me`).
 `collision`, `crash`, `wreck`, or `totaled` prevents dent/scratch from being treated as
 a cosmetic-only job, so `major collision with frame damage and dents` stays KEEP.
 That carve-out does not apply to fender-bender slang, hole-fill small jobs, paint/color,
-mechanic, service, reviews/ratings/stars/`best`, towing, price, 24/7 or 24-hour hours,
+mechanic, service, reviews/photos, towing, price, 24/7 or 24-hour hours,
 `quick` / `fast` / `minor`, mobile coming-to-you service, inspections, aluminum/steel/iron,
 a named part as the job, a named competitor, or unsupported vehicles such as
 trucks, semis, RVs, Sprinters, motorcycles, bikes, scooters, ATVs, and Lucid.
@@ -119,7 +122,7 @@ Aluminum, steel, or iron is always `POL-METAL-MATERIAL-NEGATIVE`, including
 
 This rule does not protect towing, unsupported vehicles (trucks, semis, RVs, Sprinters,
 motorcycles, bikes, scooters, ATVs, Lucid), a price/quote/financing query, an
-informational question opener, reviews/ratings/stars/`best`, 24/7 or 24-hour hours,
+informational question opener, reviews/photos, 24/7 or 24-hour hours,
 `quick` / `fast` / `minor` small-job wording, mobile coming-to-you service,
 inspections, aluminum/steel/iron, hole-fill small jobs, or a
 non-English query.
@@ -142,6 +145,12 @@ always-win token. `dent specialist` stays `POL-COSMETIC-ONLY-NEGATIVE`. `paint
 specialist` stays `POL-PAINT-COLOR-NEGATIVE`. `mechanic`, `technician`, and
 standalone `tech` still kill this rule.
 
+Quality-shopping modifiers used to find a shop do not kill this rule: `best`,
+`top rated`, `highest rated`, `highly rated`, `best rated`, and `5 star` /
+`five star` plus body-shop wording. `best autobody shop`, `best auto body shop`,
+`best body shop near me`, and `top rated auto body` are KEEP. `best autobody shop
+reviews` is still `POL-REVIEWS-NEGATIVE` because `reviews` is present.
+
 KEEP the closed origin-adjective list `korean`, `german`, `italian`, `european`, and
 `japanese` when it modifies body-shop wording. These are vehicle-origin descriptors,
 not shop names and not foreign-language queries. `korean body shop`, `german auto
@@ -160,7 +169,7 @@ are negative.
 This rule does not protect a clearly named competing business, a custom/fabrication shop,
 towing, unsupported vehicles (trucks, semis, RVs, Sprinters, motorcycles, bikes,
 scooters, ATVs, Lucid), a price/quote/financing query, an informational question
-opener, reviews/ratings/stars/`best`, 24/7 or 24-hour hours, `quick` / `fast` /
+opener, reviews/photos, 24/7 or 24-hour hours, `quick` / `fast` /
 `minor` small-job wording, mobile coming-to-you service, inspections,
 aluminum/steel/iron, hole-fill small jobs, website or domain navigation,
 panel-beater trade slang,
@@ -170,7 +179,8 @@ or a non-English query. Use the leftover-token test in `POL-COMPETITOR-NEGATIVE`
 
 Examples: `body work shops near me`, `auto body works near me`, `body shop near me`,
 `auto body repair near me`, `body repair near me`, `car body work repair`,
-`auto body specialists`, `korean body shop`, `german auto body`,
+`auto body specialists`, `best autobody shop`, `best auto body shop`,
+`best body shop near me`, `korean body shop`, `german auto body`,
 `european auto body shop near me`, `japanese body shop`.
 
 ### `POL-OEM-BODY-KEEP` — OEM plus body or collision intent
@@ -261,7 +271,7 @@ weak, or contradictory, and no always-win NEGATIVE rule applies. Do not use this
 for signal-less queries, foreign-language queries, towing, price/quote/financing,
 informational question openers, attorney/legal intent, custom fabrication,
 interior/upholstery, paint/color, mechanic/service, contiguous `auto repair` /
-`car repair`, reviews/ratings/stars/`best`, 24/7 or 24-hour hours, `quick` / `fast` /
+`car repair`, reviews/photos, 24/7 or 24-hour hours, `quick` / `fast` /
 `minor`, mobile coming-to-you service, inspections, aluminum/steel/iron, hole-fill
 small jobs, unsupported vehicles including Lucid, or competitor vs place vs descriptor
 uncertainty.
@@ -346,34 +356,41 @@ Do not fire on a service query whose only question signal is a trailing `?`
 asking where to hire a shop: `where is`, `where can i find`, `is there a`,
 `is there an` plus body-shop or collision wording (`where is a body shop near me`,
 `is there a body shop near me` are KEEP). Do not treat standalone `is` / `are` /
-`where` as enough. Reviews, photos, ratings, and `best` use `POL-REVIEWS-NEGATIVE`.
-`how much` uses `POL-PRICE-SHOPPER-NEGATIVE`.
+`where` as enough. Reviews, photos, and ratings-as-research use
+`POL-REVIEWS-NEGATIVE`. `best` / `top rated` shop-finding uses the body/collision
+KEEP rules, not this rule. `how much` uses `POL-PRICE-SHOPPER-NEGATIVE`.
 
 Examples: `what is collision repair`, `can a rear bumper be repaired`,
 `difference between body shop and collision center`, `does tesla do body work`,
 `does honda have a body shop`, `are body shops open on weekends`,
 `can you fix a totaled car`.
 
-### `POL-REVIEWS-NEGATIVE` — Reviews, ratings, stars, and best-of
+### `POL-REVIEWS-NEGATIVE` — Reviews, photos, and ratings research
 
-Always-win. Negative any query that contains review/research or superlative-shopping
-wording. Collision, body-shop, OEM, insurer, or geo wording does not save these
-queries; the searcher is comparing or browsing, not booking.
+Always-win. Negative review/research and photo/image browsing. Collision, body-shop,
+OEM, insurer, or geo wording does not save these queries; the searcher is reading
+reviews or looking at pictures, not booking.
 
 Standalone tokens and phrases (do not fire on these letters inside a longer word):
 
 - Reviews and media: `review`, `reviews`, `image`, `images`, `photo`, `photos`,
   `picture`, `pictures`, `pics`, `gallery`
-- Ratings: `rating`, `ratings`, `rated`, `top rated`, `highest rated`,
-  `highly rated`, `best rated`
-- Stars: `5 star`, `5-star`, `5 stars`, `five star`, `five stars`, `4 star`,
-  `four star`, `star rated`
-- Superlative shopping: standalone `best` (`best body shop`, `best body shop near me`,
-  `best collision repair`). Do not invent extras such as `better` or bare `top`.
+- Ratings as the research object: standalone `rating` or `ratings`
+  (`body shop ratings`, `collision center rating`)
+
+Do not fire on quality-shopping modifiers used to find a shop. When an approved KEEP
+signal is present, these stay KEEP under the body/collision/OEM/geo rules:
+
+- standalone `best` (`best autobody shop`, `best auto body shop`, `best body shop`,
+  `best body shop near me`, `best collision repair`, `best collision center`)
+- `top rated`, `highest rated`, `highly rated`, `best rated`
+- `5 star`, `5-star`, `5 stars`, `five star`, `five stars` plus body/collision
+  demand when `review` / `reviews` is absent
+
+`best autobody shop reviews` is still negative because `reviews` is present.
 
 Examples: `dallas collision center reviews`, `body shop photos`,
-`collision repair images`, `5 star body shops`, `top rated collision center near me`,
-`highest rated auto body`, `best body shop near me`.
+`collision repair images`, `body shop ratings`.
 
 ### `POL-HOURS-247-NEGATIVE` — 24/7 and 24-hour shops
 
@@ -650,9 +667,14 @@ competitors. Use the leftover-token test:
    `autobody`, `auto body`, `body shop`, `body work`, `shop`, `center`, `car`, `auto`,
    `vehicle`, `specialist`, `specialists`, and `repair` when crash-event or body-shop
    wording is present).
-3. Strip recognized vehicle makes/models and insurer names. Never strip Lucid here;
+3. Strip quality-shopping modifiers used to find a shop, not to name one: `best`,
+   `top`, `rated`, `highest`, `highly`, and star-rating phrases (`5 star`,
+   `5-star`, `five star`, `five stars`, `5 stars`). `best autobody shop` has no
+   distinctive leftover. Do not strip brand-like leftovers such as `elite` or
+   `premier`.
+4. Strip recognized vehicle makes/models and insurer names. Never strip Lucid here;
    Lucid is `POL-WRONG-VEHICLE-NEGATIVE`, not OEM demand.
-4. If body-shop wording is present, also strip the closed origin-adjective list
+5. If body-shop wording is present, also strip the closed origin-adjective list
    `korean`, `german`, `italian`, `european`, and `japanese`. Those five tokens are
    vehicle-origin descriptors, not shop names, and only in that body-shop case.
    Do not strip them on collision-only queries. Do not strip unlisted nationality
@@ -699,7 +721,9 @@ Counterexamples that are generic demand, not competitor evidence: `crash collisi
 `crash collisions`, `toyota collision center cincinnati`, `west chester auto body`,
 `dallas auto body shop`, `dallas auto body repair`, `cadillac body shop near me`,
 `korean body shop`, `german auto body`, `european auto body shop near me`,
-`japanese body shop`, `italian auto body`.
+`japanese body shop`, `italian auto body`, `best autobody shop`,
+`best auto body shop`, `best body shop near me`, `top rated collision center`,
+`5 star body shop`.
 
 ### `POL-BARE-VEHICLE-NEGATIVE` — Bare vehicle and low-intent geo
 
