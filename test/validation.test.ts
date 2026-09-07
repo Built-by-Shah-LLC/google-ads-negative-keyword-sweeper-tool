@@ -1,0 +1,129 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import type { ClassificationCandidate, RuleSet } from "../src/types.js";
+import { validateDecisions } from "../src/llm/validation.js";
+
+const rules: RuleSet = {
+  version: "test",
+  promptVersion: "test-prompt",
+  sourcePath: "test-rules.md",
+  markdown: "### `POL-COLLISION-KEEP` — Keep rule\n### `POL-CAREERS-NEGATIVE` — Negative rule\n### `POL-FULL-QUERY-EXACT` — Meta rule",
+  ruleIds: ["POL-COLLISION-KEEP", "POL-CAREERS-NEGATIVE", "POL-FULL-QUERY-EXACT"]
+};
+const candidate: ClassificationCandidate = {
+  itemId: "item-1",
+  customerId: "123",
+  startDate: "2026-08-24",
+  endDate: "2026-08-25",
+  channel: "SEARCH",
+  campaignId: "456",
+  campaignName: "Campaign",
+  adGroupId: "789",
+  adGroupName: "Ad group",
+  searchTerm: "free collision repair course",
+  targetingStatus: "NONE",
+  matchedKeyword: "collision repair",
+  matchedKeywordMatchType: "BROAD",
+  impressions: 2,
+  clicks: 1,
+  costMicros: 1000000,
+  conversions: 0,
+  conversionValue: 0
+};
+
+test("validates and orders one exact-negative decision", () => {
+  const result = validateDecisions({
+    decisions: [{
+      itemId: "item-1",
+      decision: "NEGATIVE_EXACT",
+      negativeText: "free collision repair course",
+      ruleIds: ["POL-CAREERS-NEGATIVE", "POL-FULL-QUERY-EXACT"],
+      reason: "Education intent",
+      confidence: 0.9
+    }]
+  }, [candidate], rules);
+  assert.equal(result[0]?.decision, "NEGATIVE_EXACT");
+});
+
+test("rejects rewritten negative text", () => {
+  assert.throws(() => validateDecisions({
+    decisions: [{
+      itemId: "item-1",
+      decision: "NEGATIVE_EXACT",
+      negativeText: "collision repair course",
+      ruleIds: ["POL-CAREERS-NEGATIVE"],
+      reason: "Education intent",
+      confidence: 0.9
+    }]
+  }, [candidate], rules), /complete search term/u);
+});
+
+test("rejects an omitted decision", () => {
+  assert.throws(() => validateDecisions({ decisions: [] }, [candidate], rules), /0 decisions for 1/u);
+});
+
+test("rejects the removed human-review decision", () => {
+  assert.throws(() => validateDecisions({
+    decisions: [{
+      itemId: "item-1",
+      decision: "HUMAN_REVIEW",
+      negativeText: null,
+      ruleIds: ["POL-COLLISION-KEEP"],
+      reason: "Ambiguous intent",
+      confidence: 0.5
+    }]
+  }, [candidate], rules), /invalid decision/u);
+});
+
+test("rejects unexpected output fields even if a provider ignores the schema", () => {
+  assert.throws(() => validateDecisions({
+    decisions: [{
+      itemId: "item-1",
+      decision: "KEEP",
+      negativeText: null,
+      ruleIds: ["POL-COLLISION-KEEP"],
+      reason: "Ambiguous",
+      confidence: 0.5,
+      mutation: "do-not-accept"
+    }]
+  }, [candidate], rules), /unexpected field/u);
+});
+
+test("rejects a negative decision that cites a KEEP rule", () => {
+  assert.throws(() => validateDecisions({
+    decisions: [{
+      itemId: "item-1",
+      decision: "NEGATIVE_EXACT",
+      negativeText: "free collision repair course",
+      ruleIds: ["POL-CAREERS-NEGATIVE", "POL-COLLISION-KEEP"],
+      reason: "Conflicting policy citations",
+      confidence: 0.9
+    }]
+  }, [candidate], rules), /at least one NEGATIVE rule and no KEEP rules/u);
+});
+
+test("rejects a KEEP decision that cites a NEGATIVE or meta rule", () => {
+  assert.throws(() => validateDecisions({
+    decisions: [{
+      itemId: "item-1",
+      decision: "KEEP",
+      negativeText: null,
+      ruleIds: ["POL-COLLISION-KEEP", "POL-FULL-QUERY-EXACT"],
+      reason: "Conflicting policy citations",
+      confidence: 0.9
+    }]
+  }, [candidate], rules), /at least one KEEP rule and no NEGATIVE or meta rules/u);
+});
+
+test("rejects a negative decision justified only by the exact-text meta rule", () => {
+  assert.throws(() => validateDecisions({
+    decisions: [{
+      itemId: "item-1",
+      decision: "NEGATIVE_EXACT",
+      negativeText: "free collision repair course",
+      ruleIds: ["POL-FULL-QUERY-EXACT"],
+      reason: "Missing business-intent rule",
+      confidence: 0.9
+    }]
+  }, [candidate], rules), /at least one NEGATIVE rule/u);
+});
