@@ -2,7 +2,7 @@ import type { DateRange, FixedInputTokenCount, LlmTokenUsage, Organization, Rule
 import type { GoogleAdsClient } from "../google-ads/client.js";
 import { aggregateCandidates, fetchSearchTermsForDateRange } from "../google-ads/search-terms.js";
 import { ClassificationFailure, type KeywordClassifier, type LlmGenerationAttempt } from "../llm/classifier.js";
-import { serializeError } from "../observability/errors.js";
+import { PipelineError, serializeError } from "../observability/errors.js";
 import { addTokenUsage, emptyTokenUsage, type RunTelemetry } from "../observability/run-telemetry.js";
 import type { RunArtifacts } from "../storage/run-artifacts.js";
 import { createDecisionCsv } from "../storage/decision-csv.js";
@@ -37,6 +37,11 @@ export interface OrganizationSummary {
   error?: string;
 }
 
+export interface ProgressLogger {
+  info(fields: Record<string, unknown>, message: string): void;
+  warn(fields: Record<string, unknown>, message: string): void;
+}
+
 interface ProcessOrganizationDependencies {
   googleAds: GoogleAdsClient;
   classifier: KeywordClassifier;
@@ -47,13 +52,19 @@ interface ProcessOrganizationDependencies {
   candidateLimit?: number | null;
   campaignNameContains?: string | null;
   llmLimit: Limit;
+  logger?: ProgressLogger;
+  /** Test seam; production emits a heartbeat once per minute for active LLM batches. */
+  batchHeartbeatMs?: number;
 }
+
+const DEFAULT_BATCH_HEARTBEAT_MS = 60_000;
 
 export async function processOrganization(
   organization: Organization,
   requestedDate: string | null,
   dependencies: ProcessOrganizationDependencies
 ): Promise<OrganizationSummary> {
+  const organizationStarted = performance.now();
   const dateRange = requestedDate
     ? singleDateRange(requestedDate)
     : date48HoursBackInTimeZone(organization.timeZone);
@@ -67,11 +78,28 @@ export async function processOrganization(
   let fixedInput: FixedInputTokenCount | null = null;
   let fixedInputFailed = false;
 
+  dependencies.logger?.info({
+    progressEvent: "organization_started",
+    startDate: dateRange.startDate,
+    endDate: dateRange.endDate
+  }, "Organization processing started");
+
   try {
+    const fetchStarted = performance.now();
+    dependencies.logger?.info({
+      progressEvent: "organization_search_terms_fetch_started",
+      startDate: dateRange.startDate,
+      endDate: dateRange.endDate
+    }, "Fetching organization search terms from Google Ads");
     const rows = await dependencies.telemetry.track("GOOGLE_SEARCH_TERM_FETCH", errorContext, () =>
       fetchSearchTermsForDateRange(dependencies.googleAds, organization.customerId, dateRange)
     );
     rawRowCount = rows.length;
+    dependencies.logger?.info({
+      progressEvent: "organization_search_terms_fetch_completed",
+      rawRowCount,
+      durationMs: elapsedMs(fetchStarted)
+    }, "Organization search-term fetch completed");
     await dependencies.artifacts.write(`${basePath}/fetch.json`, {
       organization,
       dateRange,
@@ -85,6 +113,14 @@ export async function processOrganization(
       ? availableCandidates
       : availableCandidates.slice(0, dependencies.candidateLimit);
     candidateCount = candidates.length;
+    dependencies.logger?.info({
+      progressEvent: "organization_candidates_prepared",
+      rawRowCount: rows.length,
+      scopedRowCount: scopedRows.length,
+      availableCandidateCount: availableCandidates.length,
+      candidateCount,
+      candidateLimit: dependencies.candidateLimit ?? null
+    }, "Organization candidates prepared");
     await dependencies.artifacts.write(`${basePath}/candidates.json`, {
       organization,
       dateRange,
@@ -100,6 +136,12 @@ export async function processOrganization(
     });
 
     try {
+      const fixedInputStarted = performance.now();
+      dependencies.logger?.info({
+        progressEvent: "organization_fixed_input_count_started",
+        provider: dependencies.classifier.provider,
+        model: dependencies.classifier.model
+      }, "Counting fixed LLM input tokens for organization");
       fixedInput = await dependencies.telemetry.track("LLM_FIXED_TOKEN_COUNT", {
         ...errorContext,
         provider: dependencies.classifier.provider
@@ -111,8 +153,19 @@ export async function processOrganization(
       organizationUsage.fixedInputTokens = fixedInput.totalTokens;
       organizationUsage.fixedInputDefinition = fixedInput.definition;
       dependencies.telemetry.recordFixedInput(fixedInput.totalTokens);
-    } catch {
+      dependencies.logger?.info({
+        progressEvent: "organization_fixed_input_count_completed",
+        fixedInputTokens: fixedInput.totalTokens,
+        attemptCount: fixedInput.attemptCount,
+        retryCount: fixedInput.retryCount,
+        durationMs: elapsedMs(fixedInputStarted)
+      }, "Fixed LLM input token count completed");
+    } catch (error) {
       fixedInputFailed = true;
+      dependencies.logger?.warn({
+        progressEvent: "organization_fixed_input_count_failed",
+        errorCode: safeErrorCode(error)
+      }, "Fixed LLM input token count failed; organization will continue as partial");
     }
     await dependencies.artifacts.write(`${basePath}/fixed-input-tokens.json`, {
       status: fixedInput ? "COUNTED" : "FAILED",
@@ -137,12 +190,53 @@ export async function processOrganization(
         dependencies.telemetry.errorsForOrganization(organization.customerId).length
       );
       await writeOrganizationResults(dependencies, basePath, organization, dateRange, candidates, [], summary);
+      logOrganizationCompleted(dependencies.logger, summary, organizationStarted);
       return summary;
     }
 
     const batches = chunksOf(candidates, dependencies.batchSize);
-    const settled = await Promise.allSettled(batches.map((batch, index) => dependencies.llmLimit(async () => {
+    let batchesCompleted = 0;
+    let batchesFailed = 0;
+    let decisionsCompleted = 0;
+    dependencies.logger?.info({
+      progressEvent: "organization_batches_prepared",
+      batchTotal: batches.length,
+      candidateCount,
+      batchSize: dependencies.batchSize
+    }, "Organization LLM batches prepared");
+    const settled = await Promise.allSettled(batches.map((batch, index) => {
       const batchId = String(index + 1).padStart(4, "0");
+      dependencies.logger?.info({
+        progressEvent: "organization_batch_queued",
+        batchId,
+        batchPosition: index + 1,
+        batchTotal: batches.length,
+        candidateCount: batch.length,
+        provider: dependencies.classifier.provider,
+        model: dependencies.classifier.model
+      }, "Organization LLM batch queued");
+      return dependencies.llmLimit(async () => {
+      const batchStarted = performance.now();
+      const batchContext = {
+        batchId,
+        batchPosition: index + 1,
+        batchTotal: batches.length,
+        candidateCount: batch.length,
+        provider: dependencies.classifier.provider,
+        model: dependencies.classifier.model
+      };
+      dependencies.logger?.info({
+        progressEvent: "organization_batch_started",
+        ...batchContext,
+        batchesCompleted,
+        batchesRemaining: batches.length - batchesCompleted
+      }, "Organization LLM batch started");
+      const stopHeartbeat = startBatchHeartbeat(
+        dependencies.logger,
+        batchContext,
+        batchStarted,
+        dependencies.batchHeartbeatMs ?? DEFAULT_BATCH_HEARTBEAT_MS
+      );
       const context = {
         account: organizationContext(organization),
         dateRange,
@@ -193,6 +287,24 @@ export async function processOrganization(
           rawResponse: result.response,
           decisions: result.validated.decisions
         });
+        batchesCompleted += 1;
+        decisionsCompleted += result.validated.decisions.length;
+        dependencies.logger?.info({
+          progressEvent: "organization_batch_completed",
+          ...batchContext,
+          batchStatus: "VALIDATED",
+          durationMs: elapsedMs(batchStarted),
+          generationAttempts: result.attempts.length,
+          httpAttempts: result.attempts.reduce((total, attempt) => total + attempt.httpAttempts.length, 0),
+          decisions: result.validated.decisions.length,
+          inputTokens: result.validated.usage.inputTokens,
+          outputTokens: result.validated.usage.outputTokens,
+          totalTokens: result.validated.usage.totalTokens,
+          batchesCompleted,
+          batchesFailed,
+          batchesRemaining: batches.length - batchesCompleted,
+          decisionsCompleted
+        }, "Organization LLM batch completed");
         return result.validated.decisions;
       } catch (error) {
         failedBatchCount += 1;
@@ -235,9 +347,27 @@ export async function processOrganization(
           providerRequest: failure?.request ?? null,
           lastRawResponse: failure?.lastResponse ?? null
         });
+        batchesCompleted += 1;
+        batchesFailed += 1;
+        dependencies.logger?.warn({
+          progressEvent: "organization_batch_failed",
+          ...batchContext,
+          batchStatus: "FAILED",
+          durationMs: elapsedMs(batchStarted),
+          errorCode: safeErrorCode(error),
+          generationAttempts: attempts.length,
+          httpAttempts: attempts.reduce((total, attempt) => total + attempt.httpAttempts.length, 0),
+          batchesCompleted,
+          batchesFailed,
+          batchesRemaining: batches.length - batchesCompleted,
+          decisionsCompleted
+        }, "Organization LLM batch failed; remaining batches will continue");
         throw error;
+      } finally {
+        stopHeartbeat();
       }
-    })));
+      });
+    }));
 
     const decisions = settled.flatMap((result) => result.status === "fulfilled" ? result.value : []);
     // Reconcile from settled state in case a failure occurred before entering the classifier catch.
@@ -255,6 +385,7 @@ export async function processOrganization(
       dependencies.telemetry.errorsForOrganization(organization.customerId).length
     );
     await writeOrganizationResults(dependencies, basePath, organization, dateRange, candidates, decisions, summary);
+    logOrganizationCompleted(dependencies.logger, summary, organizationStarted);
     return summary;
   } catch (error) {
     const alreadyTracked = dependencies.telemetry.errorsForOrganization(organization.customerId)
@@ -284,8 +415,68 @@ export async function processOrganization(
       summary
     ));
     await dependencies.artifacts.write(`${basePath}/summary.json`, summary);
+    dependencies.logger?.warn({
+      progressEvent: "organization_failed",
+      organizationStatus: summary.status,
+      durationMs: elapsedMs(organizationStarted),
+      rawRowCount: summary.rawRowCount,
+      candidateCount: summary.candidateCount,
+      failedBatchCount: summary.failedBatchCount,
+      errorCount: summary.errorCount,
+      errorCode: safeErrorCode(error)
+    }, "Organization processing failed");
     return summary;
   }
+}
+
+function startBatchHeartbeat(
+  logger: Pick<ProgressLogger, "info"> | undefined,
+  context: Record<string, unknown>,
+  started: number,
+  intervalMs: number
+): () => void {
+  if (!logger || !Number.isFinite(intervalMs) || intervalMs <= 0) return () => {};
+  const timer = setInterval(() => {
+    logger.info({
+      progressEvent: "organization_batch_heartbeat",
+      ...context,
+      elapsedMs: elapsedMs(started)
+    }, "Organization LLM batch is still running");
+  }, intervalMs);
+  timer.unref();
+  return () => clearInterval(timer);
+}
+
+function logOrganizationCompleted(
+  logger: Pick<ProgressLogger, "info"> | undefined,
+  summary: OrganizationSummary,
+  started: number
+): void {
+  logger?.info({
+    progressEvent: "organization_completed",
+    organizationStatus: summary.status,
+    durationMs: elapsedMs(started),
+    rawRowCount: summary.rawRowCount,
+    candidateCount: summary.candidateCount,
+    decisionCount: summary.decisionCount,
+    keepCount: summary.decisions.KEEP ?? 0,
+    negativeExactCount: summary.decisions.NEGATIVE_EXACT ?? 0,
+    batchCount: summary.batchTokenUsage.length,
+    failedBatchCount: summary.failedBatchCount,
+    errorCount: summary.errorCount
+  }, "Organization processing completed");
+}
+
+function elapsedMs(started: number): number {
+  return Math.round((performance.now() - started) * 100) / 100;
+}
+
+function safeErrorCode(error: unknown): string {
+  return error instanceof PipelineError
+    ? error.context.code ?? error.name
+    : error instanceof Error
+      ? error.name
+      : "UNKNOWN_ERROR";
 }
 
 async function writeOrganizationResults(

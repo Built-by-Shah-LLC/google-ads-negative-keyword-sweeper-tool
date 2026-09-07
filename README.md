@@ -152,6 +152,22 @@ settings (`RESEND_REQUEST_TIMEOUT_MS`, `RESEND_MAX_ATTEMPTS`). Delivery status i
 Runtime output uses structured Pino logging rather than direct `console.log` calls. Set
 `LOG_LEVEL` to `trace`, `debug`, `info`, `warn`, `error`, `fatal`, or `silent`.
 
+### Live run progress
+
+At the default `info` level, long sweeps continuously report their progress to the
+terminal as structured JSON. The progress stream includes organization discovery and
+selection, each organization's search-term fetch and candidate counts, fixed-input token
+counting, and every LLM batch as it is queued, started, completed, or failed. An active
+batch emits an `organization_batch_heartbeat` every 60 seconds until it finishes, so a
+slow provider request never leaves the run silent for an extended period.
+
+Batch completion records include the batch position/total, candidate and decision counts,
+duration, generation and HTTP attempt counts, tokens, and rolling completed/failed/remaining
+totals. Organization completion and whole-run progress are also logged. Organizations are
+identified by their position and a stable hashed `organizationRef`; raw customer IDs,
+search terms, prompts, and provider responses are not added to progress logs. Filter the
+stream using the `progressEvent` field when following a multi-hour run.
+
 Unhandled errors can send an SMTP email to the comma-separated recipients in
 `ERROR_EMAIL_TO`. Copy the SMTP settings from `.env.example`, set
 `ERROR_EMAIL_ENABLED=true`, and configure `ERROR_EMAIL_FROM`, `SMTP_HOST`, and the

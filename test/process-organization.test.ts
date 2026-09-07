@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import type { GoogleAdsClient } from "../src/google-ads/client.js";
-import type { ClassificationContext, KeywordClassifier } from "../src/llm/classifier.js";
+import { ClassificationFailure, type ClassificationContext, type KeywordClassifier } from "../src/llm/classifier.js";
 import { RunTelemetry } from "../src/observability/run-telemetry.js";
 import { processOrganization } from "../src/pipeline/process-organization.js";
 import { RunArtifacts } from "../src/storage/run-artifacts.js";
@@ -24,6 +24,19 @@ test("writes reconciled organization telemetry and token artifacts", async (cont
   const telemetry = new RunTelemetry();
   const artifacts = new RunArtifacts(root, "test-run");
   const queries: string[] = [];
+  const progressLogs: Array<{
+    level: "info" | "warn";
+    fields: Record<string, unknown>;
+    message: string;
+  }> = [];
+  const progressLogger = {
+    info(fields: Record<string, unknown>, message: string) {
+      progressLogs.push({ level: "info", fields, message });
+    },
+    warn(fields: Record<string, unknown>, message: string) {
+      progressLogs.push({ level: "warn", fields, message });
+    }
+  };
   const googleAds = {
     async searchStream(_customerId: string, query: string): Promise<Record<string, unknown>[]> {
       queries.push(query);
@@ -58,6 +71,7 @@ test("writes reconciled organization telemetry and token artifacts", async (cont
       };
     },
     async classify(classificationContext: ClassificationContext) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
       const candidate = classificationContext.searchTerms[0]!;
       return {
         validated: {
@@ -112,7 +126,9 @@ test("writes reconciled organization telemetry and token artifacts", async (cont
     telemetry,
     rules,
     batchSize: 1,
-    llmLimit: async (task) => task()
+    llmLimit: async (task) => task(),
+    logger: progressLogger,
+    batchHeartbeatMs: 5
   });
 
   assert.equal(summary.status, "SUCCEEDED");
@@ -136,4 +152,87 @@ test("writes reconciled organization telemetry and token artifacts", async (cont
   assert.deepEqual(errors.errors, []);
   assert.equal(queries.length, 2);
   assert.ok(queries.every((query) => query.includes("segments.date BETWEEN '2026-08-25' AND '2026-08-25'")));
+  const events = progressLogs.map((entry) => entry.fields.progressEvent);
+  assert.equal(events.filter((event) => event === "organization_batch_queued").length, 2);
+  assert.equal(events.filter((event) => event === "organization_batch_started").length, 2);
+  assert.equal(events.filter((event) => event === "organization_batch_completed").length, 2);
+  assert.ok(events.filter((event) => event === "organization_batch_heartbeat").length >= 2);
+  assert.equal(events.at(-1), "organization_completed");
+  assert.ok(progressLogs.every((entry) => !Object.hasOwn(entry.fields, "customerId")));
+  assert.ok(progressLogs.every((entry) => !JSON.stringify(entry.fields).includes("collision repair near me")));
+});
+
+test("logs an explicit failed outcome for every failed organization batch", async (context) => {
+  const root = await mkdtemp(join(tmpdir(), "negative-sweeper-log-test-"));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const logs: Array<{ level: "info" | "warn"; fields: Record<string, unknown> }> = [];
+  const logger = {
+    info(fields: Record<string, unknown>) { logs.push({ level: "info", fields }); },
+    warn(fields: Record<string, unknown>) { logs.push({ level: "warn", fields }); }
+  };
+  const googleAds = {
+    async searchStream(_customerId: string, query: string): Promise<Record<string, unknown>[]> {
+      if (query.includes("campaign_search_term_view")) return [];
+      return [{
+        campaign: { id: "456", name: "Campaign" },
+        adGroup: { id: "789", name: "Ad group" },
+        searchTermView: { searchTerm: "sample query", status: "NONE" },
+        segments: { date: "2026-08-25", keyword: { info: { text: "sample", matchType: "BROAD" } } },
+        metrics: { impressions: 1, clicks: 0, costMicros: 0, conversions: 0, conversionsValue: 0 }
+      }];
+    }
+  } as unknown as GoogleAdsClient;
+  const classifier: KeywordClassifier = {
+    provider: "test-provider",
+    model: "test-model",
+    async countFixedInputTokens() {
+      return {
+        totalTokens: 10,
+        countedAt: new Date().toISOString(),
+        definition: "test",
+        model: "test-model",
+        providerRequestId: null,
+        attemptCount: 1,
+        retryCount: 0
+      };
+    },
+    async classify() {
+      throw new ClassificationFailure(
+        "Test classification failure",
+        {},
+        [],
+        null,
+        "test-provider"
+      );
+    }
+  };
+
+  const summary = await processOrganization({
+    customerId: "123",
+    descriptiveName: "Test",
+    timeZone: "UTC",
+    currencyCode: "USD"
+  }, "2026-08-25", {
+    googleAds,
+    classifier,
+    artifacts: new RunArtifacts(root, "failed-log-test"),
+    telemetry: new RunTelemetry(),
+    rules,
+    batchSize: 50,
+    llmLimit: async (task) => task(),
+    logger
+  });
+
+  assert.equal(summary.status, "FAILED");
+  assert.ok(logs.find((entry) => entry.fields.progressEvent === "organization_batch_queued"));
+  const failed = logs.find((entry) => entry.fields.progressEvent === "organization_batch_failed");
+  assert.ok(failed);
+  assert.equal(failed.level, "warn");
+  assert.equal(failed.fields.batchPosition, 1);
+  assert.equal(failed.fields.batchTotal, 1);
+  assert.equal(failed.fields.batchesCompleted, 1);
+  assert.equal(failed.fields.batchesRemaining, 0);
+  assert.equal(failed.fields.errorCode, "LLM_CLASSIFICATION_FAILED");
+  const completed = logs.find((entry) => entry.fields.progressEvent === "organization_completed");
+  assert.equal(completed?.fields.organizationStatus, "FAILED");
 });

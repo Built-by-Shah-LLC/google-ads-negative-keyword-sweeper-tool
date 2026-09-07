@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { AppConfig } from "../config/env.js";
 import type { RuleSet } from "../types.js";
 import { GoogleAdsClient } from "../google-ads/client.js";
@@ -86,17 +87,26 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
 
   let discoveredCount = 0;
   let selectedCount = 0;
+  let organizationsCompleted = 0;
   let summaries: OrganizationSummary[] = [];
   try {
     logger.info({ ruleVersion: rules.version, promptVersion: rules.promptVersion }, "Sweep run started");
     await artifacts.write("run-manifest.json", { ...manifestBase, status: "RUNNING" });
     await artifacts.writeText("rules.md", rules.markdown);
 
+    logger.info({
+      progressEvent: "organization_discovery_started"
+    }, "Discovering enabled Google Ads organizations");
     const discovered = await telemetry.track("ORGANIZATION_DISCOVERY", {}, () =>
       fetchOrganizations(googleAds, config.googleAds.loginCustomerId)
     );
     discoveredCount = discovered.length;
     const eligible = filterOrganizationsByAllowlist(discovered, config.accountAllowlist);
+    logger.info({
+      progressEvent: "organization_discovery_completed",
+      organizationsDiscovered: discoveredCount,
+      organizationsEligible: eligible.length
+    }, "Google Ads organization discovery completed");
     let selected = eligible;
     if (options.customerId) {
       const customerId = options.customerId.replaceAll("-", "");
@@ -120,24 +130,56 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
     }
     selectedCount = selected.length;
     await artifacts.write("organizations.json", { discovered, eligible, selected });
+    logger.info({
+      progressEvent: "organization_selection_completed",
+      organizationsDiscovered: discoveredCount,
+      organizationsEligible: eligible.length,
+      organizationsSelected: selectedCount,
+      googleFetchConcurrency: config.googleFetchConcurrency,
+      llmConcurrency: config.llm.concurrency,
+      llmBatchSize: config.llm.batchSize
+    }, "Organizations selected; processing will begin");
 
     const fetchLimit = createLimiter(config.googleFetchConcurrency);
     const llmLimit = createLimiter(config.llm.concurrency);
-    summaries = await Promise.all(selected.map((organization) => fetchLimit(() => processOrganization(
-      organization,
-      processingDate,
-      {
-        googleAds,
-        classifier,
-        artifacts,
-        telemetry,
-        rules,
-        batchSize: config.llm.batchSize,
-        candidateLimit: options.candidateLimitPerOrganization,
-        campaignNameContains: config.campaignNameContains,
-        llmLimit
-      }
-    ))));
+    summaries = await Promise.all(selected.map((organization, index) => fetchLimit(async () => {
+      const organizationRef = safeOrganizationRef(organization.customerId);
+      const organizationLogger = logger.child({
+        organizationRef,
+        organizationPosition: index + 1,
+        organizationTotal: selectedCount
+      });
+      const summary = await processOrganization(
+        organization,
+        processingDate,
+        {
+          googleAds,
+          classifier,
+          artifacts,
+          telemetry,
+          rules,
+          batchSize: config.llm.batchSize,
+          candidateLimit: options.candidateLimitPerOrganization,
+          campaignNameContains: config.campaignNameContains,
+          llmLimit,
+          logger: organizationLogger
+        }
+      );
+      organizationsCompleted += 1;
+      logger.info({
+        progressEvent: "sweep_organization_progress",
+        organizationRef,
+        organizationPosition: index + 1,
+        organizationTotal: selectedCount,
+        organizationStatus: summary.status,
+        organizationsCompleted,
+        organizationsRemaining: selectedCount - organizationsCompleted,
+        candidates: summary.candidateCount,
+        decisions: summary.decisionCount,
+        failedBatches: summary.failedBatchCount
+      }, "Organization finished; sweep progress updated");
+      return summary;
+    })));
 
     const classificationStatus = runStatus(summaries);
     const status = await finalizeRun(
@@ -374,4 +416,8 @@ function runStatus(summaries: OrganizationSummary[]): "SUCCEEDED" | "PARTIAL" | 
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function safeOrganizationRef(customerId: string): string {
+  return createHash("sha256").update(customerId).digest("hex").slice(0, 12);
 }
