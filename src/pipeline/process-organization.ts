@@ -490,6 +490,7 @@ async function writeOrganizationResults(
 ): Promise<void> {
   await dependencies.artifacts.write(`${basePath}/decisions.json`, {
     contractVersion: "classification-output-v2",
+    releaseId: dependencies.rules.releaseId ?? null,
     readOnly: true,
     googleAdsMutationPerformed: false,
     ruleVersion: dependencies.rules.version,

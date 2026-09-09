@@ -236,3 +236,54 @@ test("logs an explicit failed outcome for every failed organization batch", asyn
   const completed = logs.find((entry) => entry.fields.progressEvent === "organization_completed");
   assert.equal(completed?.fields.organizationStatus, "FAILED");
 });
+
+
+for (const failProvider of [false, true]) {
+  test(`all phrase matches reach the LLM; no manufactured KEEP (provider failure: ${failProvider})`, async (context) => {
+    const root = await mkdtemp(join(tmpdir(), "phrase-pipeline-"));
+    context.after(() => rm(root, { recursive: true, force: true }));
+    const artifacts = new RunArtifacts(root, "phrase-run");
+    const terms = ["collision service near me", "mobile collision service", "steve collision experts"];
+    const googleAds = {
+      async searchStream(_customerId: string, query: string) {
+        if (query.includes("campaign_search_term_view")) return [];
+        return terms.map((searchTerm) => ({
+          campaign: { id: "456", name: "Campaign" }, adGroup: { id: "789", name: "Group" },
+          searchTermView: { searchTerm, status: "NONE" }, segments: { date: "2026-08-25" },
+          metrics: { impressions: 1, clicks: 1, costMicros: 1000, conversions: 0, conversionsValue: 0 }
+        }));
+      }
+    } as unknown as GoogleAdsClient;
+    let submittedTerms: string[] = [];
+    let countCalls = 0;
+    const classifier: KeywordClassifier = {
+      provider: "test", model: "test",
+      async countFixedInputTokens() {
+        countCalls++;
+        return { totalTokens: 1, countedAt: new Date().toISOString(), definition: "test", model: "test", providerRequestId: null, attemptCount: 1, retryCount: 0 };
+      },
+      async classify(context) {
+        submittedTerms = context.searchTerms.map((item) => item.searchTerm);
+        if (failProvider) throw new Error("Simulated provider failure");
+        // Deliberately mock NEGATIVE for every item, even the positive example:
+        // this proves the pipeline preserves model decisions instead of forcing KEEP.
+        return {
+          validated: { decisions: context.searchTerms.map((item) => ({ itemId: item.itemId, decision: "NEGATIVE_EXACT" as const, negativeText: item.searchTerm, ruleIds: ["POL-COMPETITOR-NEGATIVE"], reason: "Mock outcome", confidence: 0.9 })), model: "test", providerRequestId: null, usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2, cachedInputTokens: 0, thoughtTokens: 0 } },
+          request: {}, response: {}, attempts: []
+        };
+      }
+    };
+    const summary = await processOrganization({ customerId: "1234567890", descriptiveName: "Shop", timeZone: "UTC", currencyCode: "USD" }, "2026-08-25", {
+      googleAds, classifier, artifacts, telemetry: new RunTelemetry(), batchSize: 10, llmLimit: async (fn) => fn(),
+      rules: { ...rules, phraseProtections: [
+        { id: "service", phrase: "collision service", ruleId: "POL-MECHANICAL-ONLY-NEGATIVE", customerIds: [], excusedEvidence: "Only service describing collision repair" },
+        { id: "experts", phrase: "collision experts", ruleId: "POL-COMPETITOR-NEGATIVE", customerIds: [], excusedEvidence: "Only experts describing expertise" }
+      ] }
+    });
+    assert.deepEqual([...submittedTerms].sort(), [...terms].sort());
+    assert.equal(countCalls, 1);
+    assert.equal(summary.status, failProvider ? "FAILED" : "SUCCEEDED");
+    assert.equal(summary.decisions.KEEP, 0);
+    assert.equal(summary.decisions.NEGATIVE_EXACT, failProvider ? 0 : 3);
+  });
+}

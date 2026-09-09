@@ -1,0 +1,4 @@
+# Release hashes must stay identical on Windows, macOS, Linux, and in containers.
+src/config/*.md text eol=lf
+src/config/*.json text eol=lf
+src/config/stable/*.md text eol=lf

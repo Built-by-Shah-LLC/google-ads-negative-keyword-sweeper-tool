@@ -8,7 +8,8 @@
     "check": "tsc -p tsconfig.json --noEmit",
     "eval:openai": "tsx scripts/evaluate-openai-models.ts",
     "test": "node --import tsx --test test/**/*.test.ts",
-    "sweep": "tsx src/index.ts"
+    "sweep": "tsx src/index.ts",
+    "rules:check": "node --import tsx scripts/check-rule-release.ts"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

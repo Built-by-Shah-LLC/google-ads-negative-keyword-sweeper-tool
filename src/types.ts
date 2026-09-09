@@ -50,6 +50,16 @@ export interface RuleSet {
   sourcePath: string;
   markdown: string;
   ruleIds: string[];
+  phraseProtections?: PhraseProtection[];
+  releaseId?: string;
+}
+
+export interface PhraseProtection {
+  id: string;
+  phrase: string;
+  customerIds: string[];
+  ruleId: string;
+  excusedEvidence: string;
 }
 
 export interface LlmTokenUsage {

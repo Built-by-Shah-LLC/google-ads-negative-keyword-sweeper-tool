@@ -1,0 +1,21 @@
+[
+  {"term":"collision service near me","expected":"KEEP","protections":["collision-service"],"category":"location"},
+  {"term":"collision service nyc","expected":"KEEP","protections":["collision-service"],"category":"location"},
+  {"term":"collision experts near me","expected":"KEEP","protections":["collision-experts"],"category":"location"},
+  {"term":"collision experts in texas","expected":"KEEP","protections":["collision-experts"],"category":"location"},
+  {"term":"mobile collision service","expected":"NEGATIVE_EXACT","protections":["collision-service"],"category":"independent exclusion"},
+  {"term":"steve collision experts","expected":"NEGATIVE_EXACT","protections":["collision-experts"],"category":"same-rule competitor evidence"},
+  {"term":"steve collision service","expected":"NEGATIVE_EXACT","protections":["collision-service"],"category":"independent exclusion"},
+  {"term":"collision experts reviews","expected":"NEGATIVE_EXACT","protections":["collision-experts"],"category":"independent exclusion"},
+  {"term":"mechanic collision service near me","expected":"NEGATIVE_EXACT","protections":["collision-service"],"category":"same-rule mechanical evidence"},
+  {"term":"collision service and oil change","expected":"NEGATIVE_EXACT","protections":["collision-service"],"category":"same-rule mechanical evidence"},
+  {"term":"collision service and brake service","expected":"NEGATIVE_EXACT","protections":["collision-service"],"category":"same-rule mechanical evidence"},
+  {"term":"collision experts collision king","expected":"NEGATIVE_EXACT","protections":["collision-experts"],"category":"same-rule competitor evidence"},
+  {"term":"COLLISION-SERVICE near me","expected":"KEEP","protections":["collision-service"],"category":"normalization"},
+  {"term":"collision experts and collision service near me","expected":"KEEP","protections":["collision-experts","collision-service"],"category":"multiple configured phrases"},
+  {"term":"collision services near me","expected":"NEGATIVE_EXACT","protections":[],"category":"unconfigured plural"},
+  {"term":"collision serviceman near me","expected":"NEGATIVE_EXACT","protections":[],"category":"phrase boundary"},
+  {"term":"collision expertship near me","expected":"NEGATIVE_EXACT","protections":[],"category":"phrase boundary"},
+  {"term":"collision mobile service","expected":"NEGATIVE_EXACT","protections":[],"category":"noncontiguous phrase"},
+  {"term":"collision repair near me","expected":"KEEP","protections":[],"category":"ordinary policy control"}
+]
