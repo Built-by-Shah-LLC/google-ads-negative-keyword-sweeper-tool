@@ -5,6 +5,7 @@ import { ClassificationFailure, type KeywordClassifier, type LlmGenerationAttemp
 import { PipelineError, serializeError } from "../observability/errors.js";
 import { addTokenUsage, emptyTokenUsage, type RunTelemetry } from "../observability/run-telemetry.js";
 import type { RunArtifacts } from "../storage/run-artifacts.js";
+import type { SweepPersistence } from "../storage/persistence.js";
 import { createDecisionCsv } from "../storage/decision-csv.js";
 import { chunksOf, type Limit } from "../util/concurrency.js";
 
@@ -55,6 +56,7 @@ interface ProcessOrganizationDependencies {
   logger?: ProgressLogger;
   /** Test seam; production emits a heartbeat once per minute for active LLM batches. */
   batchHeartbeatMs?: number;
+  persistence?: SweepPersistence;
 }
 
 const DEFAULT_BATCH_HEARTBEAT_MS = 60_000;
@@ -65,6 +67,7 @@ export async function processOrganization(
   dependencies: ProcessOrganizationDependencies
 ): Promise<OrganizationSummary> {
   const organizationStarted = performance.now();
+  const organizationStartedAt = new Date().toISOString();
   const dateRange = requestedDate
     ? singleDateRange(requestedDate)
     : date48HoursBackInTimeZone(organization.timeZone);
@@ -77,6 +80,7 @@ export async function processOrganization(
   const batchTokenUsage: BatchTokenUsage[] = [];
   let fixedInput: FixedInputTokenCount | null = null;
   let fixedInputFailed = false;
+  let persistencePrepared = false;
 
   dependencies.logger?.info({
     progressEvent: "organization_started",
@@ -100,10 +104,11 @@ export async function processOrganization(
       rawRowCount,
       durationMs: elapsedMs(fetchStarted)
     }, "Organization search-term fetch completed");
+    const fetchedAt = new Date().toISOString();
     await dependencies.artifacts.write(`${basePath}/fetch.json`, {
       organization,
       dateRange,
-      fetchedAt: new Date().toISOString(),
+      fetchedAt,
       rows
     });
 
@@ -176,6 +181,23 @@ export async function processOrganization(
       fixedInput
     });
 
+    await dependencies.persistence?.prepareAccount({
+      organization,
+      dateRange,
+      startedAt: organizationStartedAt,
+      fetchedAt,
+      rows,
+      scopedRowCount: scopedRows.length,
+      availableCandidateCount: availableCandidates.length,
+      candidates,
+      batchSize: dependencies.batchSize,
+      rules: dependencies.rules,
+      provider: dependencies.classifier.provider,
+      model: dependencies.classifier.model,
+      fixedInput
+    });
+    persistencePrepared = true;
+
     if (candidates.length === 0) {
       const summary = createSummary(
         organization,
@@ -189,6 +211,7 @@ export async function processOrganization(
         false,
         dependencies.telemetry.errorsForOrganization(organization.customerId).length
       );
+      await dependencies.persistence?.finishAccount(summaryRecord(summary));
       await writeOrganizationResults(dependencies, basePath, organization, dateRange, candidates, [], summary);
       logOrganizationCompleted(dependencies.logger, summary, organizationStarted);
       return summary;
@@ -244,6 +267,11 @@ export async function processOrganization(
         searchTerms: batch
       };
       try {
+        await dependencies.persistence?.markBatchRunning(
+          organization.customerId,
+          batchId,
+          new Date().toISOString()
+        );
         await dependencies.artifacts.write(`${basePath}/llm/batch-${batchId}-input.json`, {
           provider: dependencies.classifier.provider,
           model: dependencies.classifier.model,
@@ -274,6 +302,12 @@ export async function processOrganization(
           result.attempts.length,
           result.validated.usage
         ));
+        await dependencies.persistence?.recordBatchSuccess(
+          organization.customerId,
+          batchId,
+          result,
+          new Date().toISOString()
+        );
         await dependencies.artifacts.write(`${basePath}/llm/batch-${batchId}-output.json`, {
           status: "VALIDATED",
           provider: dependencies.classifier.provider,
@@ -338,6 +372,15 @@ export async function processOrganization(
           batchId,
           provider: dependencies.classifier.provider
         });
+        await dependencies.persistence?.recordBatchFailure(
+          organization.customerId,
+          batchId,
+          failure?.request ?? null,
+          attempts,
+          failure?.lastResponse ?? null,
+          serialized,
+          new Date().toISOString()
+        );
         await dependencies.artifacts.write(`${basePath}/llm/batch-${batchId}-error.json`, {
           status: "FAILED",
           failedAt: new Date().toISOString(),
@@ -384,6 +427,7 @@ export async function processOrganization(
       fixedInputFailed,
       dependencies.telemetry.errorsForOrganization(organization.customerId).length
     );
+    await dependencies.persistence?.finishAccount(summaryRecord(summary));
     await writeOrganizationResults(dependencies, basePath, organization, dateRange, candidates, decisions, summary);
     logOrganizationCompleted(dependencies.logger, summary, organizationStarted);
     return summary;
@@ -406,6 +450,9 @@ export async function processOrganization(
       errorCount: dependencies.telemetry.errorsForOrganization(organization.customerId).length,
       error: errorMessage(error)
     };
+    if (persistencePrepared) {
+      await dependencies.persistence?.finishAccount(summaryRecord(summary));
+    }
     await dependencies.artifacts.write(`${basePath}/errors.json`, {
       errors: dependencies.telemetry.errorsForOrganization(organization.customerId)
     });
@@ -427,6 +474,23 @@ export async function processOrganization(
     }, "Organization processing failed");
     return summary;
   }
+}
+
+function summaryRecord(summary: OrganizationSummary): import("../storage/persistence.js").SweepAccountSummaryRecord {
+  return {
+    customerId: summary.customerId,
+    status: summary.status,
+    completedAt: new Date().toISOString(),
+    rawRowCount: summary.rawRowCount,
+    candidateCount: summary.candidateCount,
+    decisionCount: summary.decisionCount,
+    failedBatchCount: summary.failedBatchCount,
+    keepCount: summary.decisions.KEEP ?? 0,
+    negativeExactCount: summary.decisions.NEGATIVE_EXACT ?? 0,
+    errorCount: summary.errorCount,
+    ...(summary.error === undefined ? {} : { error: summary.error }),
+    tokenUsage: summary.tokenUsage
+  };
 }
 
 function startBatchHeartbeat(

@@ -166,6 +166,54 @@ test("blank campaign filter disables campaign filtering", async () => {
   }
 });
 
+test("loads required shared-database persistence settings", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "sweeper-database-config-"));
+  try {
+    await writeFile(join(directory, ".env"), [
+      "GOOGLE_ADS_DEVELOPER_TOKEN=developer",
+      "GOOGLE_ADS_LOGIN_CUSTOMER_ID=1234567890",
+      "GOOGLE_ADS_CLIENT_ID=client",
+      "GOOGLE_ADS_CLIENT_SECRET=secret",
+      "GOOGLE_ADS_REFRESH_TOKEN=refresh",
+      "MOONSHOT_API_KEY=moonshot-test-key",
+      "PERSIST_RUNS_TO_DATABASE=true",
+      "DATABASE_URL=postgresql://sweeper:password@127.0.0.1:5432/built_ads_manager",
+      "ORGANIZATION_ID=8cb31fe0-6f38-4ae1-bcda-808604249624",
+      "DATABASE_POOL_MAX=3",
+      "DATABASE_MAX_PAYLOAD_BYTES=4096",
+      "CLOUD_RUN_EXECUTION=sweep-20260909",
+      "CLOUD_RUN_TASK_ATTEMPT=2",
+    ].join("\n"), "utf8");
+    const config = await loadConfig(directory);
+    assert.equal(config.persistence.enabled, true);
+    if (!config.persistence.enabled) return;
+    assert.equal(config.persistence.organizationId, "8cb31fe0-6f38-4ae1-bcda-808604249624");
+    assert.equal(config.persistence.executionKey, "sweep-20260909:attempt:2");
+    assert.equal(config.persistence.poolMax, 3);
+    assert.equal(config.persistence.maxPayloadBytes, 4096);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("fails closed when database persistence is enabled without its identity", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "sweeper-database-config-"));
+  try {
+    await writeFile(join(directory, ".env"), [
+      "GOOGLE_ADS_DEVELOPER_TOKEN=developer",
+      "GOOGLE_ADS_LOGIN_CUSTOMER_ID=1234567890",
+      "GOOGLE_ADS_CLIENT_ID=client",
+      "GOOGLE_ADS_CLIENT_SECRET=secret",
+      "GOOGLE_ADS_REFRESH_TOKEN=refresh",
+      "MOONSHOT_API_KEY=moonshot-test-key",
+      "PERSIST_RUNS_TO_DATABASE=true",
+    ].join("\n"), "utf8");
+    await assert.rejects(() => loadConfig(directory), /DATABASE_URL, ORGANIZATION_ID/u);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("loads Resend run-report email configuration", async () => {
   const directory = await mkdtemp(join(tmpdir(), "sweeper-report-email-config-"));
   try {

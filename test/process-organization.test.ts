@@ -8,6 +8,7 @@ import { ClassificationFailure, type ClassificationContext, type KeywordClassifi
 import { RunTelemetry } from "../src/observability/run-telemetry.js";
 import { processOrganization } from "../src/pipeline/process-organization.js";
 import { RunArtifacts } from "../src/storage/run-artifacts.js";
+import type { SweepPersistence } from "../src/storage/persistence.js";
 import type { RuleSet } from "../src/types.js";
 
 const rules: RuleSet = {
@@ -29,6 +30,20 @@ test("writes reconciled organization telemetry and token artifacts", async (cont
     fields: Record<string, unknown>;
     message: string;
   }> = [];
+  const persistenceCalls: string[] = [];
+  const persistence = {
+    async startRun() {},
+    async recordDiscovery() {},
+    async prepareAccount(input) { persistenceCalls.push(`prepare:${input.rows.length}:${input.candidates.length}`); },
+    async markBatchRunning(_customerId, batchKey) { persistenceCalls.push(`running:${batchKey}`); },
+    async recordBatchSuccess(_customerId, batchKey, result) {
+      persistenceCalls.push(`success:${batchKey}:${result.validated.decisions.length}`);
+    },
+    async recordBatchFailure() { persistenceCalls.push("failure"); },
+    async finishAccount(summary) { persistenceCalls.push(`finish:${summary.status}:${summary.decisionCount}`); },
+    async finishRun() {},
+    async close() {},
+  } satisfies SweepPersistence;
   const progressLogger = {
     info(fields: Record<string, unknown>, message: string) {
       progressLogs.push({ level: "info", fields, message });
@@ -128,7 +143,8 @@ test("writes reconciled organization telemetry and token artifacts", async (cont
     batchSize: 1,
     llmLimit: async (task) => task(),
     logger: progressLogger,
-    batchHeartbeatMs: 5
+    batchHeartbeatMs: 5,
+    persistence
   });
 
   assert.equal(summary.status, "SUCCEEDED");
@@ -160,6 +176,10 @@ test("writes reconciled organization telemetry and token artifacts", async (cont
   assert.equal(events.at(-1), "organization_completed");
   assert.ok(progressLogs.every((entry) => !Object.hasOwn(entry.fields, "customerId")));
   assert.ok(progressLogs.every((entry) => !JSON.stringify(entry.fields).includes("collision repair near me")));
+  assert.ok(persistenceCalls.includes("prepare:2:2"));
+  assert.equal(persistenceCalls.filter((entry) => entry.startsWith("running:")).length, 2);
+  assert.equal(persistenceCalls.filter((entry) => entry.startsWith("success:")).length, 2);
+  assert.ok(persistenceCalls.includes("finish:SUCCEEDED:2"));
 });
 
 test("logs an explicit failed outcome for every failed organization batch", async (context) => {

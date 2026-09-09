@@ -24,6 +24,12 @@ export interface SearchTermRow {
   costMicros: number;
   conversions: number;
   conversionValue: number;
+  /** Exact source values retained for PostgreSQL bigint/numeric writes. */
+  impressionsExact?: string;
+  clicksExact?: string;
+  costMicrosExact?: string;
+  conversionsExact?: string;
+  conversionValueExact?: string;
 }
 
 export interface DateRange {
