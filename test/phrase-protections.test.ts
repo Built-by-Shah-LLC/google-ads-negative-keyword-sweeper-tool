@@ -14,7 +14,7 @@ test("phrase selection covers locations and boundaries; it does not assert model
   for (const item of cases) {
     assert.deepEqual(matchingPhraseProtections(item.term, "1234567890", rules.phraseProtections).map((entry) => entry.id), item.protections, item.term);
   }
-  for (const term of ["precollision service", "experts collision", "collision best service"]) {
+  for (const term of ["precollision service", "experts collision", "collision best service", "collision serviceship", "precollision services"]) {
     assert.deepEqual(matchingPhraseProtections(term, "1234567890", rules.phraseProtections), []);
   }
   assert.equal(matchingPhraseProtections("ＣＯＬＬＩＳＩＯＮ\tservice!", "1234567890", [entry]).length, 1);
@@ -35,7 +35,7 @@ test("malformed, duplicate, broad-rule, legacy and unknown-rule entries fail clo
 });
 test("policy and protection edits fail integrity verification, stable snapshot stays original", async (t) => {
   const rules = await loadRuleSet(process.cwd());
-  assert.equal(rules.phraseProtections?.length, 2);
+  assert.equal(rules.phraseProtections?.length, 3);
   const root = await mkdtemp(join(tmpdir(), "rule-release-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   await mkdir(join(root, "src"));

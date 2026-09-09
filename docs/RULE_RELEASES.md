@@ -13,6 +13,12 @@ It replaces the earlier, undeployed unconditional KEEP design with two condition
 phrase exceptions in `src/config/phrase-protections.md`.
 The baseline must never be edited; future stable snapshots get new filenames.
 
+Candidate release `2026-09-09.3` adds the explicitly configured plural phrase
+`collision services` globally with the same narrowly scoped mechanical-evidence
+exception as `collision service`. Other exclusions still apply. The rule and
+prompt versions are unchanged. Updated fixture labels describe intended behavior;
+the earlier live comparison does not evaluate this new release.
+
 ## Enforced locally
 
 - Application startup rejects policy or phrase-protection content that differs from the
