@@ -12,7 +12,8 @@ RUN npm ci
 COPY tsconfig.json tsconfig.build.json ./
 COPY src ./src
 RUN npx tsc -p tsconfig.build.json \
-  && cp src/config/negative-keyword-rules.md dist/src/config/negative-keyword-rules.md \
+  && cp src/config/*.md src/config/rule-release.json dist/src/config/ \
+  && node --input-type=module -e "import {loadRuleSet} from './dist/src/config/rule-set.js'; await loadRuleSet('./dist');" \
   && npm prune --omit=dev
 
 FROM node:24-slim AS runtime

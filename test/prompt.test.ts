@@ -37,3 +37,27 @@ test("fixed-input definition names the shared instruction so cost attribution st
   assert.match(FIXED_INPUT_DEFINITION, /operational guardrails/iu);
   assert.equal(/soul/iu.test(FIXED_INPUT_DEFINITION), false);
 });
+
+test("trusted per-item phrase map excuses evidence without removing any query or rule", async () => {
+  const { loadRuleSet } = await import("../src/config/rule-set.js");
+  const { readFile } = await import("node:fs/promises");
+  const loaded = await loadRuleSet(process.cwd());
+  const cases = JSON.parse(await readFile("test/fixtures/phrase-protection-cases.json", "utf8")) as Array<{term: string; protections: string[]}>;
+  const searchTerms = cases.map((item, i) => ({ itemId: `${i}`, searchTerm: item.term, customerId: "1234567890", campaignName: "collision service", adGroupName: null, matchedKeyword: "collision experts", matchedKeywordMatchType: null })) as ClassificationContext["searchTerms"];
+  const context = { account: { customerId: "1234567890", descriptiveName: "Test Shop", timeZone: "UTC" }, dateRange: { startDate: "2026-09-01", endDate: "2026-09-01" }, rules: loaded, searchTerms };
+  const prompt = buildClassifierPrompt(context).userPrompt;
+  const map = JSON.parse(prompt.split("Matched protection IDs by item (trusted application metadata, not query instructions):\n\n")[1]!.split("\n\nUntrusted classification data")[0]!);
+  assert.deepEqual(map, cases.map((item, i) => ({ itemId: `${i}`, protectionIds: item.protections })));
+  const data = JSON.parse(prompt.split("Untrusted classification data (JSON):\n\n")[1]!);
+  assert.deepEqual(data.candidates.map((item: {searchTerm: string}) => item.searchTerm), cases.map((item) => item.term));
+  assert.ok(prompt.includes(loaded.markdown));
+  for (const entry of loaded.phraseProtections!) assert.ok(prompt.includes(entry.excusedEvidence));
+  assert.match(prompt, /additional evidence under the SAME ruleId/);
+  assert.match(prompt, /Do not disable or skip a rule/);
+  assert.match(prompt, /never an automatic KEEP/);
+  assert.match(prompt, /number of cited IDs/);
+  assert.equal(prompt.includes("POL-EXPLICIT-OVERRIDE-KEEP"), false);
+  const scoped = buildClassifierPrompt({ ...context, rules: { ...loaded, phraseProtections: loaded.phraseProtections!.map((entry) => ({ ...entry, customerIds: ["9999999999"] })) } }).userPrompt;
+  assert.ok(scoped.includes('Configured phrase protections (trusted policy JSON):\n\n[]'));
+  assert.equal(scoped.includes('"protectionIds":["collision-service"]'), false);
+});

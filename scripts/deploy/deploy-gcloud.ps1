@@ -24,10 +24,12 @@
   Deployment region. Default: us-central1.
 
 .EXAMPLE
-  powershell -File scripts/deploy/deploy-gcloud.ps1 -ProjectId my-project -Region us-central1
+  powershell -File scripts/deploy/deploy-gcloud.ps1 -ProjectId my-project -ApprovedBaseCommit <previous-release-commit> -Region us-central1
 #>
 param(
   [Parameter(Mandatory = $true)][string]$ProjectId,
+  # Commit of the previously approved release, used for cumulative policy change limits.
+  [Parameter(Mandatory = $true)][string]$ApprovedBaseCommit,
   [string]$Region = "us-central1",
   [string]$JobName = "negative-keyword-sweeper",
   [string]$RepoName = "negative-keyword-sweeper",
@@ -38,6 +40,12 @@ param(
 )
 
 $ProjectRoot = Resolve-Path (Join-Path $PSScriptRoot "..\..")
+Push-Location $ProjectRoot
+try {
+  Get-Command npm -ErrorAction Stop | Out-Null
+  & npm run rules:check -- $ApprovedBaseCommit
+  if ($LASTEXITCODE -ne 0) { throw "Rule release checks failed; deployment stopped." }
+} finally { Pop-Location }
 $Image = "$Region-docker.pkg.dev/$ProjectId/$RepoName/sweeper:latest"
 $ServiceAccountEmail = "$ServiceAccountName@$ProjectId.iam.gserviceaccount.com"
 
