@@ -1,6 +1,6 @@
 # Collision-repair search-term classification rules
 
-Rule set version: `2026-09-10.2`
+Rule set version: `2026-09-10.3`
 
 Prompt version: `collision-classifier-v7`
 
@@ -547,8 +547,32 @@ Examples: `salvage yard near me`, `rebuild salvage car`, `rebuild car`,
 
 ### `POL-CAREERS-NEGATIVE` — Employment and training
 
-Negative jobs, hiring, careers, salary, internship, school, course, or professional
-training intent.
+Always-win. Negative job-seeking, hiring, careers, pay, or professional training
+intent. Collision, body-shop, OEM, insurer, or geo wording does not save these
+queries; the searcher wants a job or a class, not to hire a shop.
+
+Fire on standalone tokens and phrases (do not fire on these letters inside a
+longer word):
+
+- Employment: `job`, `jobs`, `hiring`, `hire`, `career`, `careers`,
+  `now hiring`, `help wanted`, `job opening`, `job openings`
+- Applications: `apply`, `applying`, `application`, `applications`, `resume`,
+  `resumes`, `indeed`
+- Pay: `salary`, `wage`, `wages`
+- Training: `intern`, `internship`, `internships`, `apprentice`, `apprentices`,
+  `apprenticeship`, `apprenticeships`, `course`, `courses`, `training`,
+  `trade school`, `auto body school`, `collision repair school`,
+  `body shop school`
+- Job titles used as employment: `manager`, `managers`, `management`,
+  `estimator`, `estimators`, `technician`, `technicians`, standalone `tech`
+
+Do not fire on bare `school` or bare `opening` (`high school parking lot
+collision`, `body shop opening hours`). `technician` / `tech` may also match
+`POL-MECHANICAL-ONLY-NEGATIVE`.
+
+Examples: `auto body manager`, `apprenticeship auto body repair`,
+`body shop hiring`, `auto body technician`, `collision estimator`,
+`auto body resume`, `indeed auto body`.
 
 ### `POL-DIY-HOWTO-NEGATIVE` — Do-it-yourself instructions
 

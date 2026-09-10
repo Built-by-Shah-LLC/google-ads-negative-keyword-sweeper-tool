@@ -34,6 +34,13 @@ version `collision-classifier-v7`. `POL-COMPETITOR-NEGATIVE` now strips
 such as `steve collision experts` stays negative. The careers rewrite is not in
 this release.
 
+Candidate release `2026-09-10.3` uses rule version `2026-09-10.3` and prompt
+version `collision-classifier-v7`. `POL-CAREERS-NEGATIVE` is now always-win with
+a closed employment and training token list, including `manager`, `apprenticeship`,
+`estimator`, `apply` / `resume` / `indeed`, and `technician`. Bare `school` and
+bare `opening` do not fire. The decision-order preamble still omits this rule
+until a follow-up release.
+
 ## Enforced locally
 
 - Application startup rejects policy or phrase-protection content that differs from the

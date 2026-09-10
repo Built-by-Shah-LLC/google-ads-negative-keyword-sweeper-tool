@@ -29,7 +29,7 @@ test("release gate rejects bulk phrase protections, stable edits, and multi-sect
   await release();
   assert.throws(run, /maximum five phrase protection/);
   await writeFile(protectionPath, originalProtections);
-  await writeFile(rulePath, originalRules.replace("2026-09-10.2", "2026-09-10.3").replace("KEEP generic collision", "KEEP all generic collision").replace("KEEP genuine generic automotive", "KEEP all genuine generic automotive"));
+  await writeFile(rulePath, originalRules.replace("2026-09-10.3", "2026-09-10.4").replace("KEEP generic collision", "KEEP all generic collision").replace("KEEP genuine generic automotive", "KEEP all genuine generic automotive"));
   await release();
   assert.throws(run, /maximum one rule section/);
   await writeFile(rulePath, originalRules);
