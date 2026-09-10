@@ -1,6 +1,6 @@
 # Collision-repair search-term classification rules
 
-Rule set version: `2026-09-09.1`
+Rule set version: `2026-09-10.1`
 
 Prompt version: `collision-classifier-v7`
 
@@ -156,6 +156,12 @@ always-win token. `dent specialist` stays `POL-COSMETIC-ONLY-NEGATIVE`. `paint
 specialist` stays `POL-PAINT-COLOR-NEGATIVE`. `mechanic`, `technician`, and
 standalone `tech` still kill this rule.
 
+Body-shop wording plus `service` / `services` is KEEP only inside the closed
+collocations `auto body service`, `auto body services`, `body shop service`, and
+`body shop services`. `auto body service near me` and `body shop services` are
+KEEP. Other `service` / `services` uses still kill this rule (`service collision`,
+`car service`, `auto service`).
+
 Quality-shopping modifiers used to find a shop do not kill this rule: `best`,
 `top rated`, `highest rated`, `highly rated`, `best rated`, and `5 star` /
 `five star` plus body-shop wording. `best autobody shop`, `best auto body shop`,
@@ -172,9 +178,10 @@ descriptors). `european collision` and `korean collision repair` have no body-sh
 wording, so they are `POL-COMPETITOR-NEGATIVE`, not this rule.
 
 This rule cannot override `mechanic`, `technician`, standalone `tech`,
-`service` / `services`, paint/color/repaint, or a named competitor.
-`body shop mechanic`, `auto body service`, and `paint and body shop near me`
-are negative. Contiguous `auto repair` / `car repair` does not kill this rule when
+paint/color/repaint, or a named competitor. `service` / `services` still kill
+this rule except inside the four body-shop service collocations above.
+`body shop mechanic` and `paint and body shop near me` are negative.
+Contiguous `auto repair` / `car repair` does not kill this rule when
 body-shop wording is also present, in either order: `body shop auto repair near me`,
 `body auto repair shops near me`, `body shop car repair`, `auto repair body`,
 `auto repair body shop`, and `auto repair and body shop` are KEEP. `auto repair near me`
@@ -193,7 +200,8 @@ or a non-English query. Use the leftover-token test in `POL-COMPETITOR-NEGATIVE`
 
 Examples: `body work shops near me`, `auto body works near me`, `body shop near me`,
 `auto body repair near me`, `body repair near me`, `car body work repair`,
-`auto body specialists`, `best autobody shop`, `best auto body shop`,
+`auto body specialists`, `auto body service near me`, `body shop services`,
+`best autobody shop`, `best auto body shop`,
 `best body shop near me`, `best toyota body shop near me`, `korean body shop`,
 `german auto body`, `european auto body shop near me`, `japanese body shop`,
 `body shop auto repair near me`, `auto repair body shop`.

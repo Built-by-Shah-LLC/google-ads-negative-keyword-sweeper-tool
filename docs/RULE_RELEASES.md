@@ -19,6 +19,14 @@ exception as `collision service`. Other exclusions still apply. The rule and
 prompt versions are unchanged. Updated fixture labels describe intended behavior;
 the earlier live comparison does not evaluate this new release.
 
+Candidate release `2026-09-10.1` uses rule version `2026-09-10.1` and prompt
+version `collision-classifier-v7`. It adds four global mechanical-evidence
+exceptions: `auto body service`, `auto body services`, `body shop service`, and
+`body shop services`. `POL-BODYWORK-KEEP` now KEEPs those closed collocations
+and still negatives `service` outside them. Other exclusions still apply.
+`expert` / `experts` leftover stripping and the careers always-win rewrite are
+not in this release.
+
 ## Enforced locally
 
 - Application startup rejects policy or phrase-protection content that differs from the
@@ -55,6 +63,10 @@ IDs; there is no synthetic KEEP rule or deterministic confidence.
 - `collision service` excuses only `service` describing collision repair under
   `POL-MECHANICAL-ONLY-NEGATIVE`. `mechanic collision service` and `collision
   service and brake service` still have independent mechanical evidence.
+- `auto body service` / `auto body services` / `body shop service` /
+  `body shop services` excuse only in-phrase `service` / `services` under
+  `POL-MECHANICAL-ONLY-NEGATIVE`. `mechanic auto body service` and
+  `auto body service and oil change` still have independent mechanical evidence.
 - `collision experts` excuses only `experts` describing collision expertise under
   `POL-COMPETITOR-NEGATIVE`. `steve collision experts` still has competitor evidence.
 - `mobile collision service` and `collision experts reviews` retain their mobile

@@ -23,5 +23,18 @@
   {"term":"collision serviceman near me","expected":"NEGATIVE_EXACT","protections":[],"category":"phrase boundary"},
   {"term":"collision expertship near me","expected":"NEGATIVE_EXACT","protections":[],"category":"phrase boundary"},
   {"term":"collision mobile service","expected":"NEGATIVE_EXACT","protections":[],"category":"noncontiguous phrase"},
-  {"term":"collision repair near me","expected":"KEEP","protections":[],"category":"ordinary policy control"}
+  {"term":"collision repair near me","expected":"KEEP","protections":[],"category":"ordinary policy control"},
+  {"term":"auto body service near me","expected":"KEEP","protections":["auto-body-service"],"category":"location"},
+  {"term":"auto body service nyc","expected":"KEEP","protections":["auto-body-service"],"category":"location"},
+  {"term":"auto body services near me","expected":"KEEP","protections":["auto-body-services"],"category":"configured plural"},
+  {"term":"body shop service near me","expected":"KEEP","protections":["body-shop-service"],"category":"location"},
+  {"term":"body shop services near me","expected":"KEEP","protections":["body-shop-services"],"category":"configured plural"},
+  {"term":"AUTO-BODY-SERVICE near me","expected":"KEEP","protections":["auto-body-service"],"category":"normalization"},
+  {"term":"mobile auto body service","expected":"NEGATIVE_EXACT","protections":["auto-body-service"],"category":"independent exclusion"},
+  {"term":"steve auto body service","expected":"NEGATIVE_EXACT","protections":["auto-body-service"],"category":"independent exclusion"},
+  {"term":"auto body service and oil change","expected":"NEGATIVE_EXACT","protections":["auto-body-service"],"category":"same-rule mechanical evidence"},
+  {"term":"mechanic body shop service","expected":"NEGATIVE_EXACT","protections":["body-shop-service"],"category":"same-rule mechanical evidence"},
+  {"term":"steve body shop services","expected":"NEGATIVE_EXACT","protections":["body-shop-services"],"category":"independent exclusion"},
+  {"term":"autobody service near me","expected":"NEGATIVE_EXACT","protections":[],"category":"phrase boundary"},
+  {"term":"auto service body near me","expected":"NEGATIVE_EXACT","protections":[],"category":"noncontiguous phrase"}
 ]

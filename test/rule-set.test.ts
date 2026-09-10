@@ -51,6 +51,8 @@ test("loads the authoritative Markdown rule set with unique rule IDs", async () 
   assert.match(rules.markdown, /motorcycle crash repairs near me/iu);
   assert.match(rules.markdown, /lucid body shop/iu);
   assert.match(rules.markdown, /auto body specialists/iu);
+  assert.match(rules.markdown, /auto body service near me/iu);
+  assert.match(rules.markdown, /body shop services/iu);
   assert.match(rules.markdown, /quick body shop/iu);
   assert.match(rules.markdown, /same day collision repair/iu);
   assert.match(rules.markdown, /rebuild salvage car/iu);
