@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { loadRuleSet } from "../src/config/rule-set.js";
+import { PRODUCTION_MUTATION_CONFIRMATION, type AppConfig } from "../src/config/env.js";
 import { ClassificationFailure, type LlmGenerationAttempt, type LlmHttpAttempt } from "../src/llm/classifier.js";
 import { buildClassifierPrompt, createResponseSchema } from "../src/llm/prompt.js";
 import { parseClassifierPayload } from "../src/llm/parse-classifier-payload.js";
@@ -17,7 +18,17 @@ import { createRunTokenUsageReport } from "../src/pipeline/run-sweeper.js";
 import { createDecisionCsv } from "../src/storage/decision-csv.js";
 import { RunArtifacts } from "../src/storage/run-artifacts.js";
 import { chunksOf, createLimiter } from "../src/util/concurrency.js";
-import { disabledMutationSummary } from "../src/google-ads/negative-keyword-writer.js";
+import { GoogleAdsClient } from "../src/google-ads/client.js";
+import {
+  applyNegativeExactDecisions,
+  disabledMutationSummary,
+  skippedMutationSummary,
+  type NegativeKeywordMutationSummary,
+  type NegativeKeywordWriter
+} from "../src/google-ads/negative-keyword-writer.js";
+import { DevelopmentNegativeKeywordWriter } from "../src/google-ads/negative-keyword-writer.dev.js";
+import { createLiveValidationOnlyNegativeKeywordWriter } from "../src/google-ads/negative-keyword-writer.validation.js";
+import { createLiveProductionNegativeKeywordWriter } from "../src/google-ads/negative-keyword-writer.prod.js";
 import type {
   ClassificationCandidate,
   ClassificationDecision,
@@ -61,10 +72,20 @@ interface KimiRunOptions {
   reasoningEffort: "low" | "high"; // kimi-for-coding subscription alias / kimi-k3
 }
 
+interface MutationRunOptions {
+  // --mutation disabled|development|validation|production (default: GOOGLE_ADS_MUTATION_MODE or disabled).
+  // development = mock writes; validation = validateOnly against live API; production = real writes,
+  // which additionally require GOOGLE_ADS_PRODUCTION_MUTATION_CONFIRMATION=APPLY_EXACT_NEGATIVES_TO_LIVE_GOOGLE_ADS.
+  mode: "disabled" | "development" | "validation" | "production";
+  chunkSize: number;
+}
+
 async function main(): Promise<void> {
   const workspace = process.cwd();
   const args = process.argv.slice(2);
-  const kimi = await loadKimiEnv(workspace, args);
+  const envFile = await loadEnvFile(workspace);
+  const kimi = await loadKimiEnv(workspace, args, envFile);
+  const mutation = loadMutationOptions(args, envFile);
   const defaultBatchSize = kimi.model.startsWith("kimi-k2.") ? "25" : "50";
   const run: KimiRunOptions = {
     customerId: optionValue(args, "--customer") ?? "3825219066",
@@ -76,6 +97,15 @@ async function main(): Promise<void> {
     reasoningEffort: (optionValue(args, "--reasoning") as "low" | "high" | null) ?? "low"
   };
   if (!Number.isSafeInteger(run.batchSize) || run.batchSize < 1) throw new Error("--batch-size must be a positive integer.");
+  // Optional mutation stage: same guarded writer as the pipeline. Default stays
+  // disabled (pure measurement). Production requires the exact confirmation env value.
+  let googleAds: GoogleAdsClient | undefined;
+  let writer: NegativeKeywordWriter | undefined;
+  if (mutation.mode !== "disabled") {
+    const googleAdsConfig = loadGoogleAdsConfig(envFile);
+    googleAds = new GoogleAdsClient(googleAdsConfig);
+    writer = createScriptNegativeKeywordWriter(mutation.mode, googleAdsConfig, envFile);
+  }
   const rules = await loadRuleSet(workspace);
   const dateRange = DEFAULT_RANGE;
   const telemetry = new RunTelemetry({ logger });
@@ -109,7 +139,8 @@ async function main(): Promise<void> {
     purpose: `One-off 30-day token-usage measurement on Kimi (${kimi.model}), same candidate set as the OpenAI run`,
     requestedDateRange: { from: dateRange.startDate, to: dateRange.endDate },
     candidateSource: `${run.candidatesSource} (no Google Ads refetch; identical input for provider comparison)`,
-    readOnly: true,
+    mutationMode: mutation.mode,
+    readOnly: mutation.mode !== "production",
     googleAdsMutationPerformed: false,
     ruleSet: { version: rules.version, sourcePath: rules.sourcePath, promptVersion: rules.promptVersion },
     llm: { provider: "kimi", model: kimi.model, baseUrl: kimi.baseUrl, thinking: run.thinking, reasoningEffort: run.thinking ? null : run.reasoningEffort, exactModelString: kimi.model },
@@ -209,15 +240,34 @@ async function main(): Promise<void> {
   const decisionCounts: Record<string, number> = { KEEP: 0, NEGATIVE_EXACT: 0 };
   for (const decision of decisions) decisionCounts[decision.decision] = (decisionCounts[decision.decision] || 0) + 1;
 
+  // Mutation stage (optional): same contract as the pipeline — requires a complete,
+  // successful classification for every candidate before any Google Ads write.
+  let mutationSummary: NegativeKeywordMutationSummary = disabledMutationSummary();
+  if (writer && googleAds) {
+    mutationSummary = failedBatchCount > 0
+      ? skippedMutationSummary(writer, "Mutation requires a complete, successful classification for every candidate.")
+      : await applyNegativeExactDecisions({
+        googleAds,
+        writer,
+        customerId: organization.customerId,
+        candidates,
+        decisions,
+        chunkSize: mutation.chunkSize
+      });
+    await artifacts.write(`${basePath}/mutations/summary.json`, mutationSummary);
+  }
+
+  const organizationStatus = candidates.length > 0 && decisions.length === 0
+    ? "FAILED"
+    : failedBatchCount > 0 || mutationSummary.status === "FAILED" || mutationSummary.status === "PARTIAL"
+      ? "PARTIAL"
+      : "SUCCEEDED";
+
   const summary: OrganizationSummary = {
     customerId: organization.customerId,
     descriptiveName: organization.descriptiveName,
     dateRange,
-    status: candidates.length > 0 && decisions.length === 0
-      ? "FAILED"
-      : failedBatchCount > 0
-        ? "PARTIAL"
-        : "SUCCEEDED",
+    status: organizationStatus,
     rawRowCount: candidates.length,
     candidateCount: candidates.length,
     decisionCount: decisions.length,
@@ -229,14 +279,14 @@ async function main(): Promise<void> {
       fixedInputDefinition: "Kimi exposes no count endpoint; see fixed-input-tokens.json for the OpenAI-measured reference value."
     },
     batchTokenUsage,
-    mutation: disabledMutationSummary(),
+    mutation: mutationSummary,
     errorCount: telemetry.errorsForOrganization(organization.customerId).length
   };
 
   await artifacts.write(`${basePath}/decisions.json`, {
     contractVersion: "classification-output-v2",
-    readOnly: true,
-    googleAdsMutationPerformed: false,
+    readOnly: !mutationSummary.googleAdsMutationPerformed,
+    googleAdsMutationPerformed: mutationSummary.googleAdsMutationPerformed,
     ruleVersion: rules.version,
     promptVersion: rules.promptVersion,
     provider: "kimi",
@@ -259,7 +309,11 @@ async function main(): Promise<void> {
   await artifacts.write("summary.json", {
     runId: artifacts.runId,
     status: summary.status,
-    readOnly: true,
+    readOnly: !mutationSummary.googleAdsMutationPerformed,
+    googleAdsMutationPerformed: mutationSummary.googleAdsMutationPerformed,
+    mutationMode: mutationSummary.mode,
+    mutationStatus: mutationSummary.status,
+    appliedNegativeCount: mutationSummary.appliedCount,
     startedAt,
     completedAt,
     durationMs: Math.round(new Date(completedAt).getTime() - new Date(startedAt).getTime()),
@@ -276,6 +330,8 @@ async function main(): Promise<void> {
   await artifacts.write("run-manifest.json", {
     ...manifestBase,
     status: summary.status,
+    readOnly: !mutationSummary.googleAdsMutationPerformed,
+    googleAdsMutationPerformed: mutationSummary.googleAdsMutationPerformed,
     completedAt,
     organizationsDiscovered: 1,
     organizationsSelected: 1,
@@ -293,6 +349,19 @@ async function main(): Promise<void> {
     batches: batches.length,
     tokenUsage: snapshot.tokenUsage,
     rateLimitObservations: rateLimitObservations.length,
+    mutationMode: mutationSummary.mode,
+    mutationStatus: mutationSummary.status,
+    mutation: writer
+      ? {
+        proposed: mutationSummary.proposedCount,
+        existing: mutationSummary.existingCount,
+        applied: mutationSummary.appliedCount,
+        mocked: mutationSummary.mockedCount,
+        validated: mutationSummary.validatedCount,
+        failed: mutationSummary.failedCount,
+        skippedReason: mutationSummary.skippedReason
+      }
+      : null,
     reconciled: tokenUsageReport.reconciliation.reconciled
   }, "Kimi 30-day measurement run completed");
 }
@@ -504,15 +573,20 @@ function normalizeKimiUsage(value: unknown): LlmTokenUsage {
   };
 }
 
-async function loadKimiEnv(workspace: string, args: string[] = []): Promise<KimiEnv> {
-  let fileValues: Record<string, string> = {};
+async function loadEnvFile(workspace: string): Promise<Record<string, string>> {
   try {
     const source = await readFile(resolve(workspace, ".env"), "utf8");
-    fileValues = Object.fromEntries(source.split(/\r?\n/u)
+    return Object.fromEntries(source.split(/\r?\n/u)
       .map((line) => line.trim())
       .filter((line) => line && !line.startsWith("#") && line.includes("="))
       .map((line) => [line.slice(0, line.indexOf("=")).trim(), line.slice(line.indexOf("=") + 1).trim()]));
-  } catch { /* .env optional */ }
+  } catch {
+    return {}; // .env optional
+  }
+}
+
+async function loadKimiEnv(workspace: string, args: string[] = [], envFile?: Record<string, string>): Promise<KimiEnv> {
+  const fileValues = envFile ?? await loadEnvFile(workspace);
   const model = optionValue(args, "--model") ?? process.env.KIMI_MODEL ?? fileValues.KIMI_MODEL ?? KIMI_DEFAULT_MODEL;
   const isPlatformModel = model.startsWith("kimi-k2.") || model.startsWith("kimi-k3");
   const defaultBase = isPlatformModel ? KIMI_PLATFORM_BASE_URL : KIMI_DEFAULT_BASE_URL;
@@ -531,6 +605,56 @@ async function loadKimiEnv(workspace: string, args: string[] = []): Promise<Kimi
       : "KIMI_API_KEY is missing (set it in .env or the environment).");
   }
   return { apiKey, baseUrl, model };
+}
+
+function envValue(args: string[], envFile: Record<string, string>, flag: string, name: string): string | undefined {
+  return optionValue(args, flag) ?? process.env[name] ?? envFile[name];
+}
+
+function loadMutationOptions(args: string[], envFile: Record<string, string>): MutationRunOptions {
+  const raw = (envValue(args, envFile, "--mutation", "GOOGLE_ADS_MUTATION_MODE") ?? "disabled").trim().toLowerCase();
+  const chunkSizeRaw = envValue(args, envFile, "--mutation-chunk-size", "GOOGLE_ADS_MUTATION_CHUNK_SIZE") ?? "500";
+  const chunkSize = Number(chunkSizeRaw);
+  if (!Number.isSafeInteger(chunkSize) || chunkSize < 1 || chunkSize > 500) {
+    throw new Error("Mutation chunk size must be between 1 and 500.");
+  }
+  if (raw === "disabled" || raw === "off" || raw === "false") return { mode: "disabled", chunkSize };
+  if (raw === "development" || raw === "dev" || raw === "mock") return { mode: "development", chunkSize };
+  if (raw === "validation" || raw === "validate" || raw === "validate-only") return { mode: "validation", chunkSize };
+  if (raw === "production" || raw === "prod") return { mode: "production", chunkSize };
+  throw new Error("--mutation must be disabled, development, validation, or production.");
+}
+
+function loadGoogleAdsConfig(envFile: Record<string, string>): AppConfig["googleAds"] {
+  const value = (name: string): string => {
+    const resolved = process.env[name] ?? envFile[name];
+    if (!resolved) throw new Error(`${name} is missing (required when mutation is enabled).`);
+    return resolved;
+  };
+  return {
+    apiVersion: process.env.GOOGLE_ADS_API_VERSION || envFile.GOOGLE_ADS_API_VERSION || "v25",
+    developerToken: value("GOOGLE_ADS_DEVELOPER_TOKEN"),
+    loginCustomerId: value("GOOGLE_ADS_LOGIN_CUSTOMER_ID").replaceAll("-", ""),
+    clientId: value("GOOGLE_ADS_CLIENT_ID"),
+    clientSecret: value("GOOGLE_ADS_CLIENT_SECRET"),
+    refreshToken: value("GOOGLE_ADS_REFRESH_TOKEN")
+  };
+}
+
+function createScriptNegativeKeywordWriter(
+  mode: Exclude<MutationRunOptions["mode"], "disabled">,
+  googleAds: AppConfig["googleAds"],
+  envFile: Record<string, string>
+): NegativeKeywordWriter {
+  if (mode === "development") return new DevelopmentNegativeKeywordWriter();
+  if (mode === "validation") return createLiveValidationOnlyNegativeKeywordWriter(googleAds);
+  const confirmation = process.env.GOOGLE_ADS_PRODUCTION_MUTATION_CONFIRMATION ?? envFile.GOOGLE_ADS_PRODUCTION_MUTATION_CONFIRMATION;
+  if (confirmation !== PRODUCTION_MUTATION_CONFIRMATION) {
+    throw new Error(
+      "Production Google Ads mutations require the exact GOOGLE_ADS_PRODUCTION_MUTATION_CONFIRMATION safety value."
+    );
+  }
+  return createLiveProductionNegativeKeywordWriter(googleAds, true);
 }
 
 function mergeUsage(current: { generationRequests: number } & LlmTokenUsage, usage: LlmTokenUsage, requests: number) {
