@@ -21,6 +21,29 @@ time of measurement).
 At ~5,000 candidates per full sweep, one run needs ~200 batches, i.e. roughly
 10 hours end-to-end with the default concurrency.
 
+## Confirmed root cause of the Sep 10 slowdown (3.5h -> ~10h)
+
+The candidate aggregation key in `src/google-ads/search-terms.ts`
+(`aggregateCandidates`) was widened from account scope to
+campaign/ad-group/channel scope (introduced in `d099d03`, merged via `8b25027`
+on 2026-09-09, after the old us-central1 image was built):
+
+- Old key: `customerId + normalizedTerm` — one candidate per unique search term
+  per account; cross-campaign duplicates were deduplicated away.
+- New key: `customerId + channel + campaignId + adGroupId + normalizedTerm` —
+  one candidate per search term per campaign per ad group per channel. This is
+  deliberate: campaign-scoped exact negatives need campaign-scoped candidates.
+
+Measured on the same account (10X AUTO GROUP, 8847499121): 60 raw rows -> 3
+candidates / 1 batch / 6.4K output tokens (Sep 4, old key) versus 91 raw rows
+-> 91 candidates / 4 batches / ~45K output tokens (Sep 10, new key). The LLM
+model, thinking mode, batch size, concurrency, GAQL, and prompt size were
+unchanged between the deployments; per-batch latency (~4.2 min average) is
+output-token-bound (~11.4K tokens generated at ~45 tok/s) in both eras. The
+runtime increase is therefore driven by candidate volume multiplication, not
+by slower batches, validation retries (4 of 87 batches needed a retry), or API
+outages.
+
 ## Why it is slow
 
 1. **Thinking mode is enabled** (`MOONSHOT_THINKING=enabled`). kimi-k2.6 emits
