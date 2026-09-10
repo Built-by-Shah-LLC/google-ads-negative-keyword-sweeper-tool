@@ -1,5 +1,12 @@
 import type { DateRange, FixedInputTokenCount, LlmTokenUsage, Organization, RuleSet, SearchTermRow } from "../types.js";
 import type { GoogleAdsClient } from "../google-ads/client.js";
+import {
+  applyNegativeExactDecisions,
+  disabledMutationSummary,
+  skippedMutationSummary,
+  type NegativeKeywordMutationSummary,
+  type NegativeKeywordWriter
+} from "../google-ads/negative-keyword-writer.js";
 import { aggregateCandidates, fetchSearchTermsForDateRange } from "../google-ads/search-terms.js";
 import { ClassificationFailure, type KeywordClassifier, type LlmGenerationAttempt } from "../llm/classifier.js";
 import { PipelineError, serializeError } from "../observability/errors.js";
@@ -34,6 +41,7 @@ export interface OrganizationSummary {
   decisions: Record<string, number>;
   tokenUsage: OrganizationTokenUsage;
   batchTokenUsage: BatchTokenUsage[];
+  mutation: NegativeKeywordMutationSummary;
   errorCount: number;
   error?: string;
 }
@@ -57,6 +65,8 @@ interface ProcessOrganizationDependencies {
   /** Test seam; production emits a heartbeat once per minute for active LLM batches. */
   batchHeartbeatMs?: number;
   persistence?: SweepPersistence;
+  negativeKeywordWriter?: NegativeKeywordWriter;
+  mutationChunkSize?: number;
 }
 
 const DEFAULT_BATCH_HEARTBEAT_MS = 60_000;
@@ -81,6 +91,9 @@ export async function processOrganization(
   let fixedInput: FixedInputTokenCount | null = null;
   let fixedInputFailed = false;
   let persistencePrepared = false;
+  let mutation = dependencies.negativeKeywordWriter
+    ? skippedMutationSummary(dependencies.negativeKeywordWriter, "Classification has not completed successfully.")
+    : disabledMutationSummary();
 
   dependencies.logger?.info({
     progressEvent: "organization_started",
@@ -211,6 +224,8 @@ export async function processOrganization(
         false,
         dependencies.telemetry.errorsForOrganization(organization.customerId).length
       );
+      mutation = await runMutationStage(dependencies, organization, candidates, [], summary);
+      summary.mutation = mutation;
       await dependencies.persistence?.finishAccount(summaryRecord(summary));
       await writeOrganizationResults(dependencies, basePath, organization, dateRange, candidates, [], summary);
       logOrganizationCompleted(dependencies.logger, summary, organizationStarted);
@@ -427,6 +442,10 @@ export async function processOrganization(
       fixedInputFailed,
       dependencies.telemetry.errorsForOrganization(organization.customerId).length
     );
+    mutation = await runMutationStage(dependencies, organization, candidates, decisions, summary);
+    summary.mutation = mutation;
+    summary.errorCount = dependencies.telemetry.errorsForOrganization(organization.customerId).length;
+    if (mutation.status === "FAILED" || mutation.status === "PARTIAL") summary.status = "PARTIAL";
     await dependencies.persistence?.finishAccount(summaryRecord(summary));
     await writeOrganizationResults(dependencies, basePath, organization, dateRange, candidates, decisions, summary);
     logOrganizationCompleted(dependencies.logger, summary, organizationStarted);
@@ -447,6 +466,7 @@ export async function processOrganization(
       decisions: { KEEP: 0, NEGATIVE_EXACT: 0 },
       tokenUsage: organizationUsage,
       batchTokenUsage: [...batchTokenUsage].sort(compareBatchUsage),
+      mutation,
       errorCount: dependencies.telemetry.errorsForOrganization(organization.customerId).length,
       error: errorMessage(error)
     };
@@ -461,6 +481,7 @@ export async function processOrganization(
       dependencies.classifier.model,
       summary
     ));
+    await dependencies.artifacts.write(`${basePath}/mutations/summary.json`, summary.mutation);
     await dependencies.artifacts.write(`${basePath}/summary.json`, summary);
     dependencies.logger?.warn({
       progressEvent: "organization_failed",
@@ -527,7 +548,14 @@ function logOrganizationCompleted(
     negativeExactCount: summary.decisions.NEGATIVE_EXACT ?? 0,
     batchCount: summary.batchTokenUsage.length,
     failedBatchCount: summary.failedBatchCount,
-    errorCount: summary.errorCount
+    errorCount: summary.errorCount,
+    mutationMode: summary.mutation.mode,
+    mutationStatus: summary.mutation.status,
+    mockedNegativeCount: summary.mutation.mockedCount,
+    validatedNegativeCount: summary.mutation.validatedCount,
+    appliedNegativeCount: summary.mutation.appliedCount,
+    failedMutationCount: summary.mutation.failedCount,
+    unknownMutationCount: summary.mutation.unknownCount
   }, "Organization processing completed");
 }
 
@@ -555,8 +583,8 @@ async function writeOrganizationResults(
   await dependencies.artifacts.write(`${basePath}/decisions.json`, {
     contractVersion: "classification-output-v2",
     releaseId: dependencies.rules.releaseId ?? null,
-    readOnly: true,
-    googleAdsMutationPerformed: false,
+    readOnly: !summary.mutation.googleAdsMutationPerformed,
+    googleAdsMutationPerformed: summary.mutation.googleAdsMutationPerformed,
     ruleVersion: dependencies.rules.version,
     promptVersion: dependencies.rules.promptVersion,
     provider: dependencies.classifier.provider,
@@ -564,6 +592,7 @@ async function writeOrganizationResults(
     tokenUsage: summary.tokenUsage,
     decisions
   });
+  await dependencies.artifacts.write(`${basePath}/mutations/summary.json`, summary.mutation);
   await dependencies.artifacts.writeText(
     `${basePath}/llm-decisions.csv`,
     createDecisionCsv(
@@ -616,8 +645,80 @@ function createSummary(
     decisions: counts,
     tokenUsage,
     batchTokenUsage: [...batchTokenUsage].sort(compareBatchUsage),
+    mutation: disabledMutationSummary(),
     errorCount
   };
+}
+
+async function runMutationStage(
+  dependencies: ProcessOrganizationDependencies,
+  organization: Organization,
+  candidates: Parameters<typeof createDecisionCsv>[2],
+  decisions: Parameters<typeof createDecisionCsv>[3],
+  summary: OrganizationSummary
+): Promise<NegativeKeywordMutationSummary> {
+  const writer = dependencies.negativeKeywordWriter;
+  if (!writer) return disabledMutationSummary();
+  if (
+    summary.status === "FAILED"
+    || summary.failedBatchCount > 0
+    || summary.decisionCount !== summary.candidateCount
+  ) {
+    return skippedMutationSummary(writer, "Mutation requires a complete, successful classification for every candidate.");
+  }
+  dependencies.logger?.info({
+    progressEvent: "organization_mutation_started",
+    mode: writer.mode,
+    negativeDecisionCount: summary.decisions.NEGATIVE_EXACT ?? 0
+  }, "Organization negative-keyword mutation stage started");
+  try {
+    const result = await applyNegativeExactDecisions({
+      googleAds: dependencies.googleAds,
+      writer,
+      customerId: organization.customerId,
+      candidates,
+      decisions,
+      chunkSize: dependencies.mutationChunkSize ?? 500
+    });
+    const fields = {
+      progressEvent: "organization_mutation_completed",
+      mode: writer.mode,
+      mutationStatus: result.status,
+      proposedCount: result.proposedCount,
+      existingCount: result.existingCount,
+      attemptedCount: result.attemptedCount,
+      mockedCount: result.mockedCount,
+      validatedCount: result.validatedCount,
+      appliedCount: result.appliedCount,
+      failedCount: result.failedCount,
+      unknownCount: result.unknownCount,
+      verifiedCount: result.verifiedCount
+    };
+    if (result.failedCount > 0 || result.unknownCount > 0) {
+      dependencies.logger?.warn(fields, "Organization negative-keyword mutation stage completed with failures");
+    } else {
+      dependencies.logger?.info(fields, "Organization negative-keyword mutation stage completed");
+    }
+    return result;
+  } catch (error) {
+    dependencies.telemetry.error(error, {
+      stage: "GOOGLE_ADS_MUTATION",
+      code: "GOOGLE_ADS_MUTATION_STAGE_FAILED",
+      retryable: false,
+      organizationId: organization.customerId
+    });
+    dependencies.logger?.warn({
+      progressEvent: "organization_mutation_failed",
+      mode: writer.mode,
+      errorCode: safeErrorCode(error)
+    }, "Organization negative-keyword mutation stage failed");
+    return {
+      ...skippedMutationSummary(writer, errorMessage(error)),
+      status: "FAILED",
+      proposedCount: summary.decisions.NEGATIVE_EXACT ?? 0,
+      failedCount: summary.decisions.NEGATIVE_EXACT ?? 0
+    };
+  }
 }
 
 export function createOrganizationTokenUsageReport(

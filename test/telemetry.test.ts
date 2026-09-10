@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { disabledMutationSummary } from "../src/google-ads/negative-keyword-writer.js";
 import { PipelineError } from "../src/observability/errors.js";
 import { RunTelemetry } from "../src/observability/run-telemetry.js";
 import { createRunTokenUsageReport } from "../src/pipeline/run-sweeper.js";
@@ -91,6 +92,7 @@ test("reconciles run token totals from organization and batch records", () => {
       cachedInputTokens: 100,
       thoughtTokens: 0
     }],
+    mutation: disabledMutationSummary(),
     errorCount: 0
   };
   const totals = {

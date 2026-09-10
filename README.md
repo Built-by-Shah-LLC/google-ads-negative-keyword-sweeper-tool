@@ -27,7 +27,7 @@ The code under `handoff/source_code/` is reference material. It is not the requi
 
 The legacy deterministic rule engine, stemming, competitor seeds, city heuristics, and `shouldExclude` behavior are not authoritative business policy.
 
-## Read-only TypeScript classifier
+## TypeScript classification and mutation pipeline
 
 The new application under `src/` is isolated from `legacy-reference/`. It currently performs only:
 
@@ -38,6 +38,9 @@ The new application under `src/` is isolated from `legacy-reference/`. It curren
 5. Strictly validate the structured result and persist the complete run to the
    shared Built Ads Manager PostgreSQL database. Ignored files under `runs/`
    remain a diagnostic mirror; they are not the durable source of truth.
+6. Optionally apply validated `NEGATIVE_EXACT` decisions as full-query campaign-level
+   exact negatives through either the network-free development writer or the explicitly
+   armed production writer.
 
 Each selected organization still receives the backward-compatible spreadsheet-safe CSV at:
 
@@ -85,7 +88,57 @@ Unexpected properties, missing/duplicate/unknown IDs, invalid or decision-incomp
 rule IDs, rewritten exact negative text, non-finite confidence, and reasons over 240
 characters are rejected.
 
-It contains no Google Ads mutation code.
+### Google Ads mutation modes
+
+Mutation is fail-closed and disabled by default:
+
+- `GOOGLE_ADS_MUTATION_MODE=disabled` stops after classification and writes no mutation.
+- `GOOGLE_ADS_MUTATION_MODE=development` runs the final stage with deterministic
+  `mock://` results. This writer has no OAuth or HTTP dependency and cannot call Google Ads.
+- `GOOGLE_ADS_MUTATION_MODE=validation` sends exactly one request with
+  `validateOnly: true`; it records validation outcomes but cannot persist a Google Ads change.
+- `GOOGLE_ADS_MUTATION_MODE=production` uses the Google Ads
+  `campaignCriteria:mutate` endpoint. It requires
+  `GOOGLE_ADS_PRODUCTION_MUTATION_CONFIRMATION=APPLY_EXACT_NEGATIVES_TO_LIVE_GOOGLE_ADS`
+  and the per-invocation `--execute-production-google-ads-mutations` command flag.
+
+Production operations are customer-scoped, deduplicated by campaign and normalized exact
+text, limited to 500 per request, sent through `validateOnly` first, and read back after
+mutation. Ambiguous outcomes are reconciled with a fresh read and are never blindly retried.
+Incomplete or partial classification prevents the mutation stage for that organization.
+Each organization writes `mutations/summary.json` as its mutation audit artifact.
+
+Do not put the production confirmation in a development environment. Unit tests inject fake
+production transports and never make a Google Ads mutation request.
+
+Validate one eligible real-account campaign without persisting a Google Ads change:
+
+```powershell
+npm run mutation:validate -- --auto-select-one
+```
+
+The focused validator does not load the LLM or database configuration. It writes its audit to
+`runs/validation-only-*/mutation-validation.json`. An explicit target can be supplied with
+`--customer CUSTOMER_ID --campaign CAMPAIGN_ID`.
+
+To perform one real write in a Google Ads test account only:
+
+Create an ignored `.env.google-ads-test` containing the five `GOOGLE_ADS_*` credentials
+from `.env.example`, using a test-manager login and a refresh token belonging to a user
+who can access that separate test hierarchy. The command intentionally never falls back
+to production `.env` credentials.
+
+```powershell
+npm run mutation:test-account -- `
+  --auto-select-one `
+  --confirmation WRITE_ONE_EXACT_NEGATIVE_TO_GOOGLE_TEST_ACCOUNT
+```
+
+Alternatively, use explicit `--customer TEST_CLIENT_ID --campaign TEST_CAMPAIGN_ID`.
+
+The smoke command queries `customer.test_account` immediately before writing and refuses the
+operation unless Google returns `true`. It creates one uniquely named exact negative, reads it
+back, and requires one verified result. Never pass production account IDs to this command.
 
 Install and check it:
 

@@ -34,8 +34,9 @@ async function main(
         : { type: "LIMITED", organizationLimit: options.organizationLimit ?? 1 },
     provider: config.llm.provider,
     model: config.llm.model,
-    readOnly: true
-  }, "Starting Google Ads classification pipeline");
+    googleAdsMutationMode: config.googleAdsMutation.mode,
+    readOnly: config.googleAdsMutation.mode !== "production"
+  }, "Starting Google Ads classification and negative-keyword pipeline");
 
   const result = await runSweeper(config, rules, options, { logger, emailAlerts, runReportEmail });
   logger.info({ ...result }, "Pipeline run finished");
@@ -49,13 +50,18 @@ function parseArguments(argumentsList: string[], rootDirectory: string): SweepOp
     customerId: null,
     organizationLimit: 1,
     allOrganizations: false,
-    candidateLimitPerOrganization: null
+    candidateLimitPerOrganization: null,
+    productionMutationAuthorized: false
   };
   for (let index = 0; index < argumentsList.length; index += 1) {
     const argument = argumentsList[index];
     if (argument === "--all-organizations") {
       options.allOrganizations = true;
       options.organizationLimit = null;
+      continue;
+    }
+    if (argument === "--execute-production-google-ads-mutations") {
+      options.productionMutationAuthorized = true;
       continue;
     }
     if (

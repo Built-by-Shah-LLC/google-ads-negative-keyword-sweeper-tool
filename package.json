@@ -9,6 +9,8 @@
     "eval:openai": "tsx scripts/evaluate-openai-models.ts",
     "test": "node --import tsx --test test/**/*.test.ts",
     "sweep": "tsx src/index.ts",
+    "mutation:validate": "tsx scripts/validate-google-ads-mutation.ts",
+    "mutation:test-account": "tsx scripts/smoke-test-google-ads-mutation.ts",
     "rules:check": "node --import tsx scripts/check-rule-release.ts"
   },
   "devDependencies": {

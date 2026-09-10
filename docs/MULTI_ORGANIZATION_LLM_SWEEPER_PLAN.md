@@ -2,9 +2,9 @@
 
 ## Status and delivery boundary
 
-This document is an architecture and delivery plan. It does not authorize or implement Google Ads negative-keyword mutations.
+This document began as the architecture and delivery plan for the read-only phase. The repository owner authorized the separately guarded mutation implementation on 2026-09-10; no deployment or live mutation test was authorized.
 
-Implementation status as of 2026-09-03: the repository contains a read-only TypeScript implementation with selectable Moonshot/Kimi, OpenAI, Gemini, and Kimi coding adapters; local JSON/CSV artifacts; a consolidated XLSX workbook; and Resend delivery. Google Ads mutation remains unimplemented. The OpenAI adapter and labeled-example comparison were previously tested live; the reporting and Moonshot changes use unit tests and did not trigger a production run.
+Implementation status as of 2026-09-10: the TypeScript pipeline includes selectable Moonshot/Kimi, OpenAI, Gemini, and Kimi coding adapters; PostgreSQL classification evidence; local JSON/CSV/XLSX artifacts; Resend delivery; a network-free development mutation writer; a validation-only writer; and an explicitly armed production campaign-negative writer. Mutation defaults to disabled. The validation-only writer has been accepted by one real-account Google Ads request and a follow-up read confirmed that no matching negative persisted. Production mutation code has only been tested with injected fake transports because the configured manager hierarchy contains no Google test account; it has not been deployed or run against a production account.
 
 The first delivery phase is read-only:
 
@@ -16,7 +16,7 @@ The first delivery phase is read-only:
 6. Produce an honest per-account and whole-run status summary.
 7. Make no changes to Google Ads.
 
-The later mutation phase will be separately designed, approved, and enabled.
+The mutation phase remains disabled until both production environment confirmation and per-invocation authorization are supplied.
 
 ## Terminology and candidate definition
 
@@ -118,7 +118,7 @@ Reconcile and finalize account runs
               v
 Finalize the whole sweep as success, partial, or failed
 
-Future only:
+Optional guarded final stage:
 validated NEGATIVE_EXACT decisions
               |
               v
@@ -136,7 +136,7 @@ separately authorized mutation queue and executor
 | `FinalizeAccountRun` | Confirm that every candidate has a validated decision or a recorded failure. |
 | `FinalizeSweepRun` | Reconcile and summarize results across all organizations. |
 | `ReconcileLateData` | Re-fetch a prior date to capture delayed Google reporting without duplicating records. |
-| `ApplyNegativeDecisions` | Future only: apply separately validated and authorized Google Ads mutations. |
+| `ApplyNegativeDecisions` | Apply separately validated and explicitly authorized Google Ads mutations, or deterministic mock writes in development. |
 
 ## Date and timezone handling
 
@@ -367,7 +367,7 @@ The read-only phase is complete when:
 9. No Google Ads mutation occurs.
 10. A one-account smoke test is followed by a complete all-organization read-only run.
 
-## Later mutation phase
+## Implemented mutation phase (not deployed)
 
 The future mutation executor will be separate from the LLM classifier.
 
@@ -396,7 +396,7 @@ If a request times out after it may have reached Google, re-query first and retr
 
 Google Ads is the durable source of truth for applied negatives. Run artifacts are the audit trail; they do not override live Google state.
 
-Before implementing this phase, the owner must confirm whether "add to the list" means the controlling architecture's campaign-level exact negative or a shared Google Ads negative-keyword list.
+The owner confirmed the controlling architecture's campaign-level exact negative behavior. The executor does not write to shared negative-keyword lists.
 
 ## Current repository storage reality
 

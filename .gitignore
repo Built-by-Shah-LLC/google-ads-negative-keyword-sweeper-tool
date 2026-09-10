@@ -7,4 +7,5 @@ node_modules/
 coverage/
 dist/
 runs/
+__pycache__/
 tools/

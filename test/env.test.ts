@@ -3,7 +3,12 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { loadConfig, loadOperationalConfig } from "../src/config/env.js";
+import {
+  loadConfig,
+  loadGoogleAdsConnectionConfig,
+  loadOperationalConfig,
+  PRODUCTION_MUTATION_CONFIRMATION
+} from "../src/config/env.js";
 
 test("loads the OpenAI key override and economical model defaults", async () => {
   const directory = await mkdtemp(join(tmpdir(), "sweeper-openai-config-"));
@@ -161,6 +166,115 @@ test("blank campaign filter disables campaign filtering", async () => {
 
     const config = await loadConfig(directory);
     assert.equal(config.campaignNameContains, null);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("keeps Google Ads mutation disabled by default and loads the network-free development mode", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "sweeper-mutation-config-"));
+  try {
+    const base = [
+      "GOOGLE_ADS_DEVELOPER_TOKEN=developer",
+      "GOOGLE_ADS_LOGIN_CUSTOMER_ID=1234567890",
+      "GOOGLE_ADS_CLIENT_ID=client",
+      "GOOGLE_ADS_CLIENT_SECRET=secret",
+      "GOOGLE_ADS_REFRESH_TOKEN=refresh",
+      "MOONSHOT_API_KEY=moonshot-test-key"
+    ];
+    await writeFile(join(directory, ".env"), base.join("\n"), "utf8");
+    assert.equal((await loadConfig(directory)).googleAdsMutation.mode, "disabled");
+
+    await writeFile(join(directory, ".env"), [
+      ...base,
+      "GOOGLE_ADS_MUTATION_MODE=development",
+      "GOOGLE_ADS_MUTATION_CHUNK_SIZE=25"
+    ].join("\n"), "utf8");
+    const development = (await loadConfig(directory)).googleAdsMutation;
+    assert.equal(development.mode, "development");
+    assert.equal(development.chunkSize, 25);
+
+    await writeFile(join(directory, ".env"), [
+      ...base,
+      "GOOGLE_ADS_MUTATION_MODE=validation"
+    ].join("\n"), "utf8");
+    const validation = (await loadConfig(directory)).googleAdsMutation;
+    assert.equal(validation.mode, "validation");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("production Google Ads mutation mode fails closed without the exact confirmation", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "sweeper-mutation-config-"));
+  try {
+    const values = [
+      "GOOGLE_ADS_DEVELOPER_TOKEN=developer",
+      "GOOGLE_ADS_LOGIN_CUSTOMER_ID=1234567890",
+      "GOOGLE_ADS_CLIENT_ID=client",
+      "GOOGLE_ADS_CLIENT_SECRET=secret",
+      "GOOGLE_ADS_REFRESH_TOKEN=refresh",
+      "MOONSHOT_API_KEY=moonshot-test-key",
+      "GOOGLE_ADS_MUTATION_MODE=production"
+    ];
+    await writeFile(join(directory, ".env"), values.join("\n"), "utf8");
+    await assert.rejects(() => loadConfig(directory), /exact GOOGLE_ADS_PRODUCTION_MUTATION_CONFIRMATION/u);
+
+    await writeFile(join(directory, ".env"), [
+      ...values,
+      `GOOGLE_ADS_PRODUCTION_MUTATION_CONFIRMATION=${PRODUCTION_MUTATION_CONFIRMATION}`
+    ].join("\n"), "utf8");
+    const production = (await loadConfig(directory)).googleAdsMutation;
+    assert.equal(production.mode, "production");
+    if (production.mode === "production") assert.equal(production.productionConfirmed, true);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("focused Google Ads smoke configuration does not require LLM or database settings", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "sweeper-google-ads-only-config-"));
+  try {
+    await writeFile(join(directory, ".env"), [
+      "GOOGLE_ADS_DEVELOPER_TOKEN=developer",
+      "GOOGLE_ADS_LOGIN_CUSTOMER_ID=123-456-7890",
+      "GOOGLE_ADS_CLIENT_ID=client",
+      "GOOGLE_ADS_CLIENT_SECRET=secret",
+      "GOOGLE_ADS_REFRESH_TOKEN=refresh",
+      "PERSIST_RUNS_TO_DATABASE=true"
+    ].join("\n"), "utf8");
+    const config = await loadGoogleAdsConnectionConfig(directory);
+    assert.equal(config.googleAds.loginCustomerId, "1234567890");
+    assert.equal(config.campaignNameContains, "Built by Shah");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("isolated test-account configuration never falls back to production .env credentials", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "sweeper-google-ads-test-config-"));
+  try {
+    await writeFile(join(directory, ".env"), [
+      "GOOGLE_ADS_DEVELOPER_TOKEN=production-developer",
+      "GOOGLE_ADS_LOGIN_CUSTOMER_ID=1111111111",
+      "GOOGLE_ADS_CLIENT_ID=production-client",
+      "GOOGLE_ADS_CLIENT_SECRET=production-secret",
+      "GOOGLE_ADS_REFRESH_TOKEN=production-refresh"
+    ].join("\n"), "utf8");
+    await assert.rejects(
+      () => loadGoogleAdsConnectionConfig(directory, ".env.google-ads-test"),
+      /Missing required configuration/u
+    );
+    await writeFile(join(directory, ".env.google-ads-test"), [
+      "GOOGLE_ADS_DEVELOPER_TOKEN=test-developer",
+      "GOOGLE_ADS_LOGIN_CUSTOMER_ID=2222222222",
+      "GOOGLE_ADS_CLIENT_ID=test-client",
+      "GOOGLE_ADS_CLIENT_SECRET=test-secret",
+      "GOOGLE_ADS_REFRESH_TOKEN=test-refresh"
+    ].join("\n"), "utf8");
+    const config = await loadGoogleAdsConnectionConfig(directory, ".env.google-ads-test");
+    assert.equal(config.googleAds.loginCustomerId, "2222222222");
+    assert.equal(config.googleAds.clientId, "test-client");
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

@@ -17,6 +17,7 @@ import { createRunTokenUsageReport } from "../src/pipeline/run-sweeper.js";
 import { createDecisionCsv } from "../src/storage/decision-csv.js";
 import { RunArtifacts } from "../src/storage/run-artifacts.js";
 import { chunksOf, createLimiter } from "../src/util/concurrency.js";
+import { disabledMutationSummary } from "../src/google-ads/negative-keyword-writer.js";
 import type {
   ClassificationCandidate,
   ClassificationDecision,
@@ -228,6 +229,7 @@ async function main(): Promise<void> {
       fixedInputDefinition: "Kimi exposes no count endpoint; see fixed-input-tokens.json for the OpenAI-measured reference value."
     },
     batchTokenUsage,
+    mutation: disabledMutationSummary(),
     errorCount: telemetry.errorsForOrganization(organization.customerId).length
   };
 
