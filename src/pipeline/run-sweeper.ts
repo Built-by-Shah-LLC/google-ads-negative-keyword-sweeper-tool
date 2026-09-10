@@ -2,6 +2,10 @@ import { createHash } from "node:crypto";
 import type { AppConfig } from "../config/env.js";
 import type { RuleSet } from "../types.js";
 import { GoogleAdsClient } from "../google-ads/client.js";
+import { DevelopmentNegativeKeywordWriter } from "../google-ads/negative-keyword-writer.dev.js";
+import { createLiveProductionNegativeKeywordWriter } from "../google-ads/negative-keyword-writer.prod.js";
+import { createLiveValidationOnlyNegativeKeywordWriter } from "../google-ads/negative-keyword-writer.validation.js";
+import type { NegativeKeywordWriter } from "../google-ads/negative-keyword-writer.js";
 import { fetchOrganizations, filterOrganizationsByAllowlist } from "../google-ads/organizations.js";
 import { createKeywordClassifier } from "../llm/classifier-factory.js";
 import type { EmailAlertService } from "../notifications/email-alerts.js";
@@ -27,6 +31,7 @@ export interface SweepOptions {
   organizationLimit: number | null;
   allOrganizations: boolean;
   candidateLimitPerOrganization: number | null;
+  productionMutationAuthorized: boolean;
 }
 
 export interface SweepServices {
@@ -34,6 +39,8 @@ export interface SweepServices {
   emailAlerts?: EmailAlertService;
   runReportEmail?: RunReportEmailService;
   persistence?: SweepPersistence;
+  /** Test seam. Runtime selection comes from GOOGLE_ADS_MUTATION_MODE. */
+  negativeKeywordWriter?: NegativeKeywordWriter;
 }
 
 export async function runSweeper(config: AppConfig, rules: RuleSet, options: SweepOptions, services: SweepServices = {}): Promise<{
@@ -41,6 +48,7 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
   runDirectory: string;
   status: "SUCCEEDED" | "PARTIAL" | "FAILED";
 }> {
+  assertProductionMutationAuthorized(config, options);
   const persistence = services.persistence
     ?? (config.persistence.enabled
       ? new PostgresSweepPersistence(config.persistence)
@@ -64,6 +72,8 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
   });
   const googleAds = new GoogleAdsClient(config.googleAds, telemetry);
   const classifier = createKeywordClassifier(config.llm);
+  const negativeKeywordWriter = services.negativeKeywordWriter ?? createNegativeKeywordWriter(config);
+  const mutationMode = negativeKeywordWriter?.mode ?? "disabled";
   const startedAt = new Date().toISOString();
   const processingDate = options.date
     ?? date48HoursBackInTimeZone(config.processingTimeZone, new Date(startedAt)).startDate;
@@ -73,7 +83,9 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
     requestedDate: processingDate,
     requestedDateSource: options.date ? "COMMAND_LINE" : "AUTOMATIC_48_HOURS_BACK",
     processingTimeZone: config.processingTimeZone,
-    readOnly: true,
+    readOnly: mutationMode !== "production",
+    googleAdsMutationMode: mutationMode,
+    googleAdsMutationPerformed: false,
     ruleSet: {
       version: rules.version,
       sourcePath: rules.sourcePath,
@@ -193,7 +205,9 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
           campaignNameContains: config.campaignNameContains,
           llmLimit,
           logger: organizationLogger,
-          persistence
+          persistence,
+          ...(negativeKeywordWriter === undefined ? {} : { negativeKeywordWriter }),
+          mutationChunkSize: config.googleAdsMutation.chunkSize
         }
       );
       organizationsCompleted += 1;
@@ -258,6 +272,17 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
   }
 }
 
+export function assertProductionMutationAuthorized(
+  config: Pick<AppConfig, "googleAdsMutation">,
+  options: Pick<SweepOptions, "productionMutationAuthorized">
+): void {
+  if (config.googleAdsMutation.mode === "production" && !options.productionMutationAuthorized) {
+    throw new Error(
+      "Production Google Ads mutation mode also requires the --execute-production-google-ads-mutations command flag."
+    );
+  }
+}
+
 async function finalizeRun(
   artifacts: RunArtifacts,
   telemetry: RunTelemetry,
@@ -280,10 +305,13 @@ async function finalizeRun(
   const tokenUsageReport = createRunTokenUsageReport(telemetrySnapshot.tokenUsage, summaries);
   const failed = summaries.filter((summary) => summary.status === "FAILED").length;
   const partial = summaries.filter((summary) => summary.status === "PARTIAL").length;
+  const googleAdsMutationPerformed = summaries.some((item) => item.mutation.googleAdsMutationPerformed);
   const summary: Record<string, unknown> = {
     runId: artifacts.runId,
     status,
-    readOnly: true,
+    readOnly: manifestBase.readOnly,
+    googleAdsMutationMode: manifestBase.googleAdsMutationMode,
+    googleAdsMutationPerformed,
     startedAt: manifestBase.startedAt,
     completedAt,
     organizationsDiscovered: discoveredCount,
@@ -312,6 +340,7 @@ async function finalizeRun(
     organizationsDiscovered: discoveredCount,
     organizationsSelected: selectedCount,
     errorCount: telemetrySnapshot.errors.length,
+    googleAdsMutationPerformed,
     fatalError: fatalError ?? null
   });
   let workbookWritten = false;
@@ -376,6 +405,7 @@ async function finalizeRun(
       organizationsDiscovered: discoveredCount,
       organizationsSelected: selectedCount,
       errorCount: updatedTelemetry.errors.length,
+      googleAdsMutationPerformed,
       fatalError: fatalError ?? null
     });
     if (workbookWritten) {
@@ -429,6 +459,18 @@ async function finalizeRun(
     reportDelivery
   });
   return status;
+}
+
+function createNegativeKeywordWriter(config: AppConfig): NegativeKeywordWriter | undefined {
+  if (config.googleAdsMutation.mode === "disabled") return undefined;
+  if (config.googleAdsMutation.mode === "development") return new DevelopmentNegativeKeywordWriter();
+  if (config.googleAdsMutation.mode === "validation") {
+    return createLiveValidationOnlyNegativeKeywordWriter(config.googleAds);
+  }
+  return createLiveProductionNegativeKeywordWriter(
+    config.googleAds,
+    config.googleAdsMutation.productionConfirmed
+  );
 }
 
 export function createRunTokenUsageReport(

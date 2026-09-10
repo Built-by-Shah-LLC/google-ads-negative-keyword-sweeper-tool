@@ -8,6 +8,7 @@ import type { OrganizationSummary } from "../src/pipeline/process-organization.j
 import { RunArtifacts } from "../src/storage/run-artifacts.js";
 import { createRunWorkbook } from "../src/storage/run-workbook.js";
 import type { ClassificationCandidate, RuleSet } from "../src/types.js";
+import { disabledMutationSummary } from "../src/google-ads/negative-keyword-writer.js";
 
 test("creates one organization worksheet with decisions, batch tokens, rules, and timeouts", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "sweeper-workbook-"));
@@ -73,6 +74,7 @@ test("creates one organization worksheet with decisions, batch tokens, rules, an
       fixedInputTokens: 300,
       fixedInputDefinition: "provider count"
     },
+    mutation: disabledMutationSummary(),
     batchTokenUsage: [{
       batchId: "0001",
       status: "FAILED",

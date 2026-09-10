@@ -33,8 +33,26 @@ export interface AppConfig {
    * or case-insensitive account-name fragments. Empty means every enabled leaf account.
    */
   accountAllowlist: string[];
+  googleAdsMutation: GoogleAdsMutationConfig;
   persistence: DatabasePersistenceConfig;
 }
+
+export type GoogleAdsMutationConfig = {
+  mode: "disabled";
+  chunkSize: number;
+} | {
+  mode: "development";
+  chunkSize: number;
+} | {
+  mode: "validation";
+  chunkSize: number;
+} | {
+  mode: "production";
+  chunkSize: number;
+  productionConfirmed: true;
+};
+
+export const PRODUCTION_MUTATION_CONFIRMATION = "APPLY_EXACT_NEGATIVES_TO_LIVE_GOOGLE_ADS";
 
 export type DatabasePersistenceConfig = {
   enabled: false;
@@ -90,6 +108,12 @@ export interface OperationalConfig {
   logging: LoggingConfig;
   emailAlerts: EmailAlertConfig;
   runReportEmail: RunReportEmailConfig;
+}
+
+export interface GoogleAdsConnectionConfig {
+  googleAds: AppConfig["googleAds"];
+  campaignNameContains: string | null;
+  accountAllowlist: string[];
 }
 
 function parseDotEnv(source: string): Record<string, string> {
@@ -201,6 +225,53 @@ export async function loadOperationalConfig(rootDirectory = process.cwd()): Prom
   };
 }
 
+/** Loads only Google Ads connection and selection settings for focused smoke tools. */
+export async function loadGoogleAdsConnectionConfig(
+  rootDirectory = process.cwd(),
+  environmentFilename?: string
+): Promise<GoogleAdsConnectionConfig> {
+  const env = environmentFilename === undefined
+    ? await loadEnvironment(rootDirectory)
+    : await loadIsolatedEnvironment(rootDirectory, environmentFilename);
+  const required = [
+    "GOOGLE_ADS_DEVELOPER_TOKEN",
+    "GOOGLE_ADS_LOGIN_CUSTOMER_ID",
+    "GOOGLE_ADS_CLIENT_ID",
+    "GOOGLE_ADS_CLIENT_SECRET",
+    "GOOGLE_ADS_REFRESH_TOKEN"
+  ] as const;
+  const missing = required.filter((name) => !env[name]);
+  if (missing.length > 0) throw new Error(`Missing required configuration: ${missing.join(", ")}`);
+  return {
+    googleAds: {
+      apiVersion: env.GOOGLE_ADS_API_VERSION || "v25",
+      developerToken: env.GOOGLE_ADS_DEVELOPER_TOKEN!,
+      loginCustomerId: env.GOOGLE_ADS_LOGIN_CUSTOMER_ID!.replaceAll("-", ""),
+      clientId: env.GOOGLE_ADS_CLIENT_ID!,
+      clientSecret: env.GOOGLE_ADS_CLIENT_SECRET!,
+      refreshToken: env.GOOGLE_ADS_REFRESH_TOKEN!
+    },
+    campaignNameContains: campaignNameContainsValue(env.CAMPAIGN_NAME_CONTAINS),
+    accountAllowlist: commaSeparated(env.ACCOUNT_ALLOWLIST)
+  };
+}
+
+async function loadIsolatedEnvironment(
+  rootDirectory: string,
+  environmentFilename: string
+): Promise<Record<string, string | undefined>> {
+  if (!/^\.env\.[a-z0-9-]+$/u.test(environmentFilename)) {
+    throw new Error("Isolated environment filename must look like .env.google-ads-test.");
+  }
+  let values: Record<string, string> = {};
+  try {
+    values = parseDotEnv(await readFile(resolve(rootDirectory, environmentFilename), "utf8"));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  return values;
+}
+
 export async function loadConfig(rootDirectory = process.cwd()): Promise<AppConfig> {
   const env = await loadEnvironment(rootDirectory);
   const provider = llmProvider(env.LLM_PROVIDER);
@@ -243,8 +314,31 @@ export async function loadConfig(rootDirectory = process.cwd()): Promise<AppConf
     googleFetchConcurrency: positiveInteger(env.GOOGLE_FETCH_CONCURRENCY, 5, "GOOGLE_FETCH_CONCURRENCY"),
     campaignNameContains: campaignNameContainsValue(env.CAMPAIGN_NAME_CONTAINS),
     accountAllowlist: commaSeparated(env.ACCOUNT_ALLOWLIST),
+    googleAdsMutation: googleAdsMutationConfig(env),
     persistence
   };
+}
+
+function googleAdsMutationConfig(env: Record<string, string | undefined>): GoogleAdsMutationConfig {
+  const mode = (env.GOOGLE_ADS_MUTATION_MODE || "disabled").trim().toLowerCase();
+  const chunkSize = positiveInteger(env.GOOGLE_ADS_MUTATION_CHUNK_SIZE, 500, "GOOGLE_ADS_MUTATION_CHUNK_SIZE");
+  if (chunkSize > 500) throw new Error("GOOGLE_ADS_MUTATION_CHUNK_SIZE must not exceed 500.");
+  if (mode === "disabled") return { mode, chunkSize };
+  if (mode === "development" || mode === "dev" || mode === "mock") {
+    return { mode: "development", chunkSize };
+  }
+  if (mode === "validation" || mode === "validate" || mode === "validate-only") {
+    return { mode: "validation", chunkSize };
+  }
+  if (mode !== "production" && mode !== "prod") {
+    throw new Error("GOOGLE_ADS_MUTATION_MODE must be disabled, development, validation, or production.");
+  }
+  if (env.GOOGLE_ADS_PRODUCTION_MUTATION_CONFIRMATION !== PRODUCTION_MUTATION_CONFIRMATION) {
+    throw new Error(
+      "Production Google Ads mutations require the exact GOOGLE_ADS_PRODUCTION_MUTATION_CONFIRMATION safety value."
+    );
+  }
+  return { mode: "production", chunkSize, productionConfirmed: true };
 }
 
 function databasePersistenceConfig(env: Record<string, string | undefined>): DatabasePersistenceConfig {

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import type { GoogleAdsClient } from "../src/google-ads/client.js";
+import { DevelopmentNegativeKeywordWriter } from "../src/google-ads/negative-keyword-writer.dev.js";
 import { ClassificationFailure, type ClassificationContext, type KeywordClassifier } from "../src/llm/classifier.js";
 import { RunTelemetry } from "../src/observability/run-telemetry.js";
 import { processOrganization } from "../src/pipeline/process-organization.js";
@@ -295,6 +296,7 @@ for (const failProvider of [false, true]) {
     };
     const summary = await processOrganization({ customerId: "1234567890", descriptiveName: "Shop", timeZone: "UTC", currencyCode: "USD" }, "2026-08-25", {
       googleAds, classifier, artifacts, telemetry: new RunTelemetry(), batchSize: 10, llmLimit: async (fn) => fn(),
+      negativeKeywordWriter: new DevelopmentNegativeKeywordWriter(),
       rules: { ...rules, phraseProtections: [
         { id: "service", phrase: "collision service", ruleId: "POL-MECHANICAL-ONLY-NEGATIVE", customerIds: [], excusedEvidence: "Only service describing collision repair" },
         { id: "experts", phrase: "collision experts", ruleId: "POL-COMPETITOR-NEGATIVE", customerIds: [], excusedEvidence: "Only experts describing expertise" }
@@ -305,5 +307,13 @@ for (const failProvider of [false, true]) {
     assert.equal(summary.status, failProvider ? "FAILED" : "SUCCEEDED");
     assert.equal(summary.decisions.KEEP, 0);
     assert.equal(summary.decisions.NEGATIVE_EXACT, failProvider ? 0 : 3);
+    assert.equal(summary.mutation.status, failProvider ? "SKIPPED" : "MOCKED");
+    assert.equal(summary.mutation.mockedCount, failProvider ? 0 : 3);
+    assert.equal(summary.mutation.googleAdsMutationPerformed, false);
+    const mutationArtifact = JSON.parse(await readFile(
+      join(artifacts.runDirectory, "organizations/1234567890/mutations/summary.json"),
+      "utf8"
+    ));
+    assert.equal(mutationArtifact.status, failProvider ? "SKIPPED" : "MOCKED");
   });
 }
