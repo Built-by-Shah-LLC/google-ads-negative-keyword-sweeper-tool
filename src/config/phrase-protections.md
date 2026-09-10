@@ -35,6 +35,34 @@ Edit the JSON block and follow `docs/RULE_RELEASES.md` for release review.
     "customerIds": [],
     "ruleId": "POL-MECHANICAL-ONLY-NEGATIVE",
     "excusedEvidence": "Disregard mechanical-negative evidence caused solely by services describing collision repair within this phrase. Separate mechanical evidence, such as mechanic, oil change, or another service use outside the phrase, remains effective under the same rule."
+  },
+  {
+    "id": "auto-body-service",
+    "phrase": "auto body service",
+    "customerIds": [],
+    "ruleId": "POL-MECHANICAL-ONLY-NEGATIVE",
+    "excusedEvidence": "Disregard mechanical-negative evidence caused solely by service describing auto body repair within this phrase. Separate mechanical evidence, such as mechanic, oil change, or another service use outside the phrase, remains effective under the same rule."
+  },
+  {
+    "id": "auto-body-services",
+    "phrase": "auto body services",
+    "customerIds": [],
+    "ruleId": "POL-MECHANICAL-ONLY-NEGATIVE",
+    "excusedEvidence": "Disregard mechanical-negative evidence caused solely by services describing auto body repair within this phrase. Separate mechanical evidence, such as mechanic, oil change, or another service use outside the phrase, remains effective under the same rule."
+  },
+  {
+    "id": "body-shop-service",
+    "phrase": "body shop service",
+    "customerIds": [],
+    "ruleId": "POL-MECHANICAL-ONLY-NEGATIVE",
+    "excusedEvidence": "Disregard mechanical-negative evidence caused solely by service describing body-shop repair within this phrase. Separate mechanical evidence, such as mechanic, oil change, or another service use outside the phrase, remains effective under the same rule."
+  },
+  {
+    "id": "body-shop-services",
+    "phrase": "body shop services",
+    "customerIds": [],
+    "ruleId": "POL-MECHANICAL-ONLY-NEGATIVE",
+    "excusedEvidence": "Disregard mechanical-negative evidence caused solely by services describing body-shop repair within this phrase. Separate mechanical evidence, such as mechanic, oil change, or another service use outside the phrase, remains effective under the same rule."
   }
 ]
 ```

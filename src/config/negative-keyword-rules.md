@@ -1,6 +1,6 @@
 # Collision-repair search-term classification rules
 
-Rule set version: `2026-09-09.1`
+Rule set version: `2026-09-10.4`
 
 Prompt version: `collision-classifier-v7`
 
@@ -69,7 +69,8 @@ wording is present. Historical JavaScript triggers are evidence, not policy.
    `POL-MECHANICAL-ONLY-NEGATIVE` (mechanic, technician, standalone tech, service,
    contiguous auto/car repair with no body-shop wording, and repair with no body-shop
    or crash-event wording; `specialist` is not on this list), `POL-WRONG-VEHICLE-NEGATIVE` (trucks, semis, RV,
-   Sprinter, motorcycle, bike, scooter, ATV, Lucid), and `POL-COMPETITOR-NEGATIVE`.
+   Sprinter, motorcycle, bike, scooter, ATV, Lucid), `POL-CAREERS-NEGATIVE`, and
+   `POL-COMPETITOR-NEGATIVE`.
 3. Apply the remaining service-intent KEEP rules only after always-win negatives: OEM/make
    plus body or collision with no extra shop/dealer name (never Lucid), insurer plus
    body/collision/claim/approved, unambiguous place plus body/collision, then generic
@@ -156,6 +157,12 @@ always-win token. `dent specialist` stays `POL-COSMETIC-ONLY-NEGATIVE`. `paint
 specialist` stays `POL-PAINT-COLOR-NEGATIVE`. `mechanic`, `technician`, and
 standalone `tech` still kill this rule.
 
+Body-shop wording plus `service` / `services` is KEEP only inside the closed
+collocations `auto body service`, `auto body services`, `body shop service`, and
+`body shop services`. `auto body service near me` and `body shop services` are
+KEEP. Other `service` / `services` uses still kill this rule (`service collision`,
+`car service`, `auto service`).
+
 Quality-shopping modifiers used to find a shop do not kill this rule: `best`,
 `top rated`, `highest rated`, `highly rated`, `best rated`, and `5 star` /
 `five star` plus body-shop wording. `best autobody shop`, `best auto body shop`,
@@ -172,9 +179,10 @@ descriptors). `european collision` and `korean collision repair` have no body-sh
 wording, so they are `POL-COMPETITOR-NEGATIVE`, not this rule.
 
 This rule cannot override `mechanic`, `technician`, standalone `tech`,
-`service` / `services`, paint/color/repaint, or a named competitor.
-`body shop mechanic`, `auto body service`, and `paint and body shop near me`
-are negative. Contiguous `auto repair` / `car repair` does not kill this rule when
+paint/color/repaint, or a named competitor. `service` / `services` still kill
+this rule except inside the four body-shop service collocations above.
+`body shop mechanic` and `paint and body shop near me` are negative.
+Contiguous `auto repair` / `car repair` does not kill this rule when
 body-shop wording is also present, in either order: `body shop auto repair near me`,
 `body auto repair shops near me`, `body shop car repair`, `auto repair body`,
 `auto repair body shop`, and `auto repair and body shop` are KEEP. `auto repair near me`
@@ -193,7 +201,8 @@ or a non-English query. Use the leftover-token test in `POL-COMPETITOR-NEGATIVE`
 
 Examples: `body work shops near me`, `auto body works near me`, `body shop near me`,
 `auto body repair near me`, `body repair near me`, `car body work repair`,
-`auto body specialists`, `best autobody shop`, `best auto body shop`,
+`auto body specialists`, `auto body service near me`, `body shop services`,
+`best autobody shop`, `best auto body shop`,
 `best body shop near me`, `best toyota body shop near me`, `korean body shop`,
 `german auto body`, `european auto body shop near me`, `japanese body shop`,
 `body shop auto repair near me`, `auto repair body shop`.
@@ -539,8 +548,32 @@ Examples: `salvage yard near me`, `rebuild salvage car`, `rebuild car`,
 
 ### `POL-CAREERS-NEGATIVE` — Employment and training
 
-Negative jobs, hiring, careers, salary, internship, school, course, or professional
-training intent.
+Always-win. Negative job-seeking, hiring, careers, pay, or professional training
+intent. Collision, body-shop, OEM, insurer, or geo wording does not save these
+queries; the searcher wants a job or a class, not to hire a shop.
+
+Fire on standalone tokens and phrases (do not fire on these letters inside a
+longer word):
+
+- Employment: `job`, `jobs`, `hiring`, `hire`, `career`, `careers`,
+  `now hiring`, `help wanted`, `job opening`, `job openings`
+- Applications: `apply`, `applying`, `application`, `applications`, `resume`,
+  `resumes`, `indeed`
+- Pay: `salary`, `wage`, `wages`
+- Training: `intern`, `internship`, `internships`, `apprentice`, `apprentices`,
+  `apprenticeship`, `apprenticeships`, `course`, `courses`, `training`,
+  `trade school`, `auto body school`, `collision repair school`,
+  `body shop school`
+- Job titles used as employment: `manager`, `managers`, `management`,
+  `estimator`, `estimators`, `technician`, `technicians`, standalone `tech`
+
+Do not fire on bare `school` or bare `opening` (`high school parking lot
+collision`, `body shop opening hours`). `technician` / `tech` may also match
+`POL-MECHANICAL-ONLY-NEGATIVE`.
+
+Examples: `auto body manager`, `apprenticeship auto body repair`,
+`body shop hiring`, `auto body technician`, `collision estimator`,
+`auto body resume`, `indeed auto body`.
 
 ### `POL-DIY-HOWTO-NEGATIVE` — Do-it-yourself instructions
 
@@ -724,8 +757,10 @@ competitors. Use the leftover-token test:
 1. Strip geo wording (`near me`, city, neighborhood, region, state-as-location).
 2. Strip service vocabulary (`collision`, `crash`, `accident`, `wreck`, `body`,
    `autobody`, `auto body`, `body shop`, `body work`, `shop`, `center`, `car`, `auto`,
-   `vehicle`, `specialist`, `specialists`, and `repair` when crash-event or body-shop
-   wording is present).
+   `vehicle`, `specialist`, `specialists`, `expert`, `experts`, and `repair` when crash-event or body-shop
+   wording is present). `expert` / `experts` are generic expertise descriptors, not
+   shop names, the same class as `specialist`. `steve collision experts` still has
+   leftover `steve`.
 3. Strip quality-shopping modifiers used to find a shop, not to name one: `best`,
    `top`, `rated`, `highest`, `highly`, and star-rating phrases (`5 star`,
    `5-star`, `five star`, `five stars`, `5 stars`). `best autobody shop` has no
@@ -782,7 +817,8 @@ Counterexamples that are generic demand, not competitor evidence: `crash collisi
 `korean body shop`, `german auto body`, `european auto body shop near me`,
 `japanese body shop`, `italian auto body`, `best autobody shop`,
 `best auto body shop`, `best body shop near me`, `top rated collision center`,
-`5 star body shop`.
+`5 star body shop`, `collision experts`, `auto body experts`, `auto body expert`,
+`expert auto body`, `body shop experts`, `body shop expert`, `expert body shop`.
 
 ### `POL-BARE-VEHICLE-NEGATIVE` — Bare vehicle and low-intent geo
 

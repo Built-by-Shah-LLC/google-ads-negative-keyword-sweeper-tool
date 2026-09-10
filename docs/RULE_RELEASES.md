@@ -19,6 +19,33 @@ exception as `collision service`. Other exclusions still apply. The rule and
 prompt versions are unchanged. Updated fixture labels describe intended behavior;
 the earlier live comparison does not evaluate this new release.
 
+Candidate release `2026-09-10.1` uses rule version `2026-09-10.1` and prompt
+version `collision-classifier-v7`. It adds four global mechanical-evidence
+exceptions: `auto body service`, `auto body services`, `body shop service`, and
+`body shop services`. `POL-BODYWORK-KEEP` now KEEPs those closed collocations
+and still negatives `service` outside them. Other exclusions still apply.
+`expert` / `experts` leftover stripping and the careers always-win rewrite are
+not in this release.
+
+Candidate release `2026-09-10.2` uses rule version `2026-09-10.2` and prompt
+version `collision-classifier-v7`. `POL-COMPETITOR-NEGATIVE` now strips
+`expert` / `experts` as generic expertise descriptors, so `expert auto body`,
+`body shop expert`, and `auto body experts` are generic demand. A leftover name
+such as `steve collision experts` stays negative. The careers rewrite is not in
+this release.
+
+Candidate release `2026-09-10.3` uses rule version `2026-09-10.3` and prompt
+version `collision-classifier-v7`. `POL-CAREERS-NEGATIVE` is now always-win with
+a closed employment and training token list, including `manager`, `apprenticeship`,
+`estimator`, `apply` / `resume` / `indeed`, and `technician`. Bare `school` and
+bare `opening` do not fire. The decision-order preamble still omits this rule
+until a follow-up release.
+
+Candidate release `2026-09-10.4` uses rule version `2026-09-10.4` and prompt
+version `collision-classifier-v7`. The decision-order preamble now lists
+`POL-CAREERS-NEGATIVE` among always-win negatives so job-seeker tokens beat
+body-shop KEEP. Individual rule sections are otherwise unchanged.
+
 ## Enforced locally
 
 - Application startup rejects policy or phrase-protection content that differs from the
@@ -55,6 +82,10 @@ IDs; there is no synthetic KEEP rule or deterministic confidence.
 - `collision service` excuses only `service` describing collision repair under
   `POL-MECHANICAL-ONLY-NEGATIVE`. `mechanic collision service` and `collision
   service and brake service` still have independent mechanical evidence.
+- `auto body service` / `auto body services` / `body shop service` /
+  `body shop services` excuse only in-phrase `service` / `services` under
+  `POL-MECHANICAL-ONLY-NEGATIVE`. `mechanic auto body service` and
+  `auto body service and oil change` still have independent mechanical evidence.
 - `collision experts` excuses only `experts` describing collision expertise under
   `POL-COMPETITOR-NEGATIVE`. `steve collision experts` still has competitor evidence.
 - `mobile collision service` and `collision experts reviews` retain their mobile
