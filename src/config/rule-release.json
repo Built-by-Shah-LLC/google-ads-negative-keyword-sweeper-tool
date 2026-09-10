@@ -1,8 +1,8 @@
 {
   "stableVersion": "2026-09-04.3",
   "stableSha256": "9d5aa2d2380b1163b49310f1c49340f9e070d070715a81c81e73021280559336",
-  "releasedVersion": "2026-09-10.1",
-  "rulesSha256": "33f15ae6154b12cf2bcd490b5c6e5cdb80b62b155c7eb237eac754ff12fbc47e",
-  "releaseId": "2026-09-10.1",
+  "releasedVersion": "2026-09-10.2",
+  "rulesSha256": "41199605ecac04ae746cdc40bcb4c11641781c3169b71086054ca39e35ab1b1a",
+  "releaseId": "2026-09-10.2",
   "protectionsSha256": "de5ef373dbddd491caed6745435a91855167c495dbe2aafe0b2d6d502ec752a0"
 }

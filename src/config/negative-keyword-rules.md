@@ -1,6 +1,6 @@
 # Collision-repair search-term classification rules
 
-Rule set version: `2026-09-10.1`
+Rule set version: `2026-09-10.2`
 
 Prompt version: `collision-classifier-v7`
 
@@ -732,8 +732,10 @@ competitors. Use the leftover-token test:
 1. Strip geo wording (`near me`, city, neighborhood, region, state-as-location).
 2. Strip service vocabulary (`collision`, `crash`, `accident`, `wreck`, `body`,
    `autobody`, `auto body`, `body shop`, `body work`, `shop`, `center`, `car`, `auto`,
-   `vehicle`, `specialist`, `specialists`, and `repair` when crash-event or body-shop
-   wording is present).
+   `vehicle`, `specialist`, `specialists`, `expert`, `experts`, and `repair` when crash-event or body-shop
+   wording is present). `expert` / `experts` are generic expertise descriptors, not
+   shop names, the same class as `specialist`. `steve collision experts` still has
+   leftover `steve`.
 3. Strip quality-shopping modifiers used to find a shop, not to name one: `best`,
    `top`, `rated`, `highest`, `highly`, and star-rating phrases (`5 star`,
    `5-star`, `five star`, `five stars`, `5 stars`). `best autobody shop` has no
@@ -790,7 +792,8 @@ Counterexamples that are generic demand, not competitor evidence: `crash collisi
 `korean body shop`, `german auto body`, `european auto body shop near me`,
 `japanese body shop`, `italian auto body`, `best autobody shop`,
 `best auto body shop`, `best body shop near me`, `top rated collision center`,
-`5 star body shop`.
+`5 star body shop`, `collision experts`, `auto body experts`, `auto body expert`,
+`expert auto body`, `body shop experts`, `body shop expert`, `expert body shop`.
 
 ### `POL-BARE-VEHICLE-NEGATIVE` — Bare vehicle and low-intent geo
 

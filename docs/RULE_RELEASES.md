@@ -27,6 +27,13 @@ and still negatives `service` outside them. Other exclusions still apply.
 `expert` / `experts` leftover stripping and the careers always-win rewrite are
 not in this release.
 
+Candidate release `2026-09-10.2` uses rule version `2026-09-10.2` and prompt
+version `collision-classifier-v7`. `POL-COMPETITOR-NEGATIVE` now strips
+`expert` / `experts` as generic expertise descriptors, so `expert auto body`,
+`body shop expert`, and `auto body experts` are generic demand. A leftover name
+such as `steve collision experts` stays negative. The careers rewrite is not in
+this release.
+
 ## Enforced locally
 
 - Application startup rejects policy or phrase-protection content that differs from the
