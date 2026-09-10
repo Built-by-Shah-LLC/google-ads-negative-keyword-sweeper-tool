@@ -1,6 +1,6 @@
 # Collision-repair search-term classification rules
 
-Rule set version: `2026-09-10.3`
+Rule set version: `2026-09-10.4`
 
 Prompt version: `collision-classifier-v7`
 
@@ -69,7 +69,8 @@ wording is present. Historical JavaScript triggers are evidence, not policy.
    `POL-MECHANICAL-ONLY-NEGATIVE` (mechanic, technician, standalone tech, service,
    contiguous auto/car repair with no body-shop wording, and repair with no body-shop
    or crash-event wording; `specialist` is not on this list), `POL-WRONG-VEHICLE-NEGATIVE` (trucks, semis, RV,
-   Sprinter, motorcycle, bike, scooter, ATV, Lucid), and `POL-COMPETITOR-NEGATIVE`.
+   Sprinter, motorcycle, bike, scooter, ATV, Lucid), `POL-CAREERS-NEGATIVE`, and
+   `POL-COMPETITOR-NEGATIVE`.
 3. Apply the remaining service-intent KEEP rules only after always-win negatives: OEM/make
    plus body or collision with no extra shop/dealer name (never Lucid), insurer plus
    body/collision/claim/approved, unambiguous place plus body/collision, then generic

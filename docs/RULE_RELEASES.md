@@ -41,6 +41,11 @@ a closed employment and training token list, including `manager`, `apprenticeshi
 bare `opening` do not fire. The decision-order preamble still omits this rule
 until a follow-up release.
 
+Candidate release `2026-09-10.4` uses rule version `2026-09-10.4` and prompt
+version `collision-classifier-v7`. The decision-order preamble now lists
+`POL-CAREERS-NEGATIVE` among always-win negatives so job-seeker tokens beat
+body-shop KEEP. Individual rule sections are otherwise unchanged.
+
 ## Enforced locally
 
 - Application startup rejects policy or phrase-protection content that differs from the
