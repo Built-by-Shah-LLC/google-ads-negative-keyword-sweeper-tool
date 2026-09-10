@@ -33,7 +33,20 @@ export interface AppConfig {
    * or case-insensitive account-name fragments. Empty means every enabled leaf account.
    */
   accountAllowlist: string[];
+  persistence: DatabasePersistenceConfig;
 }
+
+export type DatabasePersistenceConfig = {
+  enabled: false;
+  maxPayloadBytes: number;
+} | {
+  enabled: true;
+  databaseUrl: string;
+  organizationId: string;
+  executionKey: string | null;
+  poolMax: number;
+  maxPayloadBytes: number;
+};
 
 export type LlmProvider = "moonshot" | "openai" | "gemini" | "kimi-code";
 
@@ -205,6 +218,7 @@ export async function loadConfig(rootDirectory = process.cwd()): Promise<AppConf
     throw new Error(`Missing required configuration: ${missing.join(", ")}`);
   }
 
+  const persistence = databasePersistenceConfig(env);
   return {
     googleAds: {
       apiVersion: env.GOOGLE_ADS_API_VERSION || "v25",
@@ -228,8 +242,54 @@ export async function loadConfig(rootDirectory = process.cwd()): Promise<AppConf
     processingTimeZone: timeZoneValue(env.RUN_TIME_ZONE || "Europe/Moscow", "RUN_TIME_ZONE"),
     googleFetchConcurrency: positiveInteger(env.GOOGLE_FETCH_CONCURRENCY, 5, "GOOGLE_FETCH_CONCURRENCY"),
     campaignNameContains: campaignNameContainsValue(env.CAMPAIGN_NAME_CONTAINS),
-    accountAllowlist: commaSeparated(env.ACCOUNT_ALLOWLIST)
+    accountAllowlist: commaSeparated(env.ACCOUNT_ALLOWLIST),
+    persistence
   };
+}
+
+function databasePersistenceConfig(env: Record<string, string | undefined>): DatabasePersistenceConfig {
+  const enabled = booleanValue(env.PERSIST_RUNS_TO_DATABASE, false, "PERSIST_RUNS_TO_DATABASE");
+  const maxPayloadBytes = positiveInteger(env.DATABASE_MAX_PAYLOAD_BYTES, 262_144, "DATABASE_MAX_PAYLOAD_BYTES");
+  if (!enabled) return { enabled: false, maxPayloadBytes };
+
+  const missing = [
+    !env.DATABASE_URL ? "DATABASE_URL" : null,
+    !env.ORGANIZATION_ID ? "ORGANIZATION_ID" : null
+  ].filter((item): item is string => item !== null);
+  if (missing.length > 0) {
+    throw new Error(`Database persistence is enabled but configuration is missing: ${missing.join(", ")}`);
+  }
+  let databaseUrl: URL;
+  try {
+    databaseUrl = new URL(env.DATABASE_URL!);
+  } catch {
+    throw new Error("DATABASE_URL must be a valid PostgreSQL connection URL.");
+  }
+  if (databaseUrl.protocol !== "postgres:" && databaseUrl.protocol !== "postgresql:") {
+    throw new Error("DATABASE_URL must use the postgres or postgresql protocol.");
+  }
+  const organizationId = env.ORGANIZATION_ID!;
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(organizationId)) {
+    throw new Error("ORGANIZATION_ID must be a canonical UUID.");
+  }
+  return {
+    enabled: true,
+    databaseUrl: databaseUrl.toString(),
+    organizationId: organizationId.toLowerCase(),
+    executionKey: cloudRunAttemptKey(env),
+    poolMax: positiveInteger(env.DATABASE_POOL_MAX, 5, "DATABASE_POOL_MAX"),
+    maxPayloadBytes
+  };
+}
+
+function cloudRunAttemptKey(env: Record<string, string | undefined>): string | null {
+  const execution = env.CLOUD_RUN_EXECUTION?.trim();
+  if (!execution) return null;
+  const attempt = env.CLOUD_RUN_TASK_ATTEMPT?.trim() || "0";
+  if (!/^\d+$/u.test(attempt)) {
+    throw new Error("CLOUD_RUN_TASK_ATTEMPT must be a non-negative integer when provided.");
+  }
+  return `${execution}:attempt:${attempt}`;
 }
 
 function campaignNameContainsValue(value: string | undefined): string | null {

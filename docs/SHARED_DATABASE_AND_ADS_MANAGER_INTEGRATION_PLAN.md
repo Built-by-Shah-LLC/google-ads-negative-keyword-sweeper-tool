@@ -1,6 +1,6 @@
 # Shared Database and Built Ads Manager Integration Plan
 
-**Status:** implementation plan; no application code or cloud resources changed  
+**Status:** D-048 database-only slice implemented locally; cloud rollout and UI phases pending
 **Prepared:** 2026-09-07  
 **Primary writer:** `google-ads-negative-keyword-sweeper-tool`  
 **Schema and UI owner:** `Built-by-Shah-LLC/built-ads-manager`
@@ -73,9 +73,13 @@ Current source locations:
 - `src/google-ads/search-terms.ts`
 - `src/types.ts`
 
-### 2.3 Existing deployment mismatch to resolve
+### 2.3 Deployment alignment implemented; live rollout pending
 
-The sweeper deployment currently defaults to a standalone Cloud Run Job in `us-central1` and has no database/VPC configuration. Built Ads Manager Dev uses a private Cloud SQL path in `us-west1`. The sweeper cannot reach that database safely until its job, service identity, region/network egress, database login, and secret binding are deliberately integrated with the Built Ads Manager environment.
+The deployment script now defaults to `us-west1`, attaches direct
+private-range VPC egress, requires the dedicated sweeper database and existing
+organization secrets, and uploads only allowlisted non-secret environment
+values. These settings are source-reviewed only: no Cloud Run Job, Cloud SQL
+role, secret, migration, or schedule has been changed by this implementation.
 
 ### 2.4 Product-scope gate
 
@@ -83,12 +87,13 @@ Built Ads Manager's binding `docs/product/scope-ledger.md` currently says:
 
 > Negative-keyword logging | Future only | No schema, API, UI, or Google Ads write capability.
 
-Therefore implementation must start with an explicit founder-approved decision and scope-ledger update admitting:
+Shah approved the database-only portion on 2026-09-09. Built Ads Manager records
+that admission as D-048. It currently admits:
 
-1. durable read-only negative-keyword sweep logging;
-2. an account-level decision/history view;
-3. owner-only sweep run health/history;
-4. no Google Ads mutation, rerun, or backfill controls.
+1. durable read-only negative-keyword sweep logging for new runs; and
+2. no Google Ads mutation, API/UI, historical import, rerun, or backfill controls.
+
+The account and owner UI phases remain unapproved/deferred for now.
 
 This plan does not interpret the request as permission to add Google Ads write access. The system remains observation/classification-only.
 
@@ -319,7 +324,8 @@ Add:
 - `src/storage/postgres/sweep-data-repository.ts` — facts, candidates, decisions, batches, attempts, events, and delivery;
 - `src/storage/postgres/redaction.ts` — allowlist/redaction/size limits for provider and error payloads;
 - `src/storage/persistence.ts` — interface used by the pipeline so tests do not need PostgreSQL;
-- `scripts/import-run-artifacts.ts` — one-time idempotent historical importer.
+- `scripts/import-run-artifacts.ts` — deferred one-time historical importer;
+  not part of D-048's current database-only slice.
 
 Add `pg` and its TypeScript types. Use parameterized queries only.
 
@@ -330,7 +336,9 @@ Add and validate:
 - `DATABASE_URL` — secret, never a plain environment variable;
 - `ORGANIZATION_ID` — canonical configured UUID, never discovered with a global scan;
 - `PERSIST_RUNS_TO_DATABASE=true` — rollout gate, required in deployed production after cutover;
-- `WRITE_LOCAL_RUN_ARTIFACTS=true|false` — temporary diagnostic mirror only;
+- the existing local artifact mirror remains enabled for rollout diagnostics;
+  adding a runtime switch is deferred until workbook generation no longer
+  reads that mirror;
 - bounded raw-payload byte limits if raw provider envelopes remain enabled.
 
 The deployed job should refuse to start when database persistence is enabled but either database URL or organization ID is absent.
@@ -344,19 +352,27 @@ The deployed job should refuse to start when database persistence is enabled but
 5. Commit raw facts and candidates before calling the LLM so failed classifications still retain fetched evidence.
 6. Persist each batch and each attempt independently so one failed batch does not roll back another.
 7. Persist validated decisions only after existing strict validation succeeds.
-8. Recalculate account totals from stored child rows, then finalize the account.
-9. Recalculate run totals from stored account rows, then finalize the run.
+8. Reconcile account totals from validated in-process child results and finalize
+   the account under database constraints; database-derived reconciliation is
+   a later hardening step.
+9. Reconcile run totals from the completed account summaries and finalize the
+   run under database constraints.
 10. Persist report-delivery outcome without changing a successful classification to failed; use `partial` when delivery is an approved component of overall success.
 
 Each account remains fault-isolated. A database failure is retryable and must not be hidden by a successful local artifact write.
 
 ### 6.4 Idempotency
 
-- Introduce one execution key that remains stable across Cloud Run retry attempts for the same invocation.
+- Use one execution key per Cloud Run task attempt
+  (`CLOUD_RUN_EXECUTION:CLOUD_RUN_TASK_ATTEMPT`). This preserves every failed
+  and retried attempt as a distinct run while preventing duplication if the
+  same attempt is accidentally submitted twice.
 - Keep current deterministic candidate `item_id` generation.
 - Use unique constraints and `INSERT ... ON CONFLICT` for run, account, raw-fact hash, candidate, batch, attempt, and decision identities.
-- State transitions must be monotonic except an expired `running` lease may be reclaimed.
-- Reprocessing the same execution must update/finalize incomplete rows, not duplicate facts or decisions.
+- State transitions are monotonic. Reclaiming an expired `running` attempt is
+  deferred; Cloud Run retries receive a new attempt-scoped execution key.
+- Reprocessing the same attempt key reuses unique identities and fails closed
+  on conflicting immutable content rather than duplicating facts or decisions.
 - A distinct manually requested rerun may create a new run while retaining the same processing date.
 
 ### 6.5 Numeric correctness
@@ -377,7 +393,8 @@ Recommended grants:
 
 - `SELECT` on `organizations`, `advertising_data_connections`, and `client_accounts`;
 - optional `SELECT` on existing campaign/ad-group fact tables only where server-side reconciliation needs it;
-- `SELECT/INSERT/UPDATE` on the new sweeper run tables;
+- `SELECT/INSERT` on immutable evidence and lifecycle tables, plus column-level
+  `UPDATE` only for documented run/account/batch/delivery lifecycle fields;
 - sequence usage required by those tables;
 - no delete during normal runtime;
 - no schema creation, migration, role management, `BYPASSRLS`, or Google Ads write capability.
@@ -395,7 +412,11 @@ Deployment work:
 7. Keep Dev, Staging, and Production databases and secrets separate.
 8. Never run migrations or import historical data automatically during application deployment.
 
-## 8. Built Ads Manager API and UI Plan
+## 8. Built Ads Manager API and UI Plan (deferred)
+
+D-048 does not admit this section for implementation. It remains a planning
+reference and requires another explicit founder decision and scope-ledger
+update before any API, route, navigation, or browser work begins.
 
 ### 8.1 Product placement
 

@@ -35,7 +35,9 @@ The new application under `src/` is isolated from `legacy-reference/`. It curren
 2. Fetch Search and Performance Max reported search terms for the single calendar day 48 hours before execution in `RUN_TIME_ZONE` (a September 3 run processes September 1 for every organization).
 3. Aggregate organization- and campaign-scoped candidates.
 4. Send bounded organization-specific batches and the authoritative Markdown policy at `src/config/negative-keyword-rules.md` to the selected LLM provider. Moonshot/Kimi is primary; OpenAI, Gemini, and the prior Kimi coding endpoint remain available through `LLM_PROVIDER`.
-5. Strictly validate the structured result and write ignored JSON artifacts under `runs/`.
+5. Strictly validate the structured result and persist the complete run to the
+   shared Built Ads Manager PostgreSQL database. Ignored files under `runs/`
+   remain a diagnostic mirror; they are not the durable source of truth.
 
 Each selected organization still receives the backward-compatible spreadsheet-safe CSV at:
 
@@ -43,7 +45,7 @@ Each selected organization still receives the backward-compatible spreadsheet-sa
 runs/{run_id}/organizations/{customer_id}/llm-decisions.csv
 ```
 
-Every run additionally creates one Excel workbook at `runs/{run_id}/negative-keyword-sweeper-{run_id}.xlsx`. It contains one worksheet per organization with run metadata, every KEEP and NEGATIVE_EXACT candidate, rule IDs, reasons, full rules, organization token totals, per-batch input/output token usage, batch counts, and related errors/timeouts. The workbook is sent through Resend after finalization when `RUN_REPORT_EMAIL_ENABLED=true`. CSV cannot contain worksheets, so `.xlsx` is used for the requested tabbed report. JSON remains the exact-fidelity source artifact; spreadsheet cells that could execute as formulas are intentionally neutralized.
+Every run additionally creates one Excel workbook at `runs/{run_id}/negative-keyword-sweeper-{run_id}.xlsx`. It contains one worksheet per organization with run metadata, every KEEP and NEGATIVE_EXACT candidate, rule IDs, reasons, full rules, organization token totals, per-batch input/output token usage, batch counts, and related errors/timeouts. The workbook is sent through Resend after finalization when `RUN_REPORT_EMAIL_ENABLED=true`. CSV cannot contain worksheets, so `.xlsx` is used for the requested tabbed report. PostgreSQL remains the exact-fidelity source; spreadsheet cells that could execute as formulas are intentionally neutralized.
 
 Each run also writes `telemetry.json` and a reconciled `token-usage.json`. Each organization
 writes its own `token-usage.json`, `errors.json`, and `fixed-input-tokens.json`; every LLM
@@ -117,6 +119,13 @@ npm run sweep -- --date 2026-08-25 --organization-limit 1
 npm run sweep -- --organization-limit 3 --candidate-limit-per-organization 10
 ```
 
+Normal sweeps also require `PERSIST_RUNS_TO_DATABASE=true`, a dedicated
+least-privilege sweeper `DATABASE_URL`, and the canonical Built Ads Manager
+`ORGANIZATION_ID`. Every selected Google customer must already exist as an
+active `client_accounts` row for that organization. The process fails closed
+if durable persistence is unavailable; it never reports local artifacts as a
+successful substitute.
+
 Use a specific customer or deliberately select the entire MCC:
 
 ```powershell
@@ -185,3 +194,7 @@ Files in `legacy-reference/` are provided for complete project context. When the
 ## Data handling
 
 The handoff copies replace live Google Ads customer IDs and recipient emails with stable placeholders. Do not commit API keys, OAuth tokens, service credentials, or unsanitized client identifiers.
+Database payloads recursively redact credential-shaped fields and are size
+bounded before insertion. Rule snapshots, search-term facts, candidates,
+decisions, model attempts, telemetry events, and errors are immutable; only
+run/account/batch/report lifecycle records can advance.

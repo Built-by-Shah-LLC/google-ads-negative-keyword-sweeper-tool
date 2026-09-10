@@ -11,6 +11,8 @@ import { createLogger, type Logger } from "../observability/logger.js";
 import { emptyTokenUsage, RunTelemetry, type TokenTotals } from "../observability/run-telemetry.js";
 import { RunArtifacts } from "../storage/run-artifacts.js";
 import { createRunWorkbook } from "../storage/run-workbook.js";
+import { DisabledSweepPersistence, type SweepPersistence } from "../storage/persistence.js";
+import { PostgresSweepPersistence } from "../storage/postgres/postgres-sweep-persistence.js";
 import { createLimiter } from "../util/concurrency.js";
 import {
   date48HoursBackInTimeZone,
@@ -31,6 +33,7 @@ export interface SweepServices {
   logger?: Logger;
   emailAlerts?: EmailAlertService;
   runReportEmail?: RunReportEmailService;
+  persistence?: SweepPersistence;
 }
 
 export async function runSweeper(config: AppConfig, rules: RuleSet, options: SweepOptions, services: SweepServices = {}): Promise<{
@@ -38,6 +41,10 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
   runDirectory: string;
   status: "SUCCEEDED" | "PARTIAL" | "FAILED";
 }> {
+  const persistence = services.persistence
+    ?? (config.persistence.enabled
+      ? new PostgresSweepPersistence(config.persistence)
+      : new DisabledSweepPersistence());
   let telemetry!: RunTelemetry;
   const artifacts = new RunArtifacts(options.rootDirectory, undefined, (error, relativePath) => {
     telemetry.error(error, {
@@ -86,11 +93,30 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
   };
 
   let discoveredCount = 0;
+  let eligibleCount = 0;
   let selectedCount = 0;
   let organizationsCompleted = 0;
   let summaries: OrganizationSummary[] = [];
   try {
     logger.info({ ruleVersion: rules.version, promptVersion: rules.promptVersion }, "Sweep run started");
+    await persistence.startRun({
+      runId: artifacts.runId,
+      executionKey: config.persistence.enabled ? config.persistence.executionKey : null,
+      startedAt,
+      requestedDate: processingDate,
+      requestedDateSource: options.date ? "COMMAND_LINE" : "AUTOMATIC_48_HOURS_BACK",
+      processingTimeZone: config.processingTimeZone,
+      rules,
+      provider: classifier.provider,
+      model: classifier.model,
+      campaignNameContains: config.campaignNameContains,
+      accountSelectionMode: accountSelectionMode(config, options),
+      accountAllowlistEntryCount: config.accountAllowlist.length,
+      googleFetchConcurrency: config.googleFetchConcurrency,
+      llmConcurrency: config.llm.concurrency,
+      llmBatchSize: config.llm.batchSize,
+      candidateLimitPerAccount: options.candidateLimitPerOrganization
+    });
     await artifacts.write("run-manifest.json", { ...manifestBase, status: "RUNNING" });
     await artifacts.writeText("rules.md", rules.markdown);
 
@@ -102,6 +128,7 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
     );
     discoveredCount = discovered.length;
     const eligible = filterOrganizationsByAllowlist(discovered, config.accountAllowlist);
+    eligibleCount = eligible.length;
     logger.info({
       progressEvent: "organization_discovery_completed",
       organizationsDiscovered: discoveredCount,
@@ -112,6 +139,7 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
       const customerId = options.customerId.replaceAll("-", "");
       selected = eligible.filter((organization) => organization.customerId === customerId);
       if (selected.length === 0) {
+        await persistence.recordDiscovery(discoveredCount, eligible.length, 0);
         throw new PipelineError(
           `Customer ${customerId} was not found as an enabled leaf account.`,
           { stage: "ORGANIZATION_SELECTION", code: "ORGANIZATION_NOT_FOUND", retryable: false }
@@ -121,6 +149,7 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
       selected = eligible.slice(0, options.organizationLimit ?? 1);
     }
     if (selected.length === 0) {
+      await persistence.recordDiscovery(discoveredCount, eligible.length, 0);
       throw new PipelineError(
         config.accountAllowlist.length > 0
           ? "No enabled leaf organizations matched the account allowlist; refusing to report an empty successful run."
@@ -129,6 +158,7 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
       );
     }
     selectedCount = selected.length;
+    await persistence.recordDiscovery(discoveredCount, eligible.length, selectedCount);
     await artifacts.write("organizations.json", { discovered, eligible, selected });
     logger.info({
       progressEvent: "organization_selection_completed",
@@ -162,7 +192,8 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
           candidateLimit: options.candidateLimitPerOrganization,
           campaignNameContains: config.campaignNameContains,
           llmLimit,
-          logger: organizationLogger
+          logger: organizationLogger,
+          persistence
         }
       );
       organizationsCompleted += 1;
@@ -188,13 +219,15 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
       manifestBase,
       summaries,
       discoveredCount,
+      eligibleCount,
       selectedCount,
       classificationStatus,
       rules,
       classifier.provider,
       classifier.model,
       services.emailAlerts,
-      services.runReportEmail
+      services.runReportEmail,
+      persistence
     );
     logger.info({ status, organizationsSelected: selectedCount }, "Sweep run completed");
     return { runId: artifacts.runId, runDirectory: artifacts.runDirectory, status };
@@ -207,6 +240,7 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
       manifestBase,
       summaries,
       discoveredCount,
+      eligibleCount,
       selectedCount,
       "FAILED",
       rules,
@@ -214,10 +248,13 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
       classifier.model,
       services.emailAlerts,
       services.runReportEmail,
+      persistence,
       errorMessage(error)
     );
     logger.error({ status: "FAILED" }, "Sweep run failed");
     return { runId: artifacts.runId, runDirectory: artifacts.runDirectory, status: "FAILED" };
+  } finally {
+    await persistence.close();
   }
 }
 
@@ -227,6 +264,7 @@ async function finalizeRun(
   manifestBase: Record<string, unknown>,
   summaries: OrganizationSummary[],
   discoveredCount: number,
+  eligibleCount: number,
   selectedCount: number,
   status: "SUCCEEDED" | "PARTIAL" | "FAILED",
   rules: RuleSet,
@@ -234,6 +272,7 @@ async function finalizeRun(
   model: string,
   emailAlerts?: EmailAlertService,
   runReportEmail?: RunReportEmailService,
+  persistence: SweepPersistence = new DisabledSweepPersistence(),
   fatalError?: string
 ): Promise<"SUCCEEDED" | "PARTIAL" | "FAILED"> {
   const completedAt = new Date().toISOString();
@@ -276,6 +315,12 @@ async function finalizeRun(
     fatalError: fatalError ?? null
   });
   let workbookWritten = false;
+  let reportDelivery: import("../storage/persistence.js").SweepRunFinish["reportDelivery"] = {
+    status: "NOT_CONFIGURED",
+    messageId: null,
+    attemptCount: 0,
+    sentAt: null
+  };
   try {
     const workbook = await createRunWorkbook({
       runId: artifacts.runId,
@@ -300,14 +345,8 @@ async function finalizeRun(
       inputTokens: telemetrySnapshot.tokenUsage.inputTokens,
       outputTokens: telemetrySnapshot.tokenUsage.outputTokens
     });
-    await artifacts.write("report-email.json", delivery ?? {
-      status: "NOT_CONFIGURED",
-      messageId: null,
-      attemptCount: 0,
-      sentAt: null
-    });
-    await emailAlerts?.flush();
-    return status;
+    reportDelivery = delivery ?? reportDelivery;
+    await artifacts.write("report-email.json", reportDelivery);
   } catch (error) {
     const reportError = telemetry.error(error, {
       stage: "RUN_REPORT_EMAIL",
@@ -316,7 +355,15 @@ async function finalizeRun(
       retryable: true
     });
     const finalStatus = status === "SUCCEEDED" ? "PARTIAL" : status;
-    await artifacts.write("report-email.json", { status: "FAILED", error: reportError });
+    reportDelivery = {
+      status: "FAILED",
+      messageId: null,
+      attemptCount: 0,
+      sentAt: null,
+      errorCode: reportError.code ?? null,
+      errorMessage: reportError.message
+    };
+    await artifacts.write("report-email.json", { ...reportDelivery, error: reportError });
     const updatedTelemetry = telemetry.snapshot();
     summary.status = finalStatus;
     summary.errorCount = updatedTelemetry.errors.length;
@@ -349,9 +396,39 @@ async function finalizeRun(
         // The original workbook remains available even if its status cell could not be refreshed.
       }
     }
-    await emailAlerts?.flush();
-    return finalStatus;
+    status = finalStatus;
   }
+  await emailAlerts?.flush();
+  const finalTelemetry = telemetry.snapshot();
+  const finalTokenUsageReport = createRunTokenUsageReport(finalTelemetry.tokenUsage, summaries);
+  await persistence.finishRun({
+    status,
+    completedAt,
+    organizationsDiscovered: discoveredCount,
+    organizationsEligible: eligibleCount,
+    organizationsSelected: selectedCount,
+    accountSummaries: summaries.map((item) => ({
+      customerId: item.customerId,
+      status: item.status,
+      completedAt,
+      rawRowCount: item.rawRowCount,
+      candidateCount: item.candidateCount,
+      decisionCount: item.decisionCount,
+      failedBatchCount: item.failedBatchCount,
+      keepCount: item.decisions.KEEP ?? 0,
+      negativeExactCount: item.decisions.NEGATIVE_EXACT ?? 0,
+      errorCount: item.errorCount,
+      ...(item.error === undefined ? {} : { error: item.error }),
+      tokenUsage: item.tokenUsage
+    })),
+    tokenUsage: finalTelemetry.tokenUsage,
+    tokenUsageReconciled: finalTokenUsageReport.reconciliation.reconciled,
+    events: finalTelemetry.events,
+    errors: finalTelemetry.errors,
+    fatalError: fatalError ?? null,
+    reportDelivery
+  });
+  return status;
 }
 
 export function createRunTokenUsageReport(
@@ -420,4 +497,14 @@ function errorMessage(error: unknown): string {
 
 function safeOrganizationRef(customerId: string): string {
   return createHash("sha256").update(customerId).digest("hex").slice(0, 12);
+}
+
+function accountSelectionMode(
+  config: AppConfig,
+  options: SweepOptions
+): "all" | "allowlist" | "customer" | "limited" {
+  if (options.customerId) return "customer";
+  if (config.accountAllowlist.length > 0) return "allowlist";
+  if (options.allOrganizations) return "all";
+  return "limited";
 }

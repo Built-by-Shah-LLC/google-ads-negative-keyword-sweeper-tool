@@ -73,7 +73,17 @@ export function aggregateCandidates(rows: SearchTermRow[]): ClassificationCandid
     const existing = candidates.get(itemId);
     if (!existing) {
       const { date, ...candidate } = row;
-      candidates.set(itemId, { ...candidate, itemId, startDate: date, endDate: date });
+      candidates.set(itemId, {
+        ...candidate,
+        itemId,
+        startDate: date,
+        endDate: date,
+        impressionsExact: exactInteger(row, "impressions"),
+        clicksExact: exactInteger(row, "clicks"),
+        costMicrosExact: exactInteger(row, "costMicros"),
+        conversionsExact: exactDecimal(row, "conversions"),
+        conversionValueExact: exactDecimal(row, "conversionValue")
+      });
       continue;
     }
     if (row.date < existing.startDate) existing.startDate = row.date;
@@ -83,6 +93,26 @@ export function aggregateCandidates(rows: SearchTermRow[]): ClassificationCandid
     existing.costMicros += row.costMicros;
     existing.conversions += row.conversions;
     existing.conversionValue += row.conversionValue;
+    existing.impressionsExact = addIntegerStrings(
+      existing.impressionsExact ?? nonNegativeIntegerString(existing.impressions),
+      exactInteger(row, "impressions")
+    );
+    existing.clicksExact = addIntegerStrings(
+      existing.clicksExact ?? nonNegativeIntegerString(existing.clicks),
+      exactInteger(row, "clicks")
+    );
+    existing.costMicrosExact = addIntegerStrings(
+      existing.costMicrosExact ?? nonNegativeIntegerString(existing.costMicros),
+      exactInteger(row, "costMicros")
+    );
+    existing.conversionsExact = addDecimalStrings(
+      existing.conversionsExact ?? nonNegativeDecimalString(existing.conversions),
+      exactDecimal(row, "conversions")
+    );
+    existing.conversionValueExact = addDecimalStrings(
+      existing.conversionValueExact ?? nonNegativeDecimalString(existing.conversionValue),
+      exactDecimal(row, "conversionValue")
+    );
   }
   return [...candidates.values()].sort((left, right) => left.itemId.localeCompare(right.itemId));
 }
@@ -123,8 +153,57 @@ function mapSearchRow(
     clicks: numberValue(row.metrics?.clicks),
     costMicros: numberValue(row.metrics?.costMicros),
     conversions: numberValue(row.metrics?.conversions),
-    conversionValue: numberValue(row.metrics?.conversionsValue)
+    conversionValue: numberValue(row.metrics?.conversionsValue),
+    impressionsExact: nonNegativeIntegerString(row.metrics?.impressions),
+    clicksExact: nonNegativeIntegerString(row.metrics?.clicks),
+    costMicrosExact: nonNegativeIntegerString(row.metrics?.costMicros),
+    conversionsExact: nonNegativeDecimalString(row.metrics?.conversions),
+    conversionValueExact: nonNegativeDecimalString(row.metrics?.conversionsValue)
   };
+}
+
+function nonNegativeIntegerString(value: unknown): string {
+  const normalized = String(value ?? "0").trim();
+  if (!/^\d+$/u.test(normalized)) return "0";
+  return BigInt(normalized).toString();
+}
+
+function nonNegativeDecimalString(value: unknown): string {
+  const normalized = String(value ?? "0").trim();
+  const match = /^(\d+)(?:\.(\d+))?$/u.exec(normalized);
+  if (!match) return "0";
+  const whole = BigInt(match[1] ?? "0").toString();
+  const fraction = (match[2] ?? "").replace(/0+$/u, "");
+  return fraction ? `${whole}.${fraction}` : whole;
+}
+
+function exactInteger(row: SearchTermRow, field: "impressions" | "clicks" | "costMicros"): string {
+  const exactField = `${field}Exact` as const;
+  return row[exactField] ?? nonNegativeIntegerString(row[field]);
+}
+
+function exactDecimal(row: SearchTermRow, field: "conversions" | "conversionValue"): string {
+  const exactField = `${field}Exact` as const;
+  return row[exactField] ?? nonNegativeDecimalString(row[field]);
+}
+
+function addIntegerStrings(left: string, right: string): string {
+  return (BigInt(left) + BigInt(right)).toString();
+}
+
+function addDecimalStrings(left: string, right: string): string {
+  const [leftWhole = "0", leftFraction = ""] = left.split(".");
+  const [rightWhole = "0", rightFraction = ""] = right.split(".");
+  const places = Math.max(leftFraction.length, rightFraction.length);
+  const scale = 10n ** BigInt(places);
+  const leftScaled = BigInt(leftWhole) * scale + BigInt(leftFraction.padEnd(places, "0") || "0");
+  const rightScaled = BigInt(rightWhole) * scale + BigInt(rightFraction.padEnd(places, "0") || "0");
+  const total = leftScaled + rightScaled;
+  if (places === 0) return total.toString();
+  const digits = total.toString().padStart(places + 1, "0");
+  const whole = digits.slice(0, -places);
+  const fraction = digits.slice(-places).replace(/0+$/u, "");
+  return fraction ? `${whole}.${fraction}` : whole;
 }
 
 function assertDate(value: string): void {

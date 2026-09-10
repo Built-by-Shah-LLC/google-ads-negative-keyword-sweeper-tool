@@ -21,19 +21,23 @@
   Target Google Cloud project ID (must exist, with billing enabled).
 
 .PARAMETER Region
-  Deployment region. Default: us-central1.
+  Deployment region. Default: us-west1, matching Built Ads Manager Dev.
 
 .EXAMPLE
-  powershell -File scripts/deploy/deploy-gcloud.ps1 -ProjectId my-project -ApprovedBaseCommit <previous-release-commit> -Region us-central1
+  powershell -File scripts/deploy/deploy-gcloud.ps1 -ProjectId built-ads-manager-dev -ApprovedBaseCommit <previous-release-commit>
 #>
 param(
   [Parameter(Mandatory = $true)][string]$ProjectId,
   # Commit of the previously approved release, used for cumulative policy change limits.
   [Parameter(Mandatory = $true)][string]$ApprovedBaseCommit,
-  [string]$Region = "us-central1",
+  [string]$Region = "us-west1",
   [string]$JobName = "negative-keyword-sweeper",
   [string]$RepoName = "negative-keyword-sweeper",
   [string]$ServiceAccountName = "sweeper-runner",
+  [string]$DatabaseSecretName = "bam-dev-sweeper-database-url",
+  [string]$OrganizationSecretName = "bam-dev-organization-id",
+  [string]$Network = "default",
+  [string]$Subnet = "default",
   [string]$Schedule = "0 6 * * *",
   # 6:00 AM Pacific Time (America/Los_Angeles handles PST/PDT automatically).
   [string]$ScheduleTimeZone = "America/Los_Angeles"
@@ -67,6 +71,23 @@ $SecretKeys = @(
   "MOONSHOT_API_KEY",
   "RESEND_API_KEY",
   "SMTP_PASSWORD"
+)
+
+# Only these reviewed non-secret keys may be copied from local configuration
+# into the Cloud Run Job. Unknown .env keys are never uploaded as plaintext.
+$PlainEnvironmentKeys = @(
+  "GOOGLE_ADS_API_VERSION", "GOOGLE_ADS_LOGIN_CUSTOMER_ID",
+  "LLM_PROVIDER", "LLM_MODEL", "MOONSHOT_BASE_URL", "MOONSHOT_MODEL", "MOONSHOT_THINKING",
+  "OPENAI_MODEL", "GEMINI_MODEL", "KIMI_BASE_URL", "KIMI_MODEL",
+  "LLM_BATCH_SIZE", "GOOGLE_FETCH_CONCURRENCY", "LLM_CONCURRENCY",
+  "LLM_REQUEST_TIMEOUT_MS", "LLM_MAX_ATTEMPTS", "RUN_TIME_ZONE",
+  "CAMPAIGN_NAME_CONTAINS", "ACCOUNT_ALLOWLIST",
+  "RUN_REPORT_EMAIL_ENABLED", "RUN_REPORT_EMAIL_TO", "RUN_REPORT_EMAIL_FROM",
+  "RUN_REPORT_EMAIL_SUBJECT_PREFIX", "RESEND_REQUEST_TIMEOUT_MS", "RESEND_MAX_ATTEMPTS",
+  "LOG_LEVEL", "ERROR_EMAIL_ENABLED", "ERROR_EMAIL_TO", "ERROR_EMAIL_FROM",
+  "ERROR_EMAIL_SUBJECT_PREFIX", "SMTP_HOST", "SMTP_PORT", "SMTP_SECURE", "SMTP_USER",
+  "ALERT_HANDLED_ERROR_CODES", "ALERT_HANDLED_ERROR_STAGES",
+  "PERSIST_RUNS_TO_DATABASE", "DATABASE_POOL_MAX", "DATABASE_MAX_PAYLOAD_BYTES"
 )
 
 function Read-DotEnv([string]$Path) {
@@ -111,6 +132,7 @@ Invoke-Gcloud @("services", "enable",
   "artifactregistry.googleapis.com",
   "secretmanager.googleapis.com",
   "cloudscheduler.googleapis.com",
+  "compute.googleapis.com",
   "iam.googleapis.com",
   "--project", $ProjectId) "Failed to enable Google Cloud APIs."
 
@@ -134,9 +156,18 @@ if (Test-Path $openaiEnvPath) {
     $config[$key.Key] = $key.Value
   }
 }
+if ($config["PERSIST_RUNS_TO_DATABASE"] -notmatch "^(?i:true|1|yes)$") {
+  throw "PERSIST_RUNS_TO_DATABASE must be true before deploying the sweeper."
+}
+foreach ($sharedSecret in @($DatabaseSecretName, $OrganizationSecretName)) {
+  if (-not (Test-GcloudResource @("secrets", "describe", $sharedSecret, "--project", $ProjectId))) {
+    throw "Required shared Built Ads Manager secret '$sharedSecret' does not exist."
+  }
+}
 
 Write-Host "==> Creating/updating Secret Manager secrets"
 $secretEnvMappings = @()
+$secretNamesForRuntime = @()
 foreach ($key in $SecretKeys) {
   if (-not $config.ContainsKey($key) -or -not $config[$key]) { continue }
   $secretName = ConvertTo-SecretName $key
@@ -149,22 +180,37 @@ foreach ($key in $SecretKeys) {
   }
   Remove-Item $tempFile -Force
   $secretEnvMappings += "$key=${secretName}:latest"
+  $secretNamesForRuntime += $secretName
   Write-Host "    $key -> secret/$secretName"
 }
+$secretEnvMappings += "DATABASE_URL=${DatabaseSecretName}:latest"
+$secretEnvMappings += "ORGANIZATION_ID=${OrganizationSecretName}:latest"
+$secretNamesForRuntime += $DatabaseSecretName
+$secretNamesForRuntime += $OrganizationSecretName
 
 Write-Host "==> Creating service account '$ServiceAccountEmail' (if missing)"
 if (-not (Test-GcloudResource @("iam", "service-accounts", "describe", $ServiceAccountEmail, "--project", $ProjectId))) {
   Invoke-Gcloud @("iam", "service-accounts", "create", $ServiceAccountName,
     "--display-name", "Negative Keyword Sweeper runner", "--project", $ProjectId) "Failed to create service account."
 }
+foreach ($secretName in ($secretNamesForRuntime | Select-Object -Unique)) {
+  Invoke-Gcloud @("secrets", "add-iam-policy-binding", $secretName,
+    "--project", $ProjectId,
+    "--member", "serviceAccount:$ServiceAccountEmail",
+    "--role", "roles/secretmanager.secretAccessor") "Failed to grant $ServiceAccountEmail access to secret $secretName."
+}
+
+$projectNumber = (gcloud projects describe $ProjectId --project $ProjectId --format="value(projectNumber)" 2>$null)
+if ($projectNumber -notmatch "^\d+$") { throw "Could not resolve the Google Cloud project number." }
+$cloudRunServiceAgent = "service-$projectNumber@serverless-robot-prod.iam.gserviceaccount.com"
 Invoke-Gcloud @("projects", "add-iam-policy-binding", $ProjectId,
-  "--member", "serviceAccount:$ServiceAccountEmail",
-  "--role", "roles/secretmanager.secretAccessor") "Failed to grant secret access to $ServiceAccountEmail."
+  "--member", "serviceAccount:$cloudRunServiceAgent",
+  "--role", "roles/compute.networkUser") "Failed to grant direct VPC access to the Cloud Run service agent."
 
 Write-Host "==> Preparing plain environment variables"
 $plainEnvPairs = @()
-foreach ($key in $config.Keys) {
-  if ($SecretKeys -contains $key) { continue }
+foreach ($key in $PlainEnvironmentKeys) {
+  if (-not $config.ContainsKey($key)) { continue }
   if (-not $config[$key]) { continue }
   $plainEnvPairs += "$key=$($config[$key])"
 }
@@ -179,6 +225,9 @@ $jobArgs = @(
   "--region", $Region,
   "--project", $ProjectId,
   "--service-account", $ServiceAccountEmail,
+  "--network", $Network,
+  "--subnet", $Subnet,
+  "--vpc-egress", "private-ranges-only",
   "--set-secrets", ($secretEnvMappings -join ","),
   "--set-env-vars", $plainEnvVarsArg,
   "--task-timeout", "21600",

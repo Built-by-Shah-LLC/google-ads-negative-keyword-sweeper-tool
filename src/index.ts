@@ -21,6 +21,9 @@ async function main(
 ): Promise<void> {
   const options = parseArguments(process.argv.slice(2), rootDirectory);
   const config = await loadConfig(rootDirectory);
+  if (!config.persistence.enabled) {
+    throw new Error("PERSIST_RUNS_TO_DATABASE must be true for keyword sweeper runs.");
+  }
   const rules = await loadRuleSet(rootDirectory);
 
   logger.info({
