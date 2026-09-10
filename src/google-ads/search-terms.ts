@@ -65,7 +65,6 @@ export function aggregateCandidates(rows: SearchTermRow[]): ClassificationCandid
         row.customerId,
         row.channel,
         row.campaignId,
-        row.adGroupId || "",
         normalizedTerm
       ].join("\u0000"))
       .digest("hex")
