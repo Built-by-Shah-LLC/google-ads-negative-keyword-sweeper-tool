@@ -1,5 +1,14 @@
 import { createHash } from "node:crypto";
 import type { AppConfig } from "../config/env.js";
+import {
+  filterOrganizationsBySweepAccounts,
+  KNOWN_MISSING_CLIENT_ACCOUNT_MAPPINGS
+} from "../config/sweep-accounts.js";
+import {
+  hasSweep30DayCompletion,
+  loadSweep30DayState,
+  recordSweep30DayCompletion
+} from "../config/sweep-30day-state.js";
 import type { RuleSet } from "../types.js";
 import { GoogleAdsClient } from "../google-ads/client.js";
 import { DevelopmentNegativeKeywordWriter } from "../google-ads/negative-keyword-writer.dev.js";
@@ -15,11 +24,17 @@ import { createLogger, type Logger } from "../observability/logger.js";
 import { emptyTokenUsage, RunTelemetry, type TokenTotals } from "../observability/run-telemetry.js";
 import { RunArtifacts } from "../storage/run-artifacts.js";
 import { createRunWorkbook } from "../storage/run-workbook.js";
-import { DisabledSweepPersistence, type SweepPersistence } from "../storage/persistence.js";
+import {
+  DisabledSweepPersistence,
+  sweepAccountMutationRecord,
+  type SweepPersistence
+} from "../storage/persistence.js";
 import { PostgresSweepPersistence } from "../storage/postgres/postgres-sweep-persistence.js";
 import { createLimiter } from "../util/concurrency.js";
+import type { Organization } from "../types.js";
 import {
   date48HoursBackInTimeZone,
+  lookbackDateRangeEndingAt,
   processOrganization,
   type OrganizationSummary
 } from "./process-organization.js";
@@ -32,6 +47,12 @@ export interface SweepOptions {
   allOrganizations: boolean;
   candidateLimitPerOrganization: number | null;
   productionMutationAuthorized: boolean;
+  /** Initial 30-day-lookback mode (sweep:30day): records completions in the state file. */
+  thirtyDayMode: boolean;
+  /** 30-day mode only: select every master-list company without a completion record. */
+  allPending: boolean;
+  /** Standard runs only: bypass the 30-day completion gate. Defaults to enforced. */
+  ignoreThirtyDayCheck: boolean;
 }
 
 export interface SweepServices {
@@ -77,6 +98,9 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
   const startedAt = new Date().toISOString();
   const processingDate = options.date
     ?? date48HoursBackInTimeZone(config.processingTimeZone, new Date(startedAt)).startDate;
+  const thirtyDayDateRange = options.thirtyDayMode
+    ? lookbackDateRangeEndingAt(processingDate, 30)
+    : null;
   const manifestBase = {
     runId: artifacts.runId,
     startedAt,
@@ -94,7 +118,11 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
     llm: { provider: classifier.provider, model: classifier.model },
     filters: {
       campaignNameContains: config.campaignNameContains,
-      accountAllowlistEntries: config.accountAllowlist.length
+      accountSelectionSource: config.sweepAccounts.source,
+      sweepAccountCount: config.sweepAccounts.accounts.length,
+      accountAllowlistEntries: config.accountAllowlist.length,
+      thirtyDayMode: options.thirtyDayMode,
+      ignoreThirtyDayCheck: options.ignoreThirtyDayCheck
     },
     limits: {
       googleFetchConcurrency: config.googleFetchConcurrency,
@@ -110,7 +138,12 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
   let organizationsCompleted = 0;
   let summaries: OrganizationSummary[] = [];
   try {
-    logger.info({ ruleVersion: rules.version, promptVersion: rules.promptVersion }, "Sweep run started");
+    logger.info({
+      ruleVersion: rules.version,
+      promptVersion: rules.promptVersion,
+      thirtyDayMode: options.thirtyDayMode,
+      ...(thirtyDayDateRange === null ? {} : { thirtyDayDateRange })
+    }, "Sweep run started");
     await persistence.startRun({
       runId: artifacts.runId,
       executionKey: config.persistence.enabled ? config.persistence.executionKey : null,
@@ -127,7 +160,8 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
       googleFetchConcurrency: config.googleFetchConcurrency,
       llmConcurrency: config.llm.concurrency,
       llmBatchSize: config.llm.batchSize,
-      candidateLimitPerAccount: options.candidateLimitPerOrganization
+      candidateLimitPerAccount: options.candidateLimitPerOrganization,
+      googleAdsMutationMode: mutationMode
     });
     await artifacts.write("run-manifest.json", { ...manifestBase, status: "RUNNING" });
     await artifacts.writeText("rules.md", rules.markdown);
@@ -139,7 +173,8 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
       fetchOrganizations(googleAds, config.googleAds.loginCustomerId)
     );
     discoveredCount = discovered.length;
-    const eligible = filterOrganizationsByAllowlist(discovered, config.accountAllowlist);
+    let eligible = selectEligibleOrganizations(config, discovered, logger);
+    eligible = await applyThirtyDayGate(config, options, eligible, logger);
     eligibleCount = eligible.length;
     logger.info({
       progressEvent: "organization_discovery_completed",
@@ -153,19 +188,21 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
       if (selected.length === 0) {
         await persistence.recordDiscovery(discoveredCount, eligible.length, 0);
         throw new PipelineError(
-          `Customer ${customerId} was not found as an enabled leaf account.`,
+          options.thirtyDayMode
+            ? `Customer ${customerId} is not in the sweep accounts master list as an enabled leaf account; 30-day sweeps only run for master-list companies.`
+            : `Customer ${customerId} was not found as an enabled leaf account.`,
           { stage: "ORGANIZATION_SELECTION", code: "ORGANIZATION_NOT_FOUND", retryable: false }
         );
       }
+    } else if (options.thirtyDayMode && options.allPending) {
+      selected = eligible;
     } else if (!options.allOrganizations) {
       selected = eligible.slice(0, options.organizationLimit ?? 1);
     }
     if (selected.length === 0) {
       await persistence.recordDiscovery(discoveredCount, eligible.length, 0);
       throw new PipelineError(
-        config.accountAllowlist.length > 0
-          ? "No enabled leaf organizations matched the account allowlist; refusing to report an empty successful run."
-          : "No enabled leaf organizations were selected; refusing to report an empty successful run.",
+        emptySelectionMessage(config, options),
         { stage: "ORGANIZATION_SELECTION", code: "NO_ORGANIZATIONS_SELECTED", retryable: false }
       );
     }
@@ -207,7 +244,8 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
           logger: organizationLogger,
           persistence,
           ...(negativeKeywordWriter === undefined ? {} : { negativeKeywordWriter }),
-          mutationChunkSize: config.googleAdsMutation.chunkSize
+          mutationChunkSize: config.googleAdsMutation.chunkSize,
+          ...(thirtyDayDateRange === null ? {} : { dateRange: thirtyDayDateRange })
         }
       );
       organizationsCompleted += 1;
@@ -225,6 +263,10 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
       }, "Organization finished; sweep progress updated");
       return summary;
     })));
+
+    if (options.thirtyDayMode) {
+      await recordThirtyDayCompletions(config, artifacts.runId, summaries, telemetry, logger);
+    }
 
     const classificationStatus = runStatus(summaries);
     const status = await finalizeRun(
@@ -449,16 +491,177 @@ async function finalizeRun(
       negativeExactCount: item.decisions.NEGATIVE_EXACT ?? 0,
       errorCount: item.errorCount,
       ...(item.error === undefined ? {} : { error: item.error }),
-      tokenUsage: item.tokenUsage
+      tokenUsage: item.tokenUsage,
+      mutation: sweepAccountMutationRecord(item.mutation)
     })),
     tokenUsage: finalTelemetry.tokenUsage,
     tokenUsageReconciled: finalTokenUsageReport.reconciliation.reconciled,
+    googleAdsMutationPerformed,
     events: finalTelemetry.events,
     errors: finalTelemetry.errors,
     fatalError: fatalError ?? null,
     reportDelivery
   });
   return status;
+}
+
+/**
+ * Eligibility step 1: the sweep accounts master file replaces ACCOUNT_ALLOWLIST
+ * when it loads; otherwise the legacy env allowlist remains the fallback.
+ */
+export function selectEligibleOrganizations(
+  config: AppConfig,
+  discovered: Organization[],
+  logger: Logger
+): Organization[] {
+  if (config.sweepAccounts.source !== "master-file") {
+    logger.info({
+      progressEvent: "account_selection_source",
+      source: "env-allowlist",
+      expectedFile: config.sweepAccounts.filePath,
+      allowlistEntries: config.accountAllowlist.length
+    }, "Sweep accounts master file not found; falling back to ACCOUNT_ALLOWLIST filtering");
+    return filterOrganizationsByAllowlist(discovered, config.accountAllowlist);
+  }
+  const eligible = filterOrganizationsBySweepAccounts(discovered, config.sweepAccounts.accounts);
+  logger.info({
+    progressEvent: "account_selection_source",
+    source: "master-file",
+    file: config.sweepAccounts.filePath,
+    masterListCompanies: config.sweepAccounts.accounts.length,
+    matchedEnabledAccounts: eligible.length
+  }, "Sweep accounts master file is the active account filter");
+  const discoveredIds = new Set(discovered.map((organization) => organization.customerId));
+  const notDiscovered = config.sweepAccounts.accounts.filter((account) => !discoveredIds.has(account.customerId));
+  if (notDiscovered.length > 0) {
+    logger.warn({
+      progressEvent: "sweep_accounts_not_discovered",
+      accounts: notDiscovered
+    }, "Master-list companies not found as enabled leaf accounts under the MCC");
+  }
+  const unmapped = eligible.filter((organization) =>
+    KNOWN_MISSING_CLIENT_ACCOUNT_MAPPINGS.includes(organization.customerId)
+  );
+  if (unmapped.length > 0) {
+    logger.warn({
+      progressEvent: "sweep_accounts_missing_db_mapping",
+      accounts: unmapped.map((organization) => ({
+        customerId: organization.customerId,
+        descriptiveName: organization.descriptiveName
+      }))
+    }, "Selected master-list companies without a known client_accounts mapping; persistence will fail closed for them");
+  }
+  return eligible;
+}
+
+/**
+ * Eligibility step 2: standard runs only sweep companies whose initial 30-day
+ * sweep is recorded in the state file (unless --ignore-30day-check). 30-day
+ * runs without an explicit --customer select the pending companies instead.
+ */
+export async function applyThirtyDayGate(
+  config: AppConfig,
+  options: SweepOptions,
+  eligible: Organization[],
+  logger: Logger
+): Promise<Organization[]> {
+  if (config.sweepAccounts.source !== "master-file") {
+    return eligible;
+  }
+  const { state, existed } = await loadSweep30DayState(config.sweep30DayStateFile);
+  if (!existed) {
+    logger.warn({
+      progressEvent: "sweep_30day_state_missing",
+      stateFile: config.sweep30DayStateFile
+    }, "30-day state file is missing; treating every master-list company as not completed");
+  }
+  if (options.thirtyDayMode) {
+    if (options.customerId) return eligible;
+    const completed = eligible.filter((organization) => hasSweep30DayCompletion(state, organization.customerId));
+    if (completed.length > 0) {
+      logger.info({
+        progressEvent: "sweep_30day_already_completed",
+        accounts: completed.map((organization) => ({
+          customerId: organization.customerId,
+          descriptiveName: organization.descriptiveName
+        }))
+      }, "Companies skipped because their 30-day sweep is already recorded");
+    }
+    return eligible.filter((organization) => !hasSweep30DayCompletion(state, organization.customerId));
+  }
+  if (options.ignoreThirtyDayCheck) {
+    logger.warn({
+      progressEvent: "sweep_30day_gate_bypassed"
+    }, "--ignore-30day-check is set; running without the 30-day completion gate");
+    return eligible;
+  }
+  const gatedOut = eligible.filter((organization) => !hasSweep30DayCompletion(state, organization.customerId));
+  if (gatedOut.length > 0) {
+    logger.warn({
+      progressEvent: "sweep_30day_gate_skipped",
+      stateFile: config.sweep30DayStateFile,
+      accounts: gatedOut.map((organization) => ({
+        customerId: organization.customerId,
+        descriptiveName: organization.descriptiveName
+      }))
+    }, "Accounts skipped because their initial 30-day sweep is not recorded");
+  }
+  return eligible.filter((organization) => hasSweep30DayCompletion(state, organization.customerId));
+}
+
+function emptySelectionMessage(config: AppConfig, options: SweepOptions): string {
+  if (options.thirtyDayMode) {
+    return "No master-list companies are pending a 30-day sweep; refusing to report an empty successful run.";
+  }
+  if (config.sweepAccounts.source === "master-file" && !options.ignoreThirtyDayCheck) {
+    return "No eligible master-list companies have a recorded 30-day sweep; refusing to report an empty successful run.";
+  }
+  if (config.sweepAccounts.source === "master-file" || config.accountAllowlist.length > 0) {
+    return "No enabled leaf organizations matched the account selection; refusing to report an empty successful run.";
+  }
+  return "No enabled leaf organizations were selected; refusing to report an empty successful run.";
+}
+
+/** Records one state-file completion per successfully processed account; failures are logged, never fatal. */
+async function recordThirtyDayCompletions(
+  config: AppConfig,
+  runId: string,
+  summaries: OrganizationSummary[],
+  telemetry: RunTelemetry,
+  logger: Logger
+): Promise<void> {
+  for (const summary of summaries) {
+    if (summary.status !== "SUCCEEDED") {
+      logger.warn({
+        progressEvent: "sweep_30day_completion_not_recorded",
+        customerId: summary.customerId,
+        organizationStatus: summary.status
+      }, "30-day completion not recorded because the account run did not succeed");
+      continue;
+    }
+    try {
+      await recordSweep30DayCompletion(config.sweep30DayStateFile, summary.customerId, {
+        runId,
+        source: "sweep:30day"
+      });
+      logger.info({
+        progressEvent: "sweep_30day_completion_recorded",
+        customerId: summary.customerId,
+        stateFile: config.sweep30DayStateFile
+      }, "30-day sweep completion recorded");
+    } catch (error) {
+      telemetry.error(error, {
+        stage: "SWEEP_30DAY_STATE",
+        code: "SWEEP_30DAY_STATE_WRITE_FAILED",
+        retryable: true,
+        details: { customerId: summary.customerId }
+      });
+      logger.warn({
+        progressEvent: "sweep_30day_completion_record_failed",
+        customerId: summary.customerId
+      }, "Failed to record the 30-day completion; rerun sweep:30day for this company");
+    }
+  }
 }
 
 function createNegativeKeywordWriter(config: AppConfig): NegativeKeywordWriter | undefined {

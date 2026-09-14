@@ -1,3 +1,4 @@
+import type { NegativeKeywordMutationSummary } from "../google-ads/negative-keyword-writer.js";
 import type { ClassificationResult, LlmGenerationAttempt } from "../llm/classifier.js";
 import type { SerializedError } from "../observability/errors.js";
 import type { TelemetryEvent, TokenTotals } from "../observability/run-telemetry.js";
@@ -27,6 +28,8 @@ export interface SweepRunStart {
   llmConcurrency: number;
   llmBatchSize: number;
   candidateLimitPerAccount: number | null;
+  /** Drives the persisted read_only flag: false only for production mode. */
+  googleAdsMutationMode: "disabled" | "development" | "validation" | "production";
 }
 
 export interface SweepAccountInputs {
@@ -45,9 +48,40 @@ export interface SweepAccountInputs {
   fixedInput: FixedInputTokenCount | null;
 }
 
+/**
+ * Per-account mutation outcome carried through the persistence boundary. The
+ * D-048 account-runs table has no mutation columns yet, so PostgreSQL only
+ * aggregates this into the run-level google_ads_mutation_performed flag; the
+ * counts are plumbed here so a later migration can persist them unchanged.
+ */
+export interface SweepAccountMutationRecord {
+  mode: NegativeKeywordMutationSummary["mode"];
+  status: NegativeKeywordMutationSummary["status"];
+  googleAdsMutationPerformed: boolean;
+  attemptedCount: number;
+  appliedCount: number;
+  failedCount: number;
+  unknownCount: number;
+}
+
+export function sweepAccountMutationRecord(
+  mutation: NegativeKeywordMutationSummary
+): SweepAccountMutationRecord {
+  return {
+    mode: mutation.mode,
+    status: mutation.status,
+    googleAdsMutationPerformed: mutation.googleAdsMutationPerformed,
+    attemptedCount: mutation.attemptedCount,
+    appliedCount: mutation.appliedCount,
+    failedCount: mutation.failedCount,
+    unknownCount: mutation.unknownCount
+  };
+}
+
 export interface SweepAccountSummaryRecord {
   customerId: string;
   status: "SUCCEEDED" | "PARTIAL" | "FAILED";
+  mutation: SweepAccountMutationRecord;
   completedAt: string;
   rawRowCount: number;
   candidateCount: number;
@@ -78,6 +112,8 @@ export interface SweepRunFinish {
   accountSummaries: SweepAccountSummaryRecord[];
   tokenUsage: TokenTotals;
   tokenUsageReconciled: boolean;
+  /** True only when production mode verified at least one live applied negative. */
+  googleAdsMutationPerformed: boolean;
   events: TelemetryEvent[];
   errors: SerializedError[];
   fatalError: string | null;

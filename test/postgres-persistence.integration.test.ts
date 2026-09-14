@@ -34,7 +34,7 @@ test("persists a complete sweep with tenant isolation and exact metrics", { skip
     await owner.query(`GRANT SELECT, INSERT ON TABLE
       negative_keyword_sweep_runs, negative_keyword_sweep_account_runs,
       negative_keyword_llm_batches, negative_keyword_report_deliveries TO ${groupRole}`);
-    await owner.query(`GRANT UPDATE (status, completed_at, organizations_discovered, organizations_eligible,
+    await owner.query(`GRANT UPDATE (status, completed_at, read_only, google_ads_mutation_performed, organizations_discovered, organizations_eligible,
       organizations_selected, organizations_succeeded, organizations_partial, organizations_failed,
       raw_row_count, candidate_count, decision_count, keep_count, negative_exact_count, input_tokens,
       output_tokens, total_tokens, cached_input_tokens, thought_tokens, generation_requests,
@@ -105,6 +105,7 @@ test("persists a complete sweep with tenant isolation and exact metrics", { skip
       llmConcurrency: 1,
       llmBatchSize: 50,
       candidateLimitPerAccount: null,
+      googleAdsMutationMode: "disabled",
     });
     await persistence.recordDiscovery(1, 1, 1);
     const row = {
@@ -183,6 +184,10 @@ test("persists a complete sweep with tenant isolation and exact metrics", { skip
         thoughtTokens: 0, generationRequests: 1, fixedInputTokens: 10,
         fixedInputDefinition: "fixed test input",
       },
+      mutation: {
+        mode: "disabled" as const, status: "DISABLED" as const, googleAdsMutationPerformed: false,
+        attemptedCount: 0, appliedCount: 0, failedCount: 0, unknownCount: 0,
+      },
     };
     await persistence.finishAccount(accountSummary);
     await persistence.finishRun({
@@ -198,6 +203,7 @@ test("persists a complete sweep with tenant isolation and exact metrics", { skip
         failedBatches: 0, fixedInputTokens: 10, organizationsCounted: 1,
       },
       tokenUsageReconciled: true,
+      googleAdsMutationPerformed: false,
       events: [{
         stage: "LLM_CLASSIFICATION", status: "SUCCEEDED", startedAt: now,
         completedAt: now, durationMs: 1, organizationId: customerId, batchId: "0001",

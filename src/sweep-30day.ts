@@ -13,6 +13,16 @@ import { runSweeper, type SweepOptions } from "./pipeline/run-sweeper.js";
 import { serializeError } from "./observability/errors.js";
 import { createLogger, type Logger } from "./observability/logger.js";
 
+/**
+ * Initial 30-day-lookback sweep for master-list companies. Runs the same
+ * pipeline as the regular sweeper but with a 30-day window ending on the
+ * requested date, and records each successful account in the 30-day state
+ * file. The regular sweeper only runs for companies recorded there.
+ *
+ * Usage:
+ *   npm run sweep:30day -- --customer 8402372674
+ *   npm run sweep:30day -- --all-pending
+ */
 async function main(
   rootDirectory: string,
   logger: Logger,
@@ -24,19 +34,23 @@ async function main(
   if (!config.persistence.enabled) {
     throw new Error("PERSIST_RUNS_TO_DATABASE must be true for keyword sweeper runs.");
   }
+  if (config.sweepAccounts.source !== "master-file") {
+    throw new Error(
+      `30-day sweeps require the sweep accounts master file (expected at ${config.sweepAccounts.filePath}).`
+    );
+  }
   const rules = await loadRuleSet(rootDirectory);
 
   logger.info({
-    scope: options.allOrganizations
-      ? { type: "ALL_ORGANIZATIONS" }
-      : options.customerId
-        ? { type: "CUSTOMER", customerId: options.customerId.replaceAll("-", "") }
-        : { type: "LIMITED", organizationLimit: options.organizationLimit ?? 1 },
+    scope: options.customerId
+      ? { type: "CUSTOMER", customerId: options.customerId.replaceAll("-", "") }
+      : { type: "ALL_PENDING" },
+    lookbackDays: 30,
     provider: config.llm.provider,
     model: config.llm.model,
     googleAdsMutationMode: config.googleAdsMutation.mode,
     readOnly: config.googleAdsMutation.mode !== "production"
-  }, "Starting Google Ads classification and negative-keyword pipeline");
+  }, "Starting 30-day initial sweep");
 
   const result = await runSweeper(config, rules, options, { logger, emailAlerts, runReportEmail });
   logger.info({ ...result }, "Pipeline run finished");
@@ -48,35 +62,25 @@ function parseArguments(argumentsList: string[], rootDirectory: string): SweepOp
     rootDirectory,
     date: null,
     customerId: null,
-    organizationLimit: 1,
+    organizationLimit: null,
     allOrganizations: false,
     candidateLimitPerOrganization: null,
     productionMutationAuthorized: false,
-    thirtyDayMode: false,
+    thirtyDayMode: true,
     allPending: false,
     ignoreThirtyDayCheck: false
   };
   for (let index = 0; index < argumentsList.length; index += 1) {
     const argument = argumentsList[index];
-    if (argument === "--all-organizations") {
-      options.allOrganizations = true;
-      options.organizationLimit = null;
+    if (argument === "--all-pending") {
+      options.allPending = true;
       continue;
     }
     if (argument === "--execute-production-google-ads-mutations") {
       options.productionMutationAuthorized = true;
       continue;
     }
-    if (argument === "--ignore-30day-check") {
-      options.ignoreThirtyDayCheck = true;
-      continue;
-    }
-    if (
-      argument === "--date"
-      || argument === "--customer"
-      || argument === "--organization-limit"
-      || argument === "--candidate-limit-per-organization"
-    ) {
+    if (argument === "--date" || argument === "--customer" || argument === "--candidate-limit-per-organization") {
       const value = argumentsList[index + 1];
       if (!value) throw new Error(`${argument} requires a value.`);
       index += 1;
@@ -86,10 +90,6 @@ function parseArguments(argumentsList: string[], rootDirectory: string): SweepOp
       } else if (argument === "--customer") {
         if (!/^[\d-]+$/u.test(value)) throw new Error("--customer must be a Google Ads customer ID.");
         options.customerId = value;
-      } else if (argument === "--organization-limit") {
-        const limit = Number(value);
-        if (!Number.isSafeInteger(limit) || limit < 1) throw new Error("--organization-limit must be positive.");
-        options.organizationLimit = limit;
       } else {
         const limit = Number(value);
         if (!Number.isSafeInteger(limit) || limit < 1) {
@@ -101,8 +101,11 @@ function parseArguments(argumentsList: string[], rootDirectory: string): SweepOp
     }
     throw new Error(`Unknown argument '${argument}'.`);
   }
-  if (options.customerId && options.allOrganizations) {
-    throw new Error("Use either --customer or --all-organizations, not both.");
+  if (options.customerId && options.allPending) {
+    throw new Error("Use either --customer or --all-pending, not both.");
+  }
+  if (!options.customerId && !options.allPending) {
+    throw new Error("30-day sweeps require --customer <id> or --all-pending.");
   }
   return options;
 }

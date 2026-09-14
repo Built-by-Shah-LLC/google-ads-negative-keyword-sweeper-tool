@@ -1,5 +1,11 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import {
+  DEFAULT_SWEEP_30DAY_STATE_FILE,
+  loadSweepAccountSelection,
+  resolveSweepPath,
+  type SweepAccountSelection
+} from "./sweep-accounts.js";
 
 export interface AppConfig {
   googleAds: {
@@ -31,8 +37,17 @@ export interface AppConfig {
   /**
    * Optional allowlist of accounts to process: customer IDs (digits, dashes ignored)
    * or case-insensitive account-name fragments. Empty means every enabled leaf account.
+   * Only used when the sweep accounts master file is missing.
    */
   accountAllowlist: string[];
+  /**
+   * Fixed sweep master list from config/sweep-accounts.json (SWEEP_ACCOUNTS_FILE).
+   * When source is "master-file" it replaces accountAllowlist filtering; when the
+   * file is missing, source is "env-allowlist" and accountAllowlist applies.
+   */
+  sweepAccounts: SweepAccountSelection;
+  /** Absolute path of the 30-day completion state file (SWEEP_30DAY_STATE_FILE). */
+  sweep30DayStateFile: string;
   googleAdsMutation: GoogleAdsMutationConfig;
   persistence: DatabasePersistenceConfig;
 }
@@ -290,6 +305,7 @@ export async function loadConfig(rootDirectory = process.cwd()): Promise<AppConf
   }
 
   const persistence = databasePersistenceConfig(env);
+  const sweepAccounts = await loadSweepAccountSelection(rootDirectory, env.SWEEP_ACCOUNTS_FILE);
   return {
     googleAds: {
       apiVersion: env.GOOGLE_ADS_API_VERSION || "v25",
@@ -314,6 +330,8 @@ export async function loadConfig(rootDirectory = process.cwd()): Promise<AppConf
     googleFetchConcurrency: positiveInteger(env.GOOGLE_FETCH_CONCURRENCY, 5, "GOOGLE_FETCH_CONCURRENCY"),
     campaignNameContains: campaignNameContainsValue(env.CAMPAIGN_NAME_CONTAINS),
     accountAllowlist: commaSeparated(env.ACCOUNT_ALLOWLIST),
+    sweepAccounts,
+    sweep30DayStateFile: resolveSweepPath(rootDirectory, env.SWEEP_30DAY_STATE_FILE, DEFAULT_SWEEP_30DAY_STATE_FILE),
     googleAdsMutation: googleAdsMutationConfig(env),
     persistence
   };

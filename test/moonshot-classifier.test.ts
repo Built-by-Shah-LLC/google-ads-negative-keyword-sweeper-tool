@@ -128,6 +128,25 @@ test("Moonshot adapter uses structured output and normalizes per-request tokens"
   assert.equal(requests[1]?.url, "https://api.moonshot.ai/v1/tokenizers/estimate-token-count");
 });
 
+test("Moonshot adapter falls back to a local estimate when the tokenizers endpoint is missing", async () => {
+  const dispatcher = fakeDispatcher(() => ({
+    statusCode: 404,
+    payload: { error: { message: "resource_not_found_error" } }
+  }));
+
+  const classifier = new MoonshotKeywordClassifier(config, dispatcher);
+  const fixed = await classifier.countFixedInputTokens({
+    account: context.account,
+    dateRange: context.dateRange,
+    rules
+  });
+
+  assert.ok(fixed.totalTokens > 0);
+  assert.equal(fixed.attemptCount, 0);
+  assert.equal(fixed.retryCount, 0);
+  assert.equal(fixed.providerRequestId, null);
+});
+
 test("Moonshot adapter accepts a fenced bare JSON array from thinking models", async () => {
   const dispatcher = fakeDispatcher(() => ({
     statusCode: 200,

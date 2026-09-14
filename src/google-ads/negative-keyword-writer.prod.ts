@@ -162,10 +162,11 @@ export function campaignCriterionMutationRequest(
   operations: NegativeKeywordCreate[],
   validateOnly: boolean
 ): Record<string, unknown> {
+  const cleanCustomerId = sanitizeId(customerId);
   return {
     operations: operations.map((operation) => ({
       create: {
-        campaign: `customers/${customerId}/campaigns/${operation.campaignId}`,
+        campaign: `customers/${cleanCustomerId}/campaigns/${operation.campaignId}`,
         negative: true,
         keyword: {
           text: operation.negativeText,
@@ -185,8 +186,10 @@ export function assertMutationHttpSuccess(
   validateOnly: boolean
 ): void {
   if (response.ok) return;
+  const detail = httpErrorDetail(response.payload);
   throw new PipelineError(
-    `Google Ads ${validateOnly ? "mutation validation" : "mutation"} failed with HTTP ${response.status}.`,
+    `Google Ads ${validateOnly ? "mutation validation" : "mutation"} failed with HTTP ${response.status}.` +
+    `${detail ? ` ${detail}` : ""}`,
     {
       stage: "GOOGLE_ADS_MUTATION",
       code: validateOnly ? "GOOGLE_ADS_MUTATION_VALIDATION_HTTP_ERROR" : "GOOGLE_ADS_MUTATION_HTTP_ERROR",
@@ -231,6 +234,10 @@ export function campaignCriterionMutationPath(customerId: string): string {
   return `/customers/${sanitizeId(customerId)}/campaignCriteria:mutate`;
 }
 
+export function customerNegativeCriteriaMutationPath(customerId: string): string {
+  return `/customers/${sanitizeId(customerId)}/customerNegativeCriteria:mutate`;
+}
+
 function operationIndex(locationValue: unknown): number | null {
   const location = recordValue(locationValue);
   const elements = Array.isArray(location?.fieldPathElements) ? location.fieldPathElements : [];
@@ -255,9 +262,24 @@ function failed(operation: NegativeKeywordCreate, error: string): NegativeKeywor
 }
 
 function assertMutationPath(path: string): void {
-  if (!/^\/customers\/\d+\/campaignCriteria:mutate$/u.test(path)) {
+  if (!/^\/customers\/\d+\/(?:campaignCriteria|customerNegativeCriteria):mutate$/u.test(path)) {
     throw new Error(`Blocked unexpected Google Ads mutation endpoint '${path}'.`);
   }
+}
+
+function httpErrorDetail(payload: unknown): string {
+  const root = recordValue(payload);
+  const error = recordValue(root?.error);
+  if (!error) return "";
+  const status = stringValue(error.status);
+  const message = stringValue(error.message);
+  const details = Array.isArray(error.details) ? error.details : [];
+  const failure = details.map(recordValue).find((detail) => detail && Array.isArray(detail.errors));
+  const firstError = failure && Array.isArray(failure.errors)
+    ? failure.errors.map(recordValue).find((item) => item && typeof item.message === "string")
+    : null;
+  const parts = [status, message, firstError ? stringValue(firstError.message) : ""].filter(Boolean);
+  return parts.join(": ").slice(0, 500);
 }
 
 function sanitizeId(value: string): string {

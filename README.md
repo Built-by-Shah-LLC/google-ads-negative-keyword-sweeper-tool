@@ -179,12 +179,55 @@ active `client_accounts` row for that organization. The process fails closed
 if durable persistence is unavailable; it never reports local artifacts as a
 successful substitute.
 
-Use a specific customer or deliberately select the entire MCC:
+Use a specific customer or deliberately select every eligible account:
 
 ```powershell
 npm run sweep -- --date 2026-08-25 --customer 1234567890
 npm run sweep -- --date 2026-08-25 --all-organizations
 ```
+
+### Sweep account master list and the 30-day gate
+
+Account selection is governed by two committed JSON files, not the long env allowlist:
+
+- `config/sweep-accounts.json` (override with `SWEEP_ACCOUNTS_FILE`) — the fixed master
+  list of MCC companies as `{ "customerId": "8500809656", "name": "..." }` entries with
+  ten-digit dashless IDs. IDs must be ten digits and unique; the process fails fast on
+  invalid files. When this file loads it **replaces** `ACCOUNT_ALLOWLIST` filtering; only
+  if the file is missing does the env allowlist remain as a fallback (the active source
+  is logged at startup).
+- `data/sweep-30day-state.json` (override with `SWEEP_30DAY_STATE_FILE`) — records which
+  master-list companies have completed their initial 30-day-lookback sweep. The seeded
+  version marks only 3J Collision Center (8500809656) complete. `npm run sweep:30day`
+  rewrites this file atomically (temporary file plus rename) after each successful
+  account run, so it changes at runtime; commit intentional updates to it.
+
+For a standard run the eligible accounts are: master list ∩ enabled MCC leaf accounts ∩
+companies with a recorded 30-day completion. Skipped accounts are logged by name. If the
+state file is missing, every company is treated as not completed and the run refuses to
+sweep anything with a clear log — it never silently sweeps all accounts. Use
+`--ignore-30day-check` to bypass the gate deliberately.
+
+The initial 30-day sweep runs the same pipeline with a 30-day window: end = the
+requested date (`--date`, or the automatic 48-hours-back date), start = end − 29 days.
+It only accepts master-list companies:
+
+```powershell
+npm run sweep:30day -- --customer 8402372674   # one company
+npm run sweep:30day -- --all-pending           # every master-list company without a record
+```
+
+Known cross-check note (static, verify against the database before relying on it): the
+master-list companies 8820051592 (CARSTAR - Santa Maria), 8724978591 (Chris Auto Body),
+9879723872 (G&S / Bella's Collision), 5166711284 (Streamline Collision Inc), 3522557954
+(Sunrise Auto Body), 4007102747 (TRI STATE AUTO BODY), and 2356287166 (US Auto
+Connection) have no `client_accounts` mapping yet, so their runs fail closed at
+persistence until a row exists. That fail-closed behavior is intentional and unchanged.
+
+Cloud Run caveat: the state file is container-local. The image ships the seeded copy, but
+completions recorded inside a job do not persist across executions. A minimal durable
+option for later is to move the state into PostgreSQL (or a GCS object) behind the same
+`SWEEP_30DAY_STATE_FILE` abstraction.
 
 If `--date` is omitted, the run uses one calendar date two days before the current date in
 `RUN_TIME_ZONE`; that same date applies to every organization. Google Ads reports these rows
@@ -194,7 +237,8 @@ match type. Raw IDs, dates, status, channel, and performance metrics remain in l
 audit artifacts and are not sent to the LLM.
 
 The Cloud Run Job deployment in `scripts/deploy/deploy-gcloud.ps1` creates a daily Cloud
-Scheduler trigger and runs with `--all-organizations`. See `docs/DEPLOYMENT.md`; only one
+Scheduler trigger and runs with `--all-organizations` (still restricted to eligible
+master-list companies by the 30-day gate above). See `docs/DEPLOYMENT.md`; only one
 production scheduler should be enabled to avoid duplicate daily runs.
 
 ## Provider selection, run reports, and error email
