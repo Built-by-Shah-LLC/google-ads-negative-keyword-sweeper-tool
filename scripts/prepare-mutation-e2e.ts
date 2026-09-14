@@ -42,9 +42,19 @@ for (const row of rows) {
 clients.sort((a, b) => a.name.toLocaleLowerCase("en-US").localeCompare(b.name.toLocaleLowerCase("en-US")));
 console.log(`Enabled direct clients under MCC ${mccId}: ${clients.length}`);
 for (const c of clients.slice(0, 5)) console.log(`  ${c.manager ? "[MCC] " : ""}${c.name} (${c.id})`);
-const target = clients.find((c) => !c.manager) ?? clients[0];
+// Optional: --customer <id> targets a specific account; default is first alphabetically.
+const customerArgIdx = process.argv.indexOf("--customer");
+const customerArg = customerArgIdx >= 0 ? process.argv[customerArgIdx + 1]?.replaceAll("-", "") : undefined;
+let target: ClientRow | undefined;
+if (customerArg) {
+  target = clients.find((c) => c.id === customerArg);
+  if (!target) throw new Error(`Customer ${customerArg} not found among enabled direct clients under MCC ${mccId}.`);
+  console.log(`TARGET (--customer): ${target.name} (${target.id})`);
+} else {
+  target = clients.find((c) => !c.manager) ?? clients[0];
+}
 if (!target) throw new Error("No enabled client accounts found under the MCC.");
-console.log(`TARGET (first alphabetically): ${target.name} (${target.id})`);
+if (!customerArg) console.log(`TARGET (first alphabetically): ${target.name} (${target.id})`);
 
 // 2) Account metadata for the Organization record.
 const custRows = await client.searchStream(target.id, `

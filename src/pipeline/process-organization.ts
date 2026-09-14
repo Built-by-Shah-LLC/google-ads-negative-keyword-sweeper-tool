@@ -27,6 +27,7 @@ export interface BatchTokenUsage extends LlmTokenUsage {
   status: "VALIDATED" | "FAILED";
   candidateCount: number;
   generationRequests: number;
+  reusedFrom?: string; // set when the batch output was carried over from a prior run (--resume-from)
 }
 
 export interface OrganizationSummary {
