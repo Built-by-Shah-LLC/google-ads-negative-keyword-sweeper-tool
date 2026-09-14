@@ -44,6 +44,28 @@ runtime increase is therefore driven by candidate volume multiplication, not
 by slower batches, validation retries (4 of 87 batches needed a retry), or API
 outages.
 
+## Sep 10 alignment fix (commit `7bbbc11`, now on main and deployed)
+
+The documented aggregation scope in `docs/MULTI_ORGANIZATION_LLM_SWEEPER_PLAN.md`
+is `account + date + channel + campaign + normalized search term`. The
+implementation had added `adGroupId` beyond that documented decision. Because
+the planned negatives are campaign-level exact negatives, ad-group granularity
+was pure overhead. The fix removed it, realigning code with the documented key.
+
+Measured live on the first aligned run: AMG Autobody 117 raw rows -> 93
+candidates (-20%), Anderson Auto Body 55 -> 46 (-16%). Accounts whose
+duplication is cross-campaign (e.g. 10X AUTO GROUP) are intentionally
+unchanged. Campaign-level scoping remains as documented.
+
+## Cost impact
+
+Token spend scales with candidate volume, so the Sep 9 scoping change
+multiplied per-run tokens roughly in line with candidate growth (several x).
+Per-batch token costs are unchanged (~15.6K input / ~11.4K output). Every
+candidate is sent to the model even when the same normalized term was already
+classified in another campaign of the same account; see the
+classify-once-expand-many lever below.
+
 ## Why it is slow
 
 1. **Thinking mode is enabled** (`MOONSHOT_THINKING=enabled`). kimi-k2.6 emits
@@ -63,6 +85,7 @@ outages.
 | `LLM_CONCURRENCY=8–10` | Near-proportional wall-clock reduction | Moonshot rate limits; token spend rate unchanged, just faster |
 | `MOONSHOT_THINKING=disabled` | Cuts the dominant latency component (thought tokens) | Classification quality/compliance may drop; evaluate against labeled fixtures first (`npm run eval:openai` / phrase-protection eval) |
 | `LLM_BATCH_SIZE=50` | Halves batch count and repeated fixed prompt tokens | Weaker per-item attention on large batches |
+| Classify once, expand to scopes (code change) | Dedupe LLM input per account+term while recording the campaign scopes each term appeared in; expand decisions back to scopes for placement | Largest cost/latency recovery (~old-era volume) while keeping campaign placement; must preserve per-campaign context semantics and pass rule-release review |
 
 Any of these require redeploying the job (the deploy script uploads allowlisted
 `.env` values as job env vars); running executions keep their startup
