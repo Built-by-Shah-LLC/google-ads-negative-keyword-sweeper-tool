@@ -11,8 +11,13 @@ RUN npm ci
 
 COPY tsconfig.json tsconfig.build.json ./
 COPY src ./src
+COPY config ./config
+COPY data ./data
 RUN npx tsc -p tsconfig.build.json \
   && cp src/config/*.md src/config/rule-release.json dist/src/config/ \
+  && mkdir -p dist/config dist/data \
+  && cp config/sweep-accounts.json dist/config/ \
+  && cp data/sweep-30day-state.json dist/data/ \
   && node --input-type=module -e "import {loadRuleSet} from './dist/src/config/rule-set.js'; await loadRuleSet('./dist');" \
   && npm prune --omit=dev
 
@@ -25,6 +30,7 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 
 # Run artifacts are written under /app/dist/runs (ephemeral unless a volume is mounted).
+# data/sweep-30day-state.json is also container-local; see README's 30-day gate section.
 RUN mkdir -p /app/dist/runs
 
 # Cloud Run Jobs pass arguments via the job's args; default sweeps all organizations

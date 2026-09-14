@@ -124,11 +124,31 @@ export class MoonshotKeywordClassifier implements KeywordClassifier {
   ): Promise<FixedInputTokenCount> {
     const request = createRequest(this.config, { ...context, searchTerms: [] }, createResponseSchema([], context.rules.ruleIds));
     const countRequest = { model: request.model, messages: request.messages };
-    const call = await this.callEndpoint(
-      "/tokenizers/estimate-token-count",
-      countRequest,
-      "LLM_FIXED_TOKEN_COUNT"
-    );
+    let call: MoonshotCallResult;
+    try {
+      call = await this.callEndpoint(
+        "/tokenizers/estimate-token-count",
+        countRequest,
+        "LLM_FIXED_TOKEN_COUNT"
+      );
+    } catch (error) {
+      // OpenAI-compatible endpoints without the Moonshot tokenizers API (for
+      // example Kimi for Coding) answer 404. Fall back to a local characters
+      // estimate so this telemetry-only count cannot degrade the whole
+      // organization to partial.
+      if (error instanceof MoonshotRequestError && error.attempts.some((attempt) => attempt.statusCode === 404)) {
+        return {
+          totalTokens: Math.ceil(JSON.stringify(countRequest.messages).length / 4),
+          countedAt: new Date().toISOString(),
+          definition: FIXED_INPUT_DEFINITION,
+          model: this.model,
+          providerRequestId: null,
+          attemptCount: 0,
+          retryCount: 0
+        };
+      }
+      throw error;
+    }
     const data = isRecord(call.payload.data) ? call.payload.data : {};
     if (!nonNegativeNumber(data.total_tokens)) {
       throw new PipelineError("Moonshot token estimate omitted data.total_tokens.", {

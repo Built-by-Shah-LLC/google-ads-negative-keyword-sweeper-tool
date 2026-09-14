@@ -12,7 +12,7 @@ import { ClassificationFailure, type KeywordClassifier, type LlmGenerationAttemp
 import { PipelineError, serializeError } from "../observability/errors.js";
 import { addTokenUsage, emptyTokenUsage, type RunTelemetry } from "../observability/run-telemetry.js";
 import type { RunArtifacts } from "../storage/run-artifacts.js";
-import type { SweepPersistence } from "../storage/persistence.js";
+import { sweepAccountMutationRecord, type SweepPersistence } from "../storage/persistence.js";
 import { createDecisionCsv } from "../storage/decision-csv.js";
 import { chunksOf, type Limit } from "../util/concurrency.js";
 
@@ -68,6 +68,8 @@ interface ProcessOrganizationDependencies {
   persistence?: SweepPersistence;
   negativeKeywordWriter?: NegativeKeywordWriter;
   mutationChunkSize?: number;
+  /** Explicit search-term window; overrides the requestedDate/48-hour derivation. */
+  dateRange?: DateRange;
 }
 
 const DEFAULT_BATCH_HEARTBEAT_MS = 60_000;
@@ -79,9 +81,10 @@ export async function processOrganization(
 ): Promise<OrganizationSummary> {
   const organizationStarted = performance.now();
   const organizationStartedAt = new Date().toISOString();
-  const dateRange = requestedDate
-    ? singleDateRange(requestedDate)
-    : date48HoursBackInTimeZone(organization.timeZone);
+  const dateRange = dependencies.dateRange
+    ?? (requestedDate
+      ? singleDateRange(requestedDate)
+      : date48HoursBackInTimeZone(organization.timeZone));
   const basePath = `organizations/${organization.customerId}`;
   const errorContext = { organizationId: organization.customerId };
   let rawRowCount = 0;
@@ -511,7 +514,8 @@ function summaryRecord(summary: OrganizationSummary): import("../storage/persist
     negativeExactCount: summary.decisions.NEGATIVE_EXACT ?? 0,
     errorCount: summary.errorCount,
     ...(summary.error === undefined ? {} : { error: summary.error }),
-    tokenUsage: summary.tokenUsage
+    tokenUsage: summary.tokenUsage,
+    mutation: sweepAccountMutationRecord(summary.mutation)
   };
 }
 
@@ -846,6 +850,20 @@ export function date48HoursBackInTimeZone(timeZone: string, now = new Date()): D
   const localMidnightUtc = Date.UTC(Number(values.year), Number(values.month) - 1, Number(values.day));
   const processingDate = new Date(localMidnightUtc - 2 * 86_400_000).toISOString().slice(0, 10);
   return { startDate: processingDate, endDate: processingDate };
+}
+
+/**
+ * Inclusive lookback window ending on the given date: a 30-day window ending
+ * 2026-09-15 starts on 2026-08-17 (end minus 29 days).
+ */
+export function lookbackDateRangeEndingAt(endDate: string, dayCount: number): DateRange {
+  singleDateRange(endDate);
+  if (!Number.isSafeInteger(dayCount) || dayCount < 1) {
+    throw new Error("Lookback day count must be a positive integer.");
+  }
+  const end = new Date(`${endDate}T00:00:00Z`);
+  const start = new Date(end.getTime() - (dayCount - 1) * 86_400_000);
+  return { startDate: start.toISOString().slice(0, 10), endDate };
 }
 
 export function singleDateRange(date: string): DateRange {

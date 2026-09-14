@@ -25,6 +25,18 @@ interface IdRow extends QueryResultRow {
   id: string;
 }
 
+/**
+ * Persisted read_only reflects the mutation mode, not the outcome: only
+ * GOOGLE_ADS_MUTATION_MODE=production arms live writes. Disabled, development
+ * (mock), and validation (validateOnly) runs keep read_only=true, which is
+ * byte-identical to the pre-D-051 default.
+ */
+export function runReadOnlyForMutationMode(
+  mode: "disabled" | "development" | "validation" | "production"
+): boolean {
+  return mode !== "production";
+}
+
 export class PostgresSweepPersistence implements SweepPersistence {
   private readonly pool: Pool;
   private readonly organizationId: string;
@@ -109,13 +121,14 @@ export class PostgresSweepPersistence implements SweepPersistence {
         INSERT INTO negative_keyword_sweep_runs (
           organization_id, run_key, execution_key, trigger_kind, status,
           requested_date, requested_date_source, processing_time_zone, started_at,
+          read_only,
           rule_snapshot_id, llm_provider, llm_model, campaign_name_filter,
           account_selection_mode, account_allowlist_entry_count,
           google_fetch_concurrency, llm_concurrency, llm_batch_size,
           candidate_limit_per_account
         ) VALUES (
-          $1, $2, $3, $4, 'running', $5, $6, $7, $8, $9, $10, $11, $12,
-          $13, $14, $15, $16, $17, $18
+          $1, $2, $3, $4, 'running', $5, $6, $7, $8, $9, $10, $11, $12, $13,
+          $14, $15, $16, $17, $18, $19
         )
         ON CONFLICT (organization_id, run_key) DO NOTHING
         RETURNING id::text AS id
@@ -128,6 +141,7 @@ export class PostgresSweepPersistence implements SweepPersistence {
         input.requestedDateSource === "COMMAND_LINE" ? "command_line" : "automatic_48_hours_back",
         input.processingTimeZone,
         input.startedAt,
+        runReadOnlyForMutationMode(input.googleAdsMutationMode),
         ruleSnapshotId,
         input.provider,
         input.model,
@@ -516,6 +530,7 @@ export class PostgresSweepPersistence implements SweepPersistence {
             organizations_token_counted = $24, token_usage_reconciled = $25,
             error_count = $26, fatal_error_code = $27, fatal_error_message = $28,
             organizations_eligible = $29,
+            google_ads_mutation_performed = $30,
             updated_at = now()
         WHERE organization_id = $1 AND id = $2
       `, [
@@ -548,6 +563,7 @@ export class PostgresSweepPersistence implements SweepPersistence {
         input.fatalError ? "RUN_PIPELINE_FAILED" : null,
         input.fatalError ? safeDatabaseMessage(input.fatalError) : null,
         input.organizationsEligible,
+        input.googleAdsMutationPerformed,
       ]);
 
       await client.query(`
