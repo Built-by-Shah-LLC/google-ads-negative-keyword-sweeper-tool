@@ -10,6 +10,7 @@ import {
   recordSweep30DayCompletion
 } from "../config/sweep-30day-state.js";
 import type { RuleSet } from "../types.js";
+import { compileAccountPolicy, type EffectiveAccountPolicy } from "../config/account-policy-compiler.js";
 import { GoogleAdsClient } from "../google-ads/client.js";
 import { DevelopmentNegativeKeywordWriter } from "../google-ads/negative-keyword-writer.dev.js";
 import { createLiveProductionNegativeKeywordWriter } from "../google-ads/negative-keyword-writer.prod.js";
@@ -209,6 +210,47 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
     selectedCount = selected.length;
     await persistence.recordDiscovery(discoveredCount, eligible.length, selectedCount);
     await artifacts.write("organizations.json", { discovered, eligible, selected });
+
+    // Compile the effective policy bundle for every selected account before any
+    // LLM spend. Misconfigured account policy fails the run closed here.
+    const accountPolicies = new Map<string, EffectiveAccountPolicy>();
+    for (const organization of selected) {
+      const accountPolicy = await compileAccountPolicy(rules, options.rootDirectory, organization.customerId);
+      accountPolicies.set(organization.customerId, accountPolicy);
+      const organizationBasePath = `organizations/${organization.customerId}`;
+      await artifacts.write(`${organizationBasePath}/policy-manifest.json`, {
+        runId: artifacts.runId,
+        generatedAt: new Date().toISOString(),
+        ...(accountPolicy.manifest ?? {
+          customerId: organization.customerId,
+          policyKey: null,
+          revision: null,
+          baseRuleVersion: rules.version,
+          basePromptVersion: rules.promptVersion,
+          baseReleaseId: rules.releaseId ?? null,
+          dynamicRuleIds: [],
+          accountPhraseProtectionCount: 0,
+          phraseProtectionsSourcePath: null,
+          effectivePolicySha256: null
+        })
+      });
+      if (accountPolicy.manifest && accountPolicy.accountPhraseProtectionsMarkdown !== null) {
+        await artifacts.writeText(`${organizationBasePath}/rules.md`, accountPolicy.rules.markdown);
+        await artifacts.writeText(
+          `${organizationBasePath}/phrase-protections.md`,
+          accountPolicy.accountPhraseProtectionsMarkdown
+        );
+      }
+      logger.info({
+        progressEvent: "account_policy_compiled",
+        customerId: organization.customerId,
+        policyKey: accountPolicy.manifest?.policyKey ?? null,
+        accountPolicyRevision: accountPolicy.manifest?.revision ?? null,
+        dynamicRuleCount: accountPolicy.manifest?.dynamicRuleIds.length ?? 0,
+        accountPhraseProtectionCount: accountPolicy.manifest?.accountPhraseProtectionCount ?? 0,
+        effectivePolicySha256: accountPolicy.manifest?.effectivePolicySha256 ?? null
+      }, "Effective account policy compiled");
+    }
     logger.info({
       progressEvent: "organization_selection_completed",
       organizationsDiscovered: discoveredCount,
@@ -236,7 +278,7 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
           classifier,
           artifacts,
           telemetry,
-          rules,
+          rules: accountPolicies.get(organization.customerId)?.rules ?? rules,
           batchSize: config.llm.batchSize,
           candidateLimit: options.candidateLimitPerOrganization,
           campaignNameContains: config.campaignNameContains,
