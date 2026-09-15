@@ -1,6 +1,6 @@
 # Collision-repair search-term classification rules
 
-Rule set version: `2026-09-15.1`
+Rule set version: `2026-09-15.2`
 
 Prompt version: `collision-classifier-v7`
 
@@ -63,8 +63,7 @@ wording is present. Historical JavaScript triggers are evidence, not policy.
    `POL-MOBILE-SERVICE-NEGATIVE`, `POL-SALVAGE-JUNK-NEGATIVE` (salvage, junk rebuild,
    rebuild-car),
    `POL-WEBSITE-NAV-NEGATIVE`,
-   `POL-PAINT-COLOR-NEGATIVE`, `POL-COSMETIC-ONLY-NEGATIVE` (fender-bender, hole-fill,
-   and other small-incident slang), `POL-METAL-MATERIAL-NEGATIVE` (aluminum, steel,
+   `POL-PAINT-COLOR-NEGATIVE`, `POL-METAL-MATERIAL-NEGATIVE` (aluminum, steel,
    iron), `POL-INSPECTION-NEGATIVE`, `POL-WRONG-OUTCOME-NEGATIVE`, `POL-CUSTOM-FABRICATION-NEGATIVE`,
    `POL-MECHANICAL-ONLY-NEGATIVE` (mechanic, technician, standalone tech, service,
    contiguous auto/car repair with no body-shop wording, and repair with no body-shop
@@ -128,7 +127,7 @@ distinctive leftover and are `POL-COMPETITOR-NEGATIVE`.
 
 Frame, unibody, or chassis wording is KEEP only as damage description on a crash-event
 query (`major collision with frame damage and dents`). A named-part or zone repair,
-including `frame repair near me` without crash-event wording, is `POL-PARTS-ONLY-NEGATIVE`.
+including `frame repair near me` without crash-event wording, is not KEEP under this rule.
 Aluminum, steel, or iron is always `POL-METAL-MATERIAL-NEGATIVE`, including
 `aluminum certified body shop`. Collision wording does not save it.
 
@@ -153,7 +152,7 @@ service. `auto body repair near me`, `autobody repair`, `body repair near me`,
 
 Body-shop wording plus `specialist` / `specialists` is KEEP (`auto body specialists`,
 `body shop specialist`, `collision specialist`). `specialist` is not a mechanical
-always-win token. `dent specialist` stays `POL-COSMETIC-ONLY-NEGATIVE`. `paint
+always-win token. `dent specialist` is not KEEP under this rule. `paint
 specialist` stays `POL-PAINT-COLOR-NEGATIVE`. `mechanic`, `technician`, and
 standalone `tech` still kill this rule.
 
@@ -196,7 +195,7 @@ opener, reviews/photos, 24/7 or 24-hour hours, `quick` / `fast` /
 aluminum/steel/iron, hole-fill small jobs, website or domain navigation,
 panel-beater trade slang,
 or a non-English query. Use the leftover-token test in `POL-COMPETITOR-NEGATIVE`.
-`panel beaters near me` is `POL-PARTS-ONLY-NEGATIVE`, not body-shop KEEP.
+`panel beaters near me` is not body-shop KEEP.
 `kim's korean body shop` is still a named competitor: the leftover is `kim's`.
 
 Examples: `body work shops near me`, `auto body works near me`, `body shop near me`,
@@ -591,8 +590,8 @@ work (oil change, oil leak, brakes, engine, transmission). `auto body repair` /
 intents. This body-repair carve-out applies only to `repair`. It does not apply to
 `mechanic`, `technician`, `tech`, or `service`. It does apply to `specialist`:
 body-shop or collision wording plus `specialist` / `specialists` is KEEP under
-`POL-BODYWORK-KEEP` or `POL-COLLISION-KEEP`. `dent specialist` is still
-`POL-COSMETIC-ONLY-NEGATIVE`. `paint specialist` is still `POL-PAINT-COLOR-NEGATIVE`.
+`POL-BODYWORK-KEEP` or `POL-COLLISION-KEEP`. `dent specialist` is not mechanical
+and is not KEEP under this rule. `paint specialist` is still `POL-PAINT-COLOR-NEGATIVE`.
 
 Always-win for these tokens, even when body-shop or collision wording is also present:
 

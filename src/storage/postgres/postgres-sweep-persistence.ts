@@ -56,54 +56,65 @@ export class PostgresSweepPersistence implements SweepPersistence {
     });
   }
 
+  /**
+   * Content-addressed upsert of the exact rule bundle (rules markdown plus
+   * phrase protections) used for one run or one account. Identical bundles
+   * share one immutable snapshot row.
+   */
+  private async upsertRuleSnapshot(
+    client: PoolClient,
+    rules: SweepRunStart["rules"]
+  ): Promise<string> {
+    const ruleBundle = {
+      ruleVersion: rules.version,
+      promptVersion: rules.promptVersion,
+      releaseId: rules.releaseId ?? null,
+      sourcePath: rules.sourcePath,
+      markdown: rules.markdown,
+      phraseProtections: rules.phraseProtections ?? [],
+    };
+    const contentHash = sha256(stableStringify(ruleBundle));
+    const insertedSnapshot = await client.query<IdRow>(`
+      INSERT INTO negative_keyword_rule_snapshots (
+        organization_id, rule_version, prompt_version, release_id, source_path,
+        rules_markdown, phrase_protections, content_sha256
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)
+      ON CONFLICT (organization_id, content_sha256) DO NOTHING
+      RETURNING id::text AS id
+    `, [
+      this.organizationId,
+      rules.version,
+      rules.promptVersion,
+      rules.releaseId ?? null,
+      rules.sourcePath,
+      rules.markdown,
+      JSON.stringify(rules.phraseProtections ?? []),
+      contentHash,
+    ]);
+    const insertedId = insertedSnapshot.rows[0]?.id;
+    if (insertedId !== undefined) return insertedId;
+    const existing = await queryOne<IdRow>(client, `
+      SELECT id::text AS id
+      FROM negative_keyword_rule_snapshots
+      WHERE organization_id = $1 AND content_sha256 = $2
+        AND rule_version = $3 AND prompt_version = $4
+        AND source_path = $5 AND rules_markdown = $6
+        AND phrase_protections = $7::jsonb
+    `, [
+      this.organizationId,
+      contentHash,
+      rules.version,
+      rules.promptVersion,
+      rules.sourcePath,
+      rules.markdown,
+      JSON.stringify(rules.phraseProtections ?? []),
+    ], "Rule snapshot identity conflicted with different content");
+    return existing.id;
+  }
+
   async startRun(input: SweepRunStart): Promise<void> {
     await this.transaction(async (client) => {
-      const ruleBundle = {
-        ruleVersion: input.rules.version,
-        promptVersion: input.rules.promptVersion,
-        releaseId: input.rules.releaseId ?? null,
-        sourcePath: input.rules.sourcePath,
-        markdown: input.rules.markdown,
-        phraseProtections: input.rules.phraseProtections ?? [],
-      };
-      const contentHash = sha256(stableStringify(ruleBundle));
-      const insertedSnapshot = await client.query<IdRow>(`
-        INSERT INTO negative_keyword_rule_snapshots (
-          organization_id, rule_version, prompt_version, release_id, source_path,
-          rules_markdown, phrase_protections, content_sha256
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)
-        ON CONFLICT (organization_id, content_sha256) DO NOTHING
-        RETURNING id::text AS id
-      `, [
-        this.organizationId,
-        input.rules.version,
-        input.rules.promptVersion,
-        input.rules.releaseId ?? null,
-        input.rules.sourcePath,
-        input.rules.markdown,
-        JSON.stringify(input.rules.phraseProtections ?? []),
-        contentHash,
-      ]);
-      let ruleSnapshotId = insertedSnapshot.rows[0]?.id;
-      if (ruleSnapshotId === undefined) {
-        const existing = await queryOne<IdRow>(client, `
-          SELECT id::text AS id
-          FROM negative_keyword_rule_snapshots
-          WHERE organization_id = $1 AND content_sha256 = $2
-            AND rule_version = $3 AND prompt_version = $4
-            AND source_path = $5 AND rules_markdown = $6
-            AND phrase_protections = $7::jsonb
-        `, [
-          this.organizationId,
-          contentHash,
-          input.rules.version,
-          input.rules.promptVersion,
-          input.rules.sourcePath,
-          input.rules.markdown,
-          JSON.stringify(input.rules.phraseProtections ?? []),
-        ], "Rule snapshot identity conflicted with different content");
-        ruleSnapshotId = existing.id;
-      }
+      const ruleSnapshotId = await this.upsertRuleSnapshot(client, input.rules);
 
       if (input.executionKey !== null) {
         const existingRun = await client.query<IdRow>(`
@@ -190,6 +201,9 @@ export class PostgresSweepPersistence implements SweepPersistence {
   async prepareAccount(input: SweepAccountInputs): Promise<void> {
     const runId = this.requiredRunId();
     await this.transaction(async (client) => {
+      // D-056: attach the exact effective policy bundle (base plus account
+      // rules and phrase protections) this account is classified with.
+      const ruleSnapshotId = await this.upsertRuleSnapshot(client, input.rules);
       const account = await queryOne<{
         id: string;
         google_account_name: string;
@@ -212,10 +226,10 @@ export class PostgresSweepPersistence implements SweepPersistence {
           available_candidate_count, processed_candidate_count,
           fixed_input_tokens, fixed_input_definition, fixed_input_model,
           fixed_input_counted_at, fixed_input_provider_request_id,
-          fixed_input_attempt_count, fixed_input_retry_count
+          fixed_input_attempt_count, fixed_input_retry_count, rule_snapshot_id
         ) VALUES (
           $1, $2, $3, $4, $5, $6, $7, $8, $9, 'running', $10,
-          $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21
+          $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22
         )
         ON CONFLICT (sweep_run_id, account_id) DO UPDATE
           SET status = 'running', completed_at = NULL, updated_at = now()
@@ -242,6 +256,7 @@ export class PostgresSweepPersistence implements SweepPersistence {
         input.fixedInput?.providerRequestId ?? null,
         input.fixedInput?.attemptCount ?? null,
         input.fixedInput?.retryCount ?? null,
+        ruleSnapshotId,
       ]);
       const accountRunId = accountRunResult.rows[0]!.id;
       const handle: AccountHandle = { id: accountRunId, accountId: account.id, batches: new Map() };
