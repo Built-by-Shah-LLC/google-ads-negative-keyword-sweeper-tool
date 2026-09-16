@@ -3,6 +3,8 @@ import type {
   ClassificationDecision,
   Organization
 } from "../types.js";
+import type { NegativeKeywordMutationSummary } from "../google-ads/negative-keyword-writer.js";
+import { createEffectiveDecisions } from "./effective-decisions.js";
 
 const HEADERS = [
   "classificationStatus",
@@ -19,12 +21,21 @@ const HEADERS = [
   "targetingStatus",
   "matchedKeyword",
   "matchedKeywordMatchType",
+  "positiveKeywordExactMatchCount",
+  "activeSameCampaignPositiveKeyword",
+  "pausedSameCampaignPositiveKeyword",
+  "activeOtherCampaignPositiveKeyword",
+  "activeSameCampaignPositiveMatchTypes",
   "impressions",
   "clicks",
   "costMicros",
   "conversions",
   "conversionValue",
   "decision",
+  "effectiveOutcome",
+  "positiveKeywordProtectionSource",
+  "positiveKeywordCriterionIds",
+  "positiveKeywordMatchTypes",
   "negativeText",
   "ruleIds",
   "reason",
@@ -39,9 +50,12 @@ export function createDecisionCsv(
   candidates: ClassificationCandidate[],
   decisions: ClassificationDecision[],
   model: string,
-  ruleVersion: string
+  ruleVersion: string,
+  mutation?: NegativeKeywordMutationSummary
 ): string {
-  const decisionsById = new Map(decisions.map((decision) => [decision.itemId, decision]));
+  const decisionsById = new Map(
+    createEffectiveDecisions(candidates, decisions, mutation).map((decision) => [decision.itemId, decision])
+  );
   const lines = [HEADERS.map(csvCell).join(",")];
   for (const candidate of candidates) {
     const decision = decisionsById.get(candidate.itemId);
@@ -60,12 +74,21 @@ export function createDecisionCsv(
       candidate.targetingStatus,
       candidate.matchedKeyword,
       candidate.matchedKeywordMatchType,
+      candidate.positiveKeywordContext?.exactTextMatchCount ?? 0,
+      candidate.positiveKeywordContext?.activeSameCampaignExactMatch ? "true" : "false",
+      candidate.positiveKeywordContext?.pausedSameCampaignExactMatch ? "true" : "false",
+      candidate.positiveKeywordContext?.activeOtherCampaignExactMatch ? "true" : "false",
+      candidate.positiveKeywordContext?.activeSameCampaignMatchTypes.join(";") ?? "",
       candidate.impressions,
       candidate.clicks,
       candidate.costMicros,
       candidate.conversions,
       candidate.conversionValue,
       decision?.decision ?? null,
+      decision?.effectiveOutcome ?? null,
+      decision?.positiveKeywordProtectionSource ?? null,
+      decision?.positiveCriterionIds.join(";") ?? null,
+      decision?.positiveMatchTypes.join(";") ?? null,
       decision?.negativeText ?? null,
       decision?.ruleIds.join(";") ?? null,
       decision?.reason ?? null,

@@ -61,6 +61,14 @@ decision-order preamble parenthetical are not yet refreshed. The redundant
 `rust hole` clause in `POL-COSMETIC-ONLY-NEGATIVE` is unchanged; both rules
 are negative.
 
+Combined release `2026-09-16.1` resolves the independent `dynamic-rules` and
+`main` release histories without discarding either policy. It retains the
+account-specific dynamic-rule and phrase-protection architecture plus the
+`2026-09-15.2` base-policy cleanup from `dynamic-rules`, and incorporates the
+always-win rust/restoration behavior from `main`'s `2026-09-15.1` release.
+Prompt version `collision-classifier-v7` and phrase-protection bytes remain
+unchanged. The new release ID and rules hash identify the exact combined bundle.
+
 ## Enforced locally
 
 - Application startup rejects policy or phrase-protection content that differs from the

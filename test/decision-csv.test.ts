@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createDecisionCsv } from "../src/storage/decision-csv.js";
 import type { ClassificationCandidate, Organization } from "../src/types.js";
+import { disabledMutationSummary } from "../src/google-ads/negative-keyword-writer.js";
 
 const organization: Organization = {
   customerId: "123",
@@ -45,4 +46,29 @@ test("creates one spreadsheet-safe CSV row with validated context", () => {
   assert.match(csv, /"'=HYPERLINK\(""https:\/\/example\.com""\)"/u);
   assert.match(csv, /"VALIDATED"/u);
   assert.equal(csv.split("\r\n").filter(Boolean).length, 2);
+});
+
+test("shows a protected effective outcome while preserving the LLM negative decision", () => {
+  const protectedCandidate: ClassificationCandidate = {
+    ...candidate,
+    searchTerm: "caliber collision",
+    positiveKeywordContext: {
+      exactTextMatchCount: 1,
+      activeSameCampaignExactMatch: true,
+      pausedSameCampaignExactMatch: false,
+      activeOtherCampaignExactMatch: false,
+      activeSameCampaignMatchTypes: ["PHRASE"]
+    }
+  };
+  const csv = createDecisionCsv(organization, `${candidate.startDate}..${candidate.endDate}`, [protectedCandidate], [{
+    itemId: protectedCandidate.itemId,
+    decision: "NEGATIVE_EXACT",
+    negativeText: protectedCandidate.searchTerm,
+    ruleIds: ["POL-COMPETITOR-NEGATIVE"],
+    reason: "Competitor intent",
+    confidence: 0.99
+  }], "openai-test", "rules-v1", disabledMutationSummary());
+
+  assert.match(csv, /"decision","effectiveOutcome","positiveKeywordProtectionSource"/u);
+  assert.match(csv, /"NEGATIVE_EXACT","PROTECTED_BY_POSITIVE_KEYWORD","INITIAL_ACCOUNT_SNAPSHOT"/u);
 });

@@ -1,6 +1,6 @@
 # Collision-repair search-term classification rules
 
-Rule set version: `2026-09-15.1`
+Rule set version: `2026-09-16.1`
 
 Prompt version: `collision-classifier-v7`
 
@@ -63,8 +63,7 @@ wording is present. Historical JavaScript triggers are evidence, not policy.
    `POL-MOBILE-SERVICE-NEGATIVE`, `POL-SALVAGE-JUNK-NEGATIVE` (salvage, junk rebuild,
    rebuild-car),
    `POL-WEBSITE-NAV-NEGATIVE`,
-   `POL-PAINT-COLOR-NEGATIVE`, `POL-COSMETIC-ONLY-NEGATIVE` (fender-bender, hole-fill,
-   and other small-incident slang), `POL-METAL-MATERIAL-NEGATIVE` (aluminum, steel,
+   `POL-PAINT-COLOR-NEGATIVE`, `POL-METAL-MATERIAL-NEGATIVE` (aluminum, steel,
    iron), `POL-INSPECTION-NEGATIVE`, `POL-WRONG-OUTCOME-NEGATIVE`, `POL-CUSTOM-FABRICATION-NEGATIVE`,
    `POL-MECHANICAL-ONLY-NEGATIVE` (mechanic, technician, standalone tech, service,
    contiguous auto/car repair with no body-shop wording, and repair with no body-shop
@@ -128,7 +127,7 @@ distinctive leftover and are `POL-COMPETITOR-NEGATIVE`.
 
 Frame, unibody, or chassis wording is KEEP only as damage description on a crash-event
 query (`major collision with frame damage and dents`). A named-part or zone repair,
-including `frame repair near me` without crash-event wording, is `POL-PARTS-ONLY-NEGATIVE`.
+including `frame repair near me` without crash-event wording, is not KEEP under this rule.
 Aluminum, steel, or iron is always `POL-METAL-MATERIAL-NEGATIVE`, including
 `aluminum certified body shop`. Collision wording does not save it.
 
@@ -153,7 +152,7 @@ service. `auto body repair near me`, `autobody repair`, `body repair near me`,
 
 Body-shop wording plus `specialist` / `specialists` is KEEP (`auto body specialists`,
 `body shop specialist`, `collision specialist`). `specialist` is not a mechanical
-always-win token. `dent specialist` stays `POL-COSMETIC-ONLY-NEGATIVE`. `paint
+always-win token. `dent specialist` is not KEEP under this rule. `paint
 specialist` stays `POL-PAINT-COLOR-NEGATIVE`. `mechanic`, `technician`, and
 standalone `tech` still kill this rule.
 
@@ -196,7 +195,7 @@ opener, reviews/photos, 24/7 or 24-hour hours, `quick` / `fast` /
 aluminum/steel/iron, hole-fill small jobs, website or domain navigation,
 panel-beater trade slang,
 or a non-English query. Use the leftover-token test in `POL-COMPETITOR-NEGATIVE`.
-`panel beaters near me` is `POL-PARTS-ONLY-NEGATIVE`, not body-shop KEEP.
+`panel beaters near me` is not body-shop KEEP.
 `kim's korean body shop` is still a named competitor: the leftover is `kim's`.
 
 Examples: `body work shops near me`, `auto body works near me`, `body shop near me`,
@@ -583,44 +582,6 @@ Negative clear DIY/how-to repair intent, including Spanish constructions such as
 
 Example: `como quitar golpes de granizo` is negative.
 
-### `POL-PARTS-ONLY-NEGATIVE` — Parts, interior, and upholstery
-
-Negative parts-only, kit, body-kit, splitter, interior/dashboard component, or
-upholstery intent when the searcher is not asking for collision or body-shop repair.
-This covers both products and services: seats, leather, headliner, carpet, dash, interior
-trim, and upholstery repair or replacement. Do not KEEP an interior/upholstery query
-merely because it contains `repair` or `near me`. KEEP only when the query is clearly
-asking for collision or body repair and interior wording is incidental.
-
-Also negative a single named part or zone as the repair scope, even with `accident`:
-bumper, fender, hood, door, quarter panel, trunk, tailgate, front end, or `frame repair`
-without `collision`/`crash`/`wreck`/`totaled` wording. `accident bumper repair` is
-negative. `fender repair` and `fix a car door` are negative. `rear end collision repair`
-is KEEP under `POL-COLLISION-KEEP` because `collision` is present. `major collision with
-frame damage and dents` is KEEP; `frame repair near me` is negative.
-
-Panel-beater trade slang is a named-part panel service and is always negative, even with
-`near me` or a city: `panel beater`, `panel beaters`, `panel beating`. It is not
-protected body-shop demand under `POL-BODYWORK-KEEP`.
-
-Examples: `panel beaters near me`, `panel beating dallas`.
-
-Fender-bender and the same class of minor-incident slang are always negative under
-`POL-COSMETIC-ONLY-NEGATIVE`, even when `accident`, `repair`, or `near me` is present:
-`fender bender`, `fender-bender`, `fenderbender`, `fender bender repair`,
-`fender bender near me`. Do not treat that idiom as crash-event wording or as OEM
-`fender` demand.
-
-Aluminum, steel, or iron uses `POL-METAL-MATERIAL-NEGATIVE`, which always wins even
-with body-shop or collision wording (`aluminum certified body shop`, `aluminum hood`).
-Do not KEEP those under this rule as "incidental metal" or as a shop certification.
-Isolated component failures such as a broken hood latch with no collision/body signal
-are negative.
-
-Examples: `car upholstery repair near me`, `leather seat repair`, `headliner replacement`,
-`dashboard repair`, `carbon fiber splitter`, `accident bumper repair`,
-`fender bender repair`, `frame repair near me`, `aluminum hood`.
-
 ### `POL-MECHANICAL-ONLY-NEGATIVE` — Mechanical service
 
 `auto repair` and `auto body repair` are different jobs. `auto repair` means mechanical
@@ -629,8 +590,8 @@ work (oil change, oil leak, brakes, engine, transmission). `auto body repair` /
 intents. This body-repair carve-out applies only to `repair`. It does not apply to
 `mechanic`, `technician`, `tech`, or `service`. It does apply to `specialist`:
 body-shop or collision wording plus `specialist` / `specialists` is KEEP under
-`POL-BODYWORK-KEEP` or `POL-COLLISION-KEEP`. `dent specialist` is still
-`POL-COSMETIC-ONLY-NEGATIVE`. `paint specialist` is still `POL-PAINT-COLOR-NEGATIVE`.
+`POL-BODYWORK-KEEP` or `POL-COLLISION-KEEP`. `dent specialist` is not mechanical
+and is not KEEP under this rule. `paint specialist` is still `POL-PAINT-COLOR-NEGATIVE`.
 
 Always-win for these tokens, even when body-shop or collision wording is also present:
 
@@ -687,41 +648,6 @@ body-shop wording is stated. A make plus body repair is KEEP (`bmw body work rep
 Examples: `oil change near me`, `engine repair dallas`, `range rover mechanic near me`,
 `auto body mechanics`, `body shop mechanic near me`, `service collision`,
 `auto repair near me`, `state farm repair shop near me`.
-
-### `POL-GLASS-TINT-NEGATIVE` — Glass and tint only
-
-Negative windshield/auto-glass-only, Safelite, or window-tint demand with no qualifying
-collision/body context.
-
-### `POL-COSMETIC-ONLY-NEGATIVE` — Cosmetic-only and small-incident service
-
-Always-win for fender-bender and the same class of minor-incident slang, even when
-`accident`, `repair`, body-shop, or geo wording is present: `fender bender`,
-`fender-bender`, `fenderbender`, `fender bender repair`, `fender bender near me`.
-That idiom is a small parking-lot job, not collision demand. `rear end collision`
-is not a fender bender and stays KEEP under `POL-COLLISION-KEEP`.
-
-Dent, ding, scratch, and bumper-scuff follow a different test than paint:
-
-- Negative when that cosmetic job is the ask: `dent repair`, `dent repair near me`,
-  `fix a dent`, `paintless dent repair`, `pdr`, `dent specialist`, `door ding`,
-  `ding repair`, `scratch repair`, `keyed car`, `bumper scuff`. `accident` alone
-  does not save these. `auto body specialists` is not this rule.
-- KEEP when `collision`, `crash`, `wreck`, or `totaled` is present and dent/ding/
-  scratch is only damage description, not the whole job
-  (`major collision with frame damage and dents`).
-- PDR / paintless dent is negative even with collision wording; the searcher wants
-  PDR, not a collision repair.
-
-Also negative detailing, buffing, or clear-coat demand when the full query is clearly
-cosmetic and has no `collision`, `crash`, `wreck`, or `totaled` signal.
-Paint, color, and repaint use `POL-PAINT-COLOR-NEGATIVE`, which always wins.
-
-Always-win for hole-fill and the same class of small cheap body jobs, even when
-body-shop, collision, or geo wording is present: `fill holes`, `fill hole`,
-`filling holes`, `fill holes in car body`, `holes in car body`, `hole in car body`,
-`patch holes`, `patch a hole`, `rust hole`, `rust holes`. Do not fire on `pothole`
-or `potholes`. This is a DIY/small-job ask, not collision-body demand.
 
 ### `POL-METAL-MATERIAL-NEGATIVE` — Aluminum, steel, and iron
 

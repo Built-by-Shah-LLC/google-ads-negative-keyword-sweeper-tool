@@ -42,6 +42,9 @@ test("test-account smoke applies and verifies exactly one negative after the liv
       if (/FROM campaign\b/u.test(query) && !/campaign_criterion/u.test(query)) {
         return [{ campaign: { id: "100", status: "PAUSED" } }];
       }
+      if (/FROM ad_group_criterion\b/u.test(query)) {
+        return [];
+      }
       negativeReads += 1;
       return negativeReads === 1 ? [] : [{
         campaign: { id: "100" },
