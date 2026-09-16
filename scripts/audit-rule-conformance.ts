@@ -82,6 +82,9 @@ const REVIEWS_TOKENS = new Set(["review", "reviews", "image", "images", "photo",
 const PAINT_TOKENS = new Set(["paint", "paints", "painted", "painting", "painter", "painters", "repaint", "repainted", "repainting", "color", "colors", "colored", "colour", "colours", "coloring", "colouring"]);
 const METAL_TOKENS = new Set(["aluminum", "aluminium", "steel", "iron"]);
 const ORIGIN_ADJECTIVES = new Set(["korean", "german", "italian", "european", "japanese"]);
+const RUST_RESTORATION_TOKENS = ["rust", "rusted", "rusty", "rusting", "rustproof", "rustproofing",
+  "restoration", "restorations", "restore", "restored", "restoring"];
+const RUST_RESTORATION_COMPOUNDS = ["carrustrepair", "rustrepair", "carrestoration", "carrestorations"];
 
 function bodyShopWording(tokens: string[]): boolean {
   return hasToken(tokens, BODY_TOKENS);
@@ -143,6 +146,7 @@ const alwaysWinDetectors: Array<(tokens: string[]) => boolean> = [
     || hasSeq(t, "dot", "com") || hasSeq(t, "web", "site") || hasSeq(t, "sign", "in") || hasSeq(t, "log", "in")
     || hasSeq(t, "online", "account"),
   (t) => hasToken(t, ["custom"]) && (bodyShopWording(t) || hasToken(t, ["fabrication", "fiberglass"])),
+  (t) => hasToken(t, RUST_RESTORATION_TOKENS) || hasToken(t, RUST_RESTORATION_COMPOUNDS),
 ];
 
 function questionOpener(tokens: string[]): boolean {
@@ -231,6 +235,8 @@ function buildChecks(): CheckDef[] {
       alwaysWinDetectors[8]!),
     negative("lucid", "Lucid vehicles (never OEM KEEP)", "POL-WRONG-VEHICLE-NEGATIVE",
       (t) => hasToken(t, ["lucid"])),
+    negative("rust-restoration", "Rust / restoration demand (always-win, any wording)", "POL-WRONG-VEHICLE-NEGATIVE",
+      alwaysWinDetectors[13]!),
     negative("cosmetic-only", "Fender-bender slang, dent/scratch ask, PDR, hole-fill", "POL-COSMETIC-ONLY-NEGATIVE",
       alwaysWinDetectors[9]!),
     negative("informational", "Informational question openers (not trailing ?)", "POL-INFORMATIONAL-NEGATIVE", questionOpener),
