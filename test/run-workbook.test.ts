@@ -63,6 +63,7 @@ test("creates one organization worksheet with decisions, batch tokens, rules, an
     candidateCount: 1,
     decisionCount: 1,
     failedBatchCount: 1,
+    positiveKeywords: { fetchedCount: 2, activeCount: 1, candidatesWithAnyExactMatch: 1, candidatesProtectedInCampaign: 1 },
     decisions: { KEEP: 0, NEGATIVE_EXACT: 1 },
     tokenUsage: {
       inputTokens: 100,

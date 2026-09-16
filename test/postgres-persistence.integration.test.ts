@@ -28,6 +28,7 @@ test("persists a complete sweep with tenant isolation and exact metrics", { skip
     await owner.query(`GRANT SELECT ON TABLE organizations, advertising_data_connections, client_accounts TO ${groupRole}`);
     await owner.query(`GRANT SELECT, INSERT ON TABLE
       negative_keyword_rule_snapshots, negative_keyword_search_term_facts,
+      negative_keyword_positive_keyword_snapshots, negative_keyword_positive_keyword_snapshot_entries,
       negative_keyword_candidates, negative_keyword_decisions,
       negative_keyword_llm_attempts, negative_keyword_run_events,
       negative_keyword_run_errors TO ${groupRole}`);
@@ -42,7 +43,9 @@ test("persists a complete sweep with tenant isolation and exact metrics", { skip
       token_usage_reconciled, error_count, fatal_error_code, fatal_error_message, updated_at)
       ON negative_keyword_sweep_runs TO ${groupRole}`);
     await owner.query(`GRANT UPDATE (status, completed_at, raw_row_count, processed_candidate_count,
-      decision_count, keep_count, negative_exact_count, failed_batch_count, error_count, input_tokens,
+      decision_count, keep_count, negative_exact_count, failed_batch_count,
+      positive_keyword_count, active_positive_keyword_count, protected_candidate_count,
+      error_count, input_tokens,
       output_tokens, total_tokens, cached_input_tokens, thought_tokens, generation_requests,
       fixed_input_tokens, fixed_input_definition, terminal_error_code, terminal_error_message, updated_at)
       ON negative_keyword_sweep_account_runs TO ${groupRole}`);
@@ -155,6 +158,13 @@ test("persists a complete sweep with tenant isolation and exact metrics", { skip
         totalTokens: 10, countedAt: now, definition: "fixed test input", model: "test-model",
         providerRequestId: "count-request", attemptCount: 1, retryCount: 0,
       },
+      positiveKeywordsFetchedAt: now,
+      positiveKeywords: [{
+        campaignId: "456", campaignName: "Built by Shah Campaign", campaignStatus: "ENABLED",
+        adGroupId: "789", adGroupName: "Group", adGroupStatus: "ENABLED",
+        criterionId: "321", criterionStatus: "ENABLED", keywordText: "collision repair",
+        normalizedKeywordText: "collision repair", matchType: "PHRASE", active: true,
+      }],
     });
     await persistence.markBatchRunning(customerId, "0001", now);
     await persistence.recordBatchSuccess(customerId, "0001", {
@@ -178,6 +188,8 @@ test("persists a complete sweep with tenant isolation and exact metrics", { skip
     const accountSummary = {
       customerId, status: "PARTIAL" as const, completedAt: now, rawRowCount: 1,
       candidateCount: 1, decisionCount: 1, failedBatchCount: 0, keepCount: 0,
+      positiveKeywordsFetched: 1, activePositiveKeywords: 1,
+      candidatesProtectedByActivePositiveKeyword: 0,
       negativeExactCount: 1, errorCount: 1, error: "Non-fatal test warning",
       tokenUsage: {
         inputTokens: 20, outputTokens: 5, totalTokens: 25, cachedInputTokens: 0,
@@ -224,6 +236,8 @@ test("persists a complete sweep with tenant isolation and exact metrics", { skip
         SELECT 'negative_keyword_rule_snapshots' AS table_name, count(*)::text AS row_count FROM negative_keyword_rule_snapshots WHERE organization_id = $1
         UNION ALL SELECT 'negative_keyword_sweep_runs', count(*)::text FROM negative_keyword_sweep_runs WHERE organization_id = $1
         UNION ALL SELECT 'negative_keyword_sweep_account_runs', count(*)::text FROM negative_keyword_sweep_account_runs WHERE organization_id = $1
+        UNION ALL SELECT 'negative_keyword_positive_keyword_snapshots', count(*)::text FROM negative_keyword_positive_keyword_snapshots WHERE organization_id = $1
+        UNION ALL SELECT 'negative_keyword_positive_keyword_snapshot_entries', count(*)::text FROM negative_keyword_positive_keyword_snapshot_entries WHERE organization_id = $1
         UNION ALL SELECT 'negative_keyword_search_term_facts', count(*)::text FROM negative_keyword_search_term_facts WHERE organization_id = $1
         UNION ALL SELECT 'negative_keyword_candidates', count(*)::text FROM negative_keyword_candidates WHERE organization_id = $1
         UNION ALL SELECT 'negative_keyword_decisions', count(*)::text FROM negative_keyword_decisions WHERE organization_id = $1
@@ -274,6 +288,13 @@ test("persists a complete sweep with tenant isolation and exact metrics", { skip
     await runtime.end();
     await assert.rejects(
       () => owner.query("UPDATE negative_keyword_decisions SET reason = 'changed' WHERE organization_id = $1", [organizationId]),
+      /immutable/u,
+    );
+    await assert.rejects(
+      () => owner.query(
+        "UPDATE negative_keyword_positive_keyword_snapshot_entries SET keyword_text = 'changed' WHERE organization_id = $1",
+        [organizationId],
+      ),
       /immutable/u,
     );
   } finally {

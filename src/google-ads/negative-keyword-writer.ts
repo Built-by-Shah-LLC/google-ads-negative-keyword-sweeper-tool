@@ -1,6 +1,11 @@
 import { createHash } from "node:crypto";
 import type { ClassificationCandidate, ClassificationDecision } from "../types.js";
 import type { GoogleAdsClient } from "./client.js";
+import {
+  activeSameCampaignPositiveMatches,
+  fetchPositiveKeywords,
+  normalizeKeywordText
+} from "./positive-keywords.js";
 
 export type NegativeKeywordWriterMode = "development" | "validation" | "production";
 
@@ -33,6 +38,14 @@ export interface NegativeKeywordMutationSummary {
   status: "DISABLED" | "NO_CHANGES" | "SKIPPED" | "MOCKED" | "VALIDATED" | "APPLIED" | "PARTIAL" | "FAILED";
   proposedCount: number;
   duplicateDecisionCount: number;
+  positiveKeywordConflictCount: number;
+  positiveKeywordConflicts: Array<{
+    operationId: string;
+    campaignId: string;
+    negativeText: string;
+    positiveCriterionIds: string[];
+    positiveMatchTypes: string[];
+  }>;
   existingCount: number;
   attemptedCount: number;
   mockedCount: number;
@@ -59,6 +72,8 @@ export function disabledMutationSummary(): NegativeKeywordMutationSummary {
     status: "DISABLED",
     proposedCount: 0,
     duplicateDecisionCount: 0,
+    positiveKeywordConflictCount: 0,
+    positiveKeywordConflicts: [],
     existingCount: 0,
     attemptedCount: 0,
     mockedCount: 0,
@@ -114,9 +129,29 @@ export async function applyNegativeExactDecisions(input: {
     };
   }
 
+  // Google Ads remains authoritative. Re-fetch immediately before mutation
+  // preparation so a keyword added or re-enabled after classification still
+  // blocks an unsafe same-campaign exact negative.
+  const positiveKeywords = await fetchPositiveKeywords(input.googleAds, customerId);
+  const positiveKeywordConflicts = operations.flatMap((operation) => {
+    const matches = activeSameCampaignPositiveMatches(
+      operation.campaignId,
+      operation.negativeText,
+      positiveKeywords
+    );
+    return matches.length === 0 ? [] : [{
+      operationId: operation.operationId,
+      campaignId: operation.campaignId,
+      negativeText: operation.negativeText,
+      positiveCriterionIds: [...new Set(matches.map((match) => match.criterionId))].sort(),
+      positiveMatchTypes: [...new Set(matches.map((match) => match.matchType))].sort()
+    }];
+  });
+  const protectedOperationIds = new Set(positiveKeywordConflicts.map((conflict) => conflict.operationId));
+  const mutationEligible = operations.filter((operation) => !protectedOperationIds.has(operation.operationId));
   const existingBefore = await fetchExistingCampaignExactNegatives(input.googleAds, customerId);
-  const pending = operations.filter((operation) => !existingBefore.has(operationKey(operation)));
-  const existingCount = operations.length - pending.length;
+  const pending = mutationEligible.filter((operation) => !existingBefore.has(operationKey(operation)));
+  const existingCount = mutationEligible.length - pending.length;
   if (pending.length === 0) {
     return {
       ...disabledMutationSummary(),
@@ -124,6 +159,8 @@ export async function applyNegativeExactDecisions(input: {
       status: "NO_CHANGES",
       proposedCount: operations.length,
       duplicateDecisionCount,
+      positiveKeywordConflictCount: positiveKeywordConflicts.length,
+      positiveKeywordConflicts,
       existingCount
     };
   }
@@ -195,6 +232,8 @@ export async function applyNegativeExactDecisions(input: {
     status,
     proposedCount: operations.length,
     duplicateDecisionCount,
+    positiveKeywordConflictCount: positiveKeywordConflicts.length,
+    positiveKeywordConflicts,
     existingCount,
     attemptedCount: pending.length,
     mockedCount,
@@ -302,10 +341,6 @@ function assertChunkResult(
 
 function operationKey(value: { campaignId: string; negativeText: string }): string {
   return `${value.campaignId}\u0000${normalizeKeywordText(value.negativeText)}`;
-}
-
-function normalizeKeywordText(value: string): string {
-  return value.trim().replace(/\s+/gu, " ").toLocaleLowerCase("en-US");
 }
 
 function sanitizeId(value: string, label: string): string {

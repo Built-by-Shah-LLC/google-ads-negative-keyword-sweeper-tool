@@ -7,6 +7,7 @@ import type {
   DateRange,
   FixedInputTokenCount,
   Organization,
+  PositiveKeywordCriterion,
   RuleSet,
   SearchTermRow,
 } from "../types.js";
@@ -46,6 +47,8 @@ export interface SweepAccountInputs {
   provider: string;
   model: string;
   fixedInput: FixedInputTokenCount | null;
+  positiveKeywords: PositiveKeywordCriterion[];
+  positiveKeywordsFetchedAt: string;
 }
 
 /**
@@ -87,6 +90,9 @@ export interface SweepAccountSummaryRecord {
   candidateCount: number;
   decisionCount: number;
   failedBatchCount: number;
+  positiveKeywordsFetched: number;
+  activePositiveKeywords: number;
+  candidatesProtectedByActivePositiveKeyword: number;
   keepCount: number;
   negativeExactCount: number;
   errorCount: number;

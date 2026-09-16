@@ -4,6 +4,7 @@ import type { DatabasePersistenceConfig } from "../../config/env.js";
 import { chunksOf } from "../../util/concurrency.js";
 import type {
   ClassificationCandidate,
+  PositiveKeywordCriterion,
   SearchTermRow,
 } from "../../types.js";
 import type {
@@ -262,6 +263,14 @@ export class PostgresSweepPersistence implements SweepPersistence {
       const handle: AccountHandle = { id: accountRunId, accountId: account.id, batches: new Map() };
       this.accounts.set(input.organization.customerId, handle);
 
+      await this.insertPositiveKeywordSnapshot(
+        client,
+        runId,
+        handle,
+        input.positiveKeywords,
+        input.positiveKeywordsFetchedAt
+      );
+
       for (const row of input.rows) {
         await this.insertFact(client, runId, handle, row, input.fetchedAt);
       }
@@ -489,12 +498,14 @@ export class PostgresSweepPersistence implements SweepPersistence {
         SET status = $3, completed_at = $4, raw_row_count = $5,
             processed_candidate_count = $6, decision_count = $7,
             keep_count = $8, negative_exact_count = $9,
-            failed_batch_count = $10, error_count = $11,
-            input_tokens = $12, output_tokens = $13, total_tokens = $14,
-            cached_input_tokens = $15, thought_tokens = $16,
-            generation_requests = $17, fixed_input_tokens = $18,
-            fixed_input_definition = $19, terminal_error_code = $20,
-            terminal_error_message = $21, updated_at = now()
+            failed_batch_count = $10, positive_keyword_count = $11,
+            active_positive_keyword_count = $12,
+            protected_candidate_count = $13, error_count = $14,
+            input_tokens = $15, output_tokens = $16, total_tokens = $17,
+            cached_input_tokens = $18, thought_tokens = $19,
+            generation_requests = $20, fixed_input_tokens = $21,
+            fixed_input_definition = $22, terminal_error_code = $23,
+            terminal_error_message = $24, updated_at = now()
         WHERE organization_id = $1 AND id = $2
       `, [
         this.organizationId,
@@ -507,6 +518,9 @@ export class PostgresSweepPersistence implements SweepPersistence {
         summary.keepCount,
         summary.negativeExactCount,
         summary.failedBatchCount,
+        summary.positiveKeywordsFetched,
+        summary.activePositiveKeywords,
+        summary.candidatesProtectedByActivePositiveKeyword,
         summary.errorCount,
         summary.tokenUsage.inputTokens,
         summary.tokenUsage.outputTokens,
@@ -658,6 +672,85 @@ export class PostgresSweepPersistence implements SweepPersistence {
       WHERE sweep_account_run_id = $1 AND source_row_hash = $2 AND source_payload = $3::jsonb
     `, [handle.id, sourceHash, JSON.stringify(payload.value)]);
     if (verified.rowCount !== 1) throw new Error("Search-term fact identity conflicted with different content.");
+  }
+
+  private async insertPositiveKeywordSnapshot(
+    client: PoolClient,
+    runId: string,
+    handle: AccountHandle,
+    criteria: PositiveKeywordCriterion[],
+    fetchedAt: string
+  ): Promise<void> {
+    const contentHash = sha256(stableStringify(criteria));
+    const inserted = await client.query<IdRow>(`
+      INSERT INTO negative_keyword_positive_keyword_snapshots (
+        organization_id, sweep_run_id, sweep_account_run_id, account_id,
+        fetched_at, keyword_count, content_sha256
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+      ON CONFLICT (sweep_account_run_id) DO NOTHING
+      RETURNING id::text AS id
+    `, [
+      this.organizationId,
+      runId,
+      handle.id,
+      handle.accountId,
+      fetchedAt,
+      criteria.length,
+      contentHash
+    ]);
+    const snapshotId = inserted.rows[0]?.id ?? (await queryOne<IdRow>(client, `
+      SELECT id::text AS id
+      FROM negative_keyword_positive_keyword_snapshots
+      WHERE organization_id = $1 AND sweep_account_run_id = $2
+        AND keyword_count = $3 AND content_sha256 = $4
+    `, [
+      this.organizationId,
+      handle.id,
+      criteria.length,
+      contentHash
+    ], "Positive-keyword snapshot identity conflicted with different content")).id;
+
+    for (const criterion of criteria) {
+      await client.query(`
+        INSERT INTO negative_keyword_positive_keyword_snapshot_entries (
+          organization_id, snapshot_id, sweep_run_id, sweep_account_run_id,
+          account_id, campaign_id, campaign_name, campaign_status,
+          ad_group_id, ad_group_name, ad_group_status, criterion_id,
+          criterion_status, keyword_text, normalized_keyword_text, match_type,
+          active
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
+          $14, $15, $16, $17
+        )
+        ON CONFLICT (snapshot_id, campaign_id, ad_group_id, criterion_id) DO NOTHING
+      `, [
+        this.organizationId,
+        snapshotId,
+        runId,
+        handle.id,
+        handle.accountId,
+        criterion.campaignId,
+        criterion.campaignName,
+        criterion.campaignStatus,
+        criterion.adGroupId,
+        criterion.adGroupName,
+        criterion.adGroupStatus,
+        criterion.criterionId,
+        criterion.criterionStatus,
+        criterion.keywordText,
+        criterion.normalizedKeywordText,
+        criterion.matchType,
+        criterion.active
+      ]);
+    }
+    const verified = await client.query<{ count: string }>(`
+      SELECT count(*)::text AS count
+      FROM negative_keyword_positive_keyword_snapshot_entries
+      WHERE organization_id = $1 AND snapshot_id = $2
+    `, [this.organizationId, snapshotId]);
+    if (verified.rows[0]?.count !== String(criteria.length)) {
+      throw new Error("Positive-keyword snapshot entry count did not reconcile.");
+    }
   }
 
   private async insertCandidate(

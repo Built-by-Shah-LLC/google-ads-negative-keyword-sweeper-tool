@@ -167,8 +167,11 @@ test("writes reconciled organization telemetry and token artifacts", async (cont
   assert.equal(usage.reconciliation.batchTotals.totalTokens, 240);
   const errors = JSON.parse(await readFile(join(artifacts.runDirectory, "organizations/123/errors.json"), "utf8"));
   assert.deepEqual(errors.errors, []);
-  assert.equal(queries.length, 2);
-  assert.ok(queries.every((query) => query.includes("segments.date BETWEEN '2026-08-25' AND '2026-08-25'")));
+  assert.equal(queries.length, 3);
+  const searchTermQueries = queries.filter((query) => query.includes("segments.date BETWEEN"));
+  assert.equal(searchTermQueries.length, 2);
+  assert.ok(searchTermQueries.every((query) => query.includes("segments.date BETWEEN '2026-08-25' AND '2026-08-25'")));
+  assert.equal(queries.filter((query) => query.includes("FROM ad_group_criterion")).length, 1);
   const events = progressLogs.map((entry) => entry.fields.progressEvent);
   assert.equal(events.filter((event) => event === "organization_batch_queued").length, 2);
   assert.equal(events.filter((event) => event === "organization_batch_started").length, 2);

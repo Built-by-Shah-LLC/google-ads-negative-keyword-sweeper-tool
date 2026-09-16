@@ -70,6 +70,7 @@ test("reconciles run token totals from organization and batch records", () => {
     candidateCount: 2,
     decisionCount: 2,
     failedBatchCount: 0,
+    positiveKeywords: { fetchedCount: 2, activeCount: 1, candidatesWithAnyExactMatch: 0, candidatesProtectedInCampaign: 0 },
     decisions: { KEEP: 2, NEGATIVE_EXACT: 0 },
     tokenUsage: {
       inputTokens: 200,
