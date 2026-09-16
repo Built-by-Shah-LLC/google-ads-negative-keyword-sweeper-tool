@@ -43,6 +43,7 @@ export interface NegativeKeywordMutationSummary {
     operationId: string;
     campaignId: string;
     negativeText: string;
+    sourceItemIds: string[];
     positiveCriterionIds: string[];
     positiveMatchTypes: string[];
   }>;
@@ -143,6 +144,7 @@ export async function applyNegativeExactDecisions(input: {
       operationId: operation.operationId,
       campaignId: operation.campaignId,
       negativeText: operation.negativeText,
+      sourceItemIds: [...operation.sourceItemIds],
       positiveCriterionIds: [...new Set(matches.map((match) => match.criterionId))].sort(),
       positiveMatchTypes: [...new Set(matches.map((match) => match.matchType))].sort()
     }];

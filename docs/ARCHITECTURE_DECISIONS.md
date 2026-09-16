@@ -90,6 +90,11 @@ the campaign ID is the same.
 
 The classifier decision is retained unchanged as evidence. The mutation summary
 records the protected conflict and the writer receives no operation for it.
+JSON, CSV, and Excel reports expose the separate effective outcome
+`PROTECTED_BY_POSITIVE_KEYWORD`, its evidence source, and any final criterion IDs
+and match types. Final pre-mutation conflicts take precedence; when mutation is
+disabled or skipped, reports may derive the same outcome from the immutable
+account snapshot and label that source explicitly.
 Paused or other-campaign exact matches remain visible audit context; phrase and
 broad expansion matches do not protect a different full search query.
 

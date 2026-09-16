@@ -167,6 +167,10 @@ test("writes reconciled organization telemetry and token artifacts", async (cont
   assert.equal(usage.reconciliation.batchTotals.totalTokens, 240);
   const errors = JSON.parse(await readFile(join(artifacts.runDirectory, "organizations/123/errors.json"), "utf8"));
   assert.deepEqual(errors.errors, []);
+  const decisions = JSON.parse(await readFile(join(artifacts.runDirectory, "organizations/123/decisions.json"), "utf8"));
+  assert.equal(decisions.effectiveOutcomeContractVersion, "positive-keyword-guard-v1");
+  assert.equal(decisions.decisions[0].decision, "KEEP");
+  assert.equal(decisions.effectiveDecisions[0].effectiveOutcome, "KEEP");
   assert.equal(queries.length, 3);
   const searchTermQueries = queries.filter((query) => query.includes("segments.date BETWEEN"));
   assert.equal(searchTermQueries.length, 2);

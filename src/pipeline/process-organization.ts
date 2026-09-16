@@ -15,6 +15,7 @@ import { addTokenUsage, emptyTokenUsage, type RunTelemetry } from "../observabil
 import type { RunArtifacts } from "../storage/run-artifacts.js";
 import { sweepAccountMutationRecord, type SweepPersistence } from "../storage/persistence.js";
 import { createDecisionCsv } from "../storage/decision-csv.js";
+import { createEffectiveDecisions } from "../storage/effective-decisions.js";
 import { chunksOf, type Limit } from "../util/concurrency.js";
 
 export interface OrganizationTokenUsage extends LlmTokenUsage {
@@ -624,8 +625,10 @@ async function writeOrganizationResults(
   decisions: Parameters<typeof createDecisionCsv>[3],
   summary: OrganizationSummary
 ): Promise<void> {
+  const effectiveDecisions = createEffectiveDecisions(candidates, decisions, summary.mutation);
   await dependencies.artifacts.write(`${basePath}/decisions.json`, {
     contractVersion: "classification-output-v2",
+    effectiveOutcomeContractVersion: "positive-keyword-guard-v1",
     releaseId: dependencies.rules.releaseId ?? null,
     readOnly: !summary.mutation.googleAdsMutationPerformed,
     googleAdsMutationPerformed: summary.mutation.googleAdsMutationPerformed,
@@ -634,7 +637,8 @@ async function writeOrganizationResults(
     provider: dependencies.classifier.provider,
     model: dependencies.classifier.model,
     tokenUsage: summary.tokenUsage,
-    decisions
+    decisions,
+    effectiveDecisions
   });
   await dependencies.artifacts.write(`${basePath}/mutations/summary.json`, summary.mutation);
   await dependencies.artifacts.writeText(
@@ -645,7 +649,8 @@ async function writeOrganizationResults(
       candidates,
       decisions,
       dependencies.classifier.model,
-      dependencies.rules.version
+      dependencies.rules.version,
+      summary.mutation
     )
   );
   await dependencies.artifacts.write(`${basePath}/errors.json`, {

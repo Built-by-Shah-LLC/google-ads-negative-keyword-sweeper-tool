@@ -4,6 +4,7 @@ import ExcelJS from "exceljs";
 import type { SerializedError } from "../observability/errors.js";
 import type { OrganizationSummary } from "../pipeline/process-organization.js";
 import type { ClassificationCandidate, ClassificationDecision, LlmTokenUsage, RuleSet } from "../types.js";
+import { createEffectiveDecisions } from "./effective-decisions.js";
 
 export interface RunWorkbookInput {
   runId: string;
@@ -25,6 +26,7 @@ interface OrganizationArtifacts {
 
 // Light red highlight for rows whose candidate was classified as a negative keyword.
 const LIGHT_RED_ARGB = "FFF4CCCC";
+const LIGHT_YELLOW_ARGB = "FFFFF2CC";
 
 export async function createRunWorkbook(input: RunWorkbookInput): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
@@ -78,7 +80,7 @@ function addOrganizationSheet(
   summary: OrganizationSummary,
   artifacts: OrganizationArtifacts
 ): void {
-  sheet.columns = Array.from({ length: 27 }, (_, index) => ({
+  sheet.columns = Array.from({ length: 31 }, (_, index) => ({
     key: `column-${index + 1}`,
     width: index === 0 ? 24 : index < 5 ? 20 : 16
   }));
@@ -205,14 +207,19 @@ function addOrganizationSheet(
   }
 
   addTitle(sheet, "KEEP and negative-keyword decisions");
+  const effectiveDecisions = createEffectiveDecisions(artifacts.candidates, artifacts.decisions, summary.mutation);
+  const protectedDecisionCount = effectiveDecisions.filter((decision) =>
+    decision.effectiveOutcome === "PROTECTED_BY_POSITIVE_KEYWORD").length;
+  sheet.addRow(["Effective outcomes protected by positive keywords", protectedDecisionCount]);
   const decisionHeader = sheet.addRow([
     "Classification status", "Customer ID", "Organization", "Start date", "End date", "Item ID", "Channel",
     "Campaign ID", "Campaign", "Ad group ID", "Ad group", "Search term", "Targeting status", "Matched keyword",
     "Matched keyword match type", "Impressions", "Clicks", "Cost micros", "Conversions", "Conversion value",
-    "Decision", "Negative keyword", "Rule IDs", "Reason", "Confidence", "Provider", "Model"
+    "LLM decision", "Effective outcome", "Positive-keyword protection source", "Positive criterion IDs",
+    "Positive match types", "Negative keyword", "Rule IDs", "Reason", "Confidence", "Provider", "Model"
   ]);
   styleHeader(decisionHeader);
-  const decisionsById = new Map(artifacts.decisions.map((decision) => [decision.itemId, decision]));
+  const decisionsById = new Map(effectiveDecisions.map((decision) => [decision.itemId, decision]));
   for (const candidate of artifacts.candidates) {
     const decision = decisionsById.get(candidate.itemId);
     const decisionRow = sheet.addRow([
@@ -237,6 +244,10 @@ function addOrganizationSheet(
       candidate.conversions,
       candidate.conversionValue,
       decision?.decision ?? "",
+      decision?.effectiveOutcome ?? "",
+      decision?.positiveKeywordProtectionSource ?? "",
+      safeCell(decision?.positiveCriterionIds.join("; ") ?? null),
+      safeCell(decision?.positiveMatchTypes.join("; ") ?? null),
       safeCell(decision?.negativeText ?? null),
       safeCell(decision?.ruleIds.join("; ") ?? null),
       safeCell(decision?.reason ?? null),
@@ -244,7 +255,9 @@ function addOrganizationSheet(
       input.provider,
       input.model
     ]);
-    if (decision?.decision === "NEGATIVE_EXACT") {
+    if (decision?.effectiveOutcome === "PROTECTED_BY_POSITIVE_KEYWORD") {
+      decisionRow.fill = { type: "pattern", pattern: "solid", fgColor: { argb: LIGHT_YELLOW_ARGB } };
+    } else if (decision?.decision === "NEGATIVE_EXACT") {
       decisionRow.fill = { type: "pattern", pattern: "solid", fgColor: { argb: LIGHT_RED_ARGB } };
     }
   }
@@ -279,7 +292,7 @@ function addOrganizationSheet(
 
   sheet.autoFilter = {
     from: { row: decisionHeader.number, column: 1 },
-    to: { row: Math.max(decisionHeader.number, decisionHeader.number + artifacts.candidates.length), column: 27 }
+    to: { row: Math.max(decisionHeader.number, decisionHeader.number + artifacts.candidates.length), column: 31 }
   };
   sheet.eachRow((row) => {
     row.eachCell((cell) => {

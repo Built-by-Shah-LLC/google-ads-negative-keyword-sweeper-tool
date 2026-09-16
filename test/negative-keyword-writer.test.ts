@@ -370,6 +370,7 @@ test("active same-campaign exact positive keyword blocks a negative before any w
   assert.equal(summary.proposedCount, 1);
   assert.equal(summary.positiveKeywordConflictCount, 1);
   assert.equal(summary.attemptedCount, 0);
+  assert.deepEqual(summary.positiveKeywordConflicts[0]?.sourceItemIds, [item.itemId]);
   assert.deepEqual(summary.positiveKeywordConflicts[0]?.positiveCriterionIds, ["333"]);
   assert.equal(summary.googleAdsMutationPerformed, false);
 });

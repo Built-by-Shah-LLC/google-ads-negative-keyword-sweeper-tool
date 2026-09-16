@@ -32,7 +32,14 @@ test("creates one organization worksheet with decisions, batch tokens, rules, an
     clicks: 2,
     costMicros: 1000,
     conversions: 0,
-    conversionValue: 0
+    conversionValue: 0,
+    positiveKeywordContext: {
+      exactTextMatchCount: 1,
+      activeSameCampaignExactMatch: true,
+      pausedSameCampaignExactMatch: false,
+      activeOtherCampaignExactMatch: false,
+      activeSameCampaignMatchTypes: ["PHRASE"]
+    }
   };
   await run.write("organizations/123/candidates.json", { candidates: [candidate] });
   await run.write("organizations/123/decisions.json", { decisions: [{
@@ -120,17 +127,20 @@ test("creates one organization worksheet with decisions, batch tokens, rules, an
   assert.match(values, /BATCH SUM \| RECONCILED/u);
   assert.match(values, /Fixed shared-input baseline .* \| 300/u);
   assert.match(values, /NEGATIVE_EXACT/u);
+  assert.match(values, /PROTECTED_BY_POSITIVE_KEYWORD/u);
+  assert.match(values, /INITIAL_ACCOUNT_SNAPSHOT/u);
   assert.match(values, /Free-item intent/u);
   assert.match(values, /timed out after 600000ms/u);
   assert.match(values, /POL-FREE-NEGATIVE/u);
 
-  // Rows classified as negative keywords must be highlighted light red (FFF4CCCC).
+  // Protected rows retain the red-eligible LLM decision but are highlighted yellow.
   const sheet = workbook.worksheets[0]!;
-  let negativeRowFill: string | undefined;
+  let protectedRowFill: string | undefined;
   sheet.eachRow((row) => {
-    if (row.getCell(21).value === "NEGATIVE_EXACT") {
-      negativeRowFill = (row.getCell(21).fill as ExcelJS.FillPattern)?.fgColor?.argb;
+    if (row.getCell(22).value === "PROTECTED_BY_POSITIVE_KEYWORD") {
+      assert.equal(row.getCell(21).value, "NEGATIVE_EXACT");
+      protectedRowFill = (row.getCell(22).fill as ExcelJS.FillPattern)?.fgColor?.argb;
     }
   });
-  assert.equal(negativeRowFill, "FFF4CCCC");
+  assert.equal(protectedRowFill, "FFFFF2CC");
 });
