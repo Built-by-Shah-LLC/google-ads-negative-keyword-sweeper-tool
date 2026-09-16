@@ -1,6 +1,6 @@
 # Collision-repair search-term classification rules
 
-Rule set version: `2026-09-10.4`
+Rule set version: `2026-09-15.1`
 
 Prompt version: `collision-classifier-v7`
 
@@ -860,11 +860,31 @@ Do not fire on a clearly consumer pickup or light-duty named pickup. `pickup tru
 collision`, `f150 collision repair`, and `silverado body shop` stay KEEP under the
 collision/OEM rules. Tow queries use `POL-TOWING-NEGATIVE`, not this rule.
 
-Also negative classic/antique restoration when no qualifying collision/body service
-is sought. Salvage-title, junk-car, and rebuild-car / `restomod` demand uses
+Rust and restoration demand are also always-win, even when collision, crash,
+accident, body-shop, OEM, insurer, or geo wording is present; these shops do not
+cater rust repair or restoration work:
+
+- Rust: standalone `rust`, `rusted`, `rusty`, `rusting`, `rustproof`, or
+  `rustproofing`, and the closed-up forms `carrustrepair` and `rustrepair`.
+  Do not fire on those letters inside an unrelated longer word (`trust`,
+  `crust`, `entrust`, `thruster`).
+- Restoration: standalone `restoration`, `restorations`, `restore`, `restored`,
+  or `restoring`, and the closed-up forms `carrestoration` and
+  `carrestorations`. Part restoration (`headlight restoration`,
+  `wheel restoration`) is not collision demand and stays negative.
+
+Examples: `rust repair`, `rusted quarter panel`, `car rust repair near me`,
+`car restoration`, `car restorations near me`, `carrestoration`,
+`headlight restoration`.
+
+A restoration-token query is negative under this rule even when `classic` or
+body-shop wording is present; the `classic`-car-restoration carve-out in
+`POL-COMPETITOR-NEGATIVE` does not apply to restoration-token queries.
+Salvage-title, junk-car, and rebuild-car / `restomod` demand uses
 `POL-SALVAGE-JUNK-NEGATIVE`, which always wins even with collision or body-shop
 wording. Do not use this rule for `classic collisions` or other `classic` +
-collision/body-shop brand patterns; those are `POL-COMPETITOR-NEGATIVE`.
+collision/body-shop brand patterns without restoration tokens; those are
+`POL-COMPETITOR-NEGATIVE`.
 
 ### `POL-WRONG-OUTCOME-NEGATIVE` — Non-repair professional outcome
 

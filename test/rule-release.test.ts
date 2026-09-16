@@ -29,7 +29,9 @@ test("release gate rejects bulk phrase protections, stable edits, and multi-sect
   await release();
   assert.throws(run, /maximum five phrase protection/);
   await writeFile(protectionPath, originalProtections);
-  await writeFile(rulePath, originalRules.replace("2026-09-10.4", "2026-09-10.5").replace("KEEP generic collision", "KEEP all generic collision").replace("KEEP genuine generic automotive", "KEEP all genuine generic automotive"));
+  const currentVersion = originalRules.match(/^Rule set version: `([^`]+)`/mu)![1]!;
+  const bumpedVersion = currentVersion.replace(/\d+$/, (n) => String(Number(n) + 1));
+  await writeFile(rulePath, originalRules.replace(`Rule set version: \`${currentVersion}\``, `Rule set version: \`${bumpedVersion}\``).replace("KEEP generic collision", "KEEP all generic collision").replace("KEEP genuine generic automotive", "KEEP all genuine generic automotive"));
   await release();
   assert.throws(run, /maximum one rule section/);
   await writeFile(rulePath, originalRules);
@@ -37,4 +39,36 @@ test("release gate rejects bulk phrase protections, stable edits, and multi-sect
   const stablePath = join(root, "src/config/stable/2026-09-04.3.md");
   await writeFile(stablePath, originalRules + "\nchanged");
   assert.throws(run, /Stable baseline/);
+});
+
+test("release gate requires a rule version bump for a single-section policy change", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "release-version-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await mkdir(join(root, "src"));
+  await cp("src/config", join(root, "src/config"), { recursive: true });
+  const git = (...args: string[]) => execFileSync("git", args, { cwd: root, stdio: "pipe" });
+  git("init");
+  git("add", ".");
+  git("-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-m", "baseline");
+  const run = () => execFileSync(process.execPath, ["--import", import.meta.resolve("tsx"), resolve("scripts/check-rule-release.ts"), "HEAD"], { cwd: root, stdio: "pipe" });
+  const rulePath = join(root, "src/config/negative-keyword-rules.md");
+  const protectionPath = join(root, "src/config/phrase-protections.md");
+  const releasePath = join(root, "src/config/rule-release.json");
+  const originalRules = await readFile(rulePath, "utf8");
+  const originalProtections = await readFile(protectionPath, "utf8");
+  const manifest = JSON.parse(await readFile(releasePath, "utf8"));
+  const hash = (text: string) => createHash("sha256").update(text).digest("hex");
+  // Re-hash the manifest (and a fresh releaseId) without touching the version line,
+  // so only the "Policy changes require a new rule version" gate can fail.
+  const release = async () => writeFile(releasePath, JSON.stringify({ ...manifest, releaseId: "test-new", releasedVersion: (await readFile(rulePath, "utf8")).match(/^Rule set version: `([^`]+)`/mu)![1], rulesSha256: hash(await readFile(rulePath, "utf8")), protectionsSha256: hash(await readFile(protectionPath, "utf8")) }));
+  assert.doesNotThrow(run);
+  // Single-section, one-line edit: the section-count gate passes, so the run
+  // must reach and trip the version-bump gate.
+  await writeFile(rulePath, originalRules.replace("KEEP generic collision", "KEEP all generic collision"));
+  await release();
+  assert.throws(run, /Policy changes require a new rule version/);
+  await writeFile(rulePath, originalRules);
+  await writeFile(protectionPath, originalProtections);
+  await release();
+  assert.doesNotThrow(run);
 });

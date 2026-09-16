@@ -46,6 +46,21 @@ version `collision-classifier-v7`. The decision-order preamble now lists
 `POL-CAREERS-NEGATIVE` among always-win negatives so job-seeker tokens beat
 body-shop KEEP. Individual rule sections are otherwise unchanged.
 
+Candidate release `2026-09-15.1` uses rule version `2026-09-15.1` and prompt
+version `collision-classifier-v7`. Per the 2026-09-15 owner directive,
+`POL-WRONG-VEHICLE-NEGATIVE` is now always-win for rust and restoration demand:
+standalone rust (`rust`, `rusted`, `rusty`, `rusting`, `rustproof`,
+`rustproofing`) and restoration (`restoration`, `restorations`, `restore`,
+`restored`, `restoring`) tokens plus the named closed-up forms
+(`carrustrepair`, `rustrepair`, `carrestoration`, `carrestorations`) negative
+even with collision, body-shop, OEM, insurer, or geo wording. Part restoration
+(`headlight restoration`, `wheel restoration`) is now negative. The new clause
+states the `classic`-car-restoration carve-out in `POL-COMPETITOR-NEGATIVE`
+does not apply to restoration-token queries; that carve-out text and the
+decision-order preamble parenthetical are not yet refreshed. The redundant
+`rust hole` clause in `POL-COSMETIC-ONLY-NEGATIVE` is unchanged; both rules
+are negative.
+
 ## Enforced locally
 
 - Application startup rejects policy or phrase-protection content that differs from the
