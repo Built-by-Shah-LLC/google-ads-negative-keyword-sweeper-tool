@@ -95,6 +95,9 @@ JSON, CSV, and Excel reports expose the separate effective outcome
 and match types. Final pre-mutation conflicts take precedence; when mutation is
 disabled or skipped, reports may derive the same outcome from the immutable
 account snapshot and label that source explicitly.
+The same derived result is inserted into the tenant-scoped, immutable
+`negative_keyword_decision_outcomes` table. It is linked to the original LLM
+decision rather than replacing or updating that evidence.
 Paused or other-campaign exact matches remain visible audit context; phrase and
 broad expansion matches do not protect a different full search query.
 

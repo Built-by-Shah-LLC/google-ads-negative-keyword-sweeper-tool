@@ -11,6 +11,7 @@ import type {
   RuleSet,
   SearchTermRow,
 } from "../types.js";
+import type { EffectiveDecision } from "./effective-decisions.js";
 
 export interface SweepRunStart {
   runId: string;
@@ -153,6 +154,11 @@ export interface SweepPersistence {
     error: SerializedError,
     completedAt: string,
   ): Promise<void>;
+  recordEffectiveDecisions(
+    customerId: string,
+    decisions: EffectiveDecision[],
+    evaluatedAt: string,
+  ): Promise<void>;
   finishAccount(summary: SweepAccountSummaryRecord): Promise<void>;
   finishRun(input: SweepRunFinish): Promise<void>;
   close(): Promise<void>;
@@ -165,6 +171,7 @@ export class DisabledSweepPersistence implements SweepPersistence {
   async markBatchRunning(): Promise<void> {}
   async recordBatchSuccess(): Promise<void> {}
   async recordBatchFailure(): Promise<void> {}
+  async recordEffectiveDecisions(): Promise<void> {}
   async finishAccount(): Promise<void> {}
   async finishRun(): Promise<void> {}
   async close(): Promise<void> {}

@@ -37,7 +37,7 @@ Cloud SQL, not the ephemeral filesystem, is the durable run record.
    `.env.openai` file may override the OpenAI key/model. Both files are ignored by Git
    and excluded from the container image.
 4. Built Ads Manager migrations through
-   `0022_sweeper_positive_keyword_snapshots.sql` applied by
+   `0023_sweeper_effective_decision_outcomes.sql` applied by
    its private migration Job. The database administrator must first create the
    non-bypass-RLS login `bam_dev_negative_keyword_sweeper`; that migration Job
    creates/grants `bam_negative_keyword_sweeper_runtime`.
@@ -46,10 +46,11 @@ Cloud SQL, not the ephemeral filesystem, is the durable run record.
    URL must target private `bam-dev-postgres/built_ads_manager` and must not
    reuse the web or worker login.
 
-Migration `0022` must precede this revision because every persisted account run
-stores an immutable positive-keyword inventory and three reconciliation counts.
+Migrations `0022` and `0023` must precede this revision because every persisted
+account run stores an immutable positive-keyword inventory and each LLM
+decision receives a separate immutable effective outcome.
 After migration, rerun the versioned sweeper runtime grants so the dedicated
-role can insert the two snapshot tables and update only those count columns.
+role can insert the snapshot/outcome tables and update only the account counts.
 
 ## Deploy
 

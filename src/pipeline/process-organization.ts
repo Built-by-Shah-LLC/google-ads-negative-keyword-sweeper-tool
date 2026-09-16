@@ -264,6 +264,11 @@ export async function processOrganization(
       );
       mutation = await runMutationStage(dependencies, organization, candidates, [], summary);
       summary.mutation = mutation;
+      await dependencies.persistence?.recordEffectiveDecisions(
+        organization.customerId,
+        createEffectiveDecisions(candidates, [], mutation),
+        new Date().toISOString()
+      );
       await dependencies.persistence?.finishAccount(summaryRecord(summary));
       await writeOrganizationResults(dependencies, basePath, organization, dateRange, candidates, [], summary);
       logOrganizationCompleted(dependencies.logger, summary, organizationStarted);
@@ -485,6 +490,11 @@ export async function processOrganization(
     summary.mutation = mutation;
     summary.errorCount = dependencies.telemetry.errorsForOrganization(organization.customerId).length;
     if (mutation.status === "FAILED" || mutation.status === "PARTIAL") summary.status = "PARTIAL";
+    await dependencies.persistence?.recordEffectiveDecisions(
+      organization.customerId,
+      createEffectiveDecisions(candidates, decisions, mutation),
+      new Date().toISOString()
+    );
     await dependencies.persistence?.finishAccount(summaryRecord(summary));
     await writeOrganizationResults(dependencies, basePath, organization, dateRange, candidates, decisions, summary);
     logOrganizationCompleted(dependencies.logger, summary, organizationStarted);

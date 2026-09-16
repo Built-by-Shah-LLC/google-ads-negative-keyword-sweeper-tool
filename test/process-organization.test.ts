@@ -41,6 +41,9 @@ test("writes reconciled organization telemetry and token artifacts", async (cont
       persistenceCalls.push(`success:${batchKey}:${result.validated.decisions.length}`);
     },
     async recordBatchFailure() { persistenceCalls.push("failure"); },
+    async recordEffectiveDecisions(_customerId, decisions) {
+      persistenceCalls.push(`effective:${decisions.map((decision) => decision.effectiveOutcome).join(",")}`);
+    },
     async finishAccount(summary) { persistenceCalls.push(`finish:${summary.status}:${summary.decisionCount}`); },
     async finishRun() {},
     async close() {},
@@ -187,6 +190,7 @@ test("writes reconciled organization telemetry and token artifacts", async (cont
   assert.ok(persistenceCalls.includes("prepare:2:2"));
   assert.equal(persistenceCalls.filter((entry) => entry.startsWith("running:")).length, 2);
   assert.equal(persistenceCalls.filter((entry) => entry.startsWith("success:")).length, 2);
+  assert.equal(persistenceCalls.filter((entry) => entry === "effective:KEEP,KEEP").length, 1);
   assert.ok(persistenceCalls.includes("finish:SUCCEEDED:2"));
 });
 

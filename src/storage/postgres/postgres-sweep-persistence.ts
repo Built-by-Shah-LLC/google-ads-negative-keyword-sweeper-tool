@@ -490,6 +490,102 @@ export class PostgresSweepPersistence implements SweepPersistence {
     });
   }
 
+  async recordEffectiveDecisions(
+    customerId: string,
+    decisions: import("../effective-decisions.js").EffectiveDecision[],
+    evaluatedAt: string,
+  ): Promise<void> {
+    if (decisions.length === 0) return;
+    const runId = this.requiredRunId();
+    const handle = this.requiredAccount(customerId);
+    const outcomeRows = decisions.map((decision) => ({
+      item_id: decision.itemId,
+      llm_decision: decision.decision.toLowerCase(),
+      effective_outcome: decision.effectiveOutcome.toLowerCase(),
+      protection_source: decision.positiveKeywordProtectionSource?.toLowerCase() ?? null,
+      positive_criterion_ids: decision.positiveCriterionIds,
+      positive_match_types: decision.positiveMatchTypes,
+    }));
+    const serializedRows = JSON.stringify(outcomeRows);
+    await this.transaction(async (client) => {
+      await client.query(`
+        WITH input AS (
+          SELECT *
+          FROM jsonb_to_recordset($5::jsonb) AS row(
+            item_id text,
+            llm_decision text,
+            effective_outcome text,
+            protection_source text,
+            positive_criterion_ids text[],
+            positive_match_types text[]
+          )
+        )
+          INSERT INTO negative_keyword_decision_outcomes (
+            organization_id, sweep_run_id, sweep_account_run_id, account_id,
+            decision_id, llm_decision, effective_outcome, protection_source,
+            positive_criterion_ids, positive_match_types, evaluated_at
+          )
+          SELECT $1, $2, $3, $4, d.id, input.llm_decision,
+                 input.effective_outcome, input.protection_source,
+                 input.positive_criterion_ids, input.positive_match_types, $6
+          FROM input
+          JOIN negative_keyword_candidates c
+            ON c.organization_id = $1
+           AND c.sweep_run_id = $2
+           AND c.sweep_account_run_id = $3
+           AND c.account_id = $4
+           AND c.item_id = input.item_id
+          JOIN negative_keyword_decisions d
+            ON d.organization_id = c.organization_id
+           AND d.candidate_id = c.id
+           AND d.sweep_run_id = c.sweep_run_id
+           AND d.sweep_account_run_id = c.sweep_account_run_id
+           AND d.account_id = c.account_id
+           AND d.decision = input.llm_decision
+          ON CONFLICT (decision_id) DO NOTHING
+      `, [this.organizationId, runId, handle.id, handle.accountId, serializedRows, evaluatedAt]);
+      const verified = await client.query<{ count: string }>(`
+        WITH input AS (
+          SELECT *
+          FROM jsonb_to_recordset($5::jsonb) AS row(
+            item_id text,
+            llm_decision text,
+            effective_outcome text,
+            protection_source text,
+            positive_criterion_ids text[],
+            positive_match_types text[]
+          )
+        )
+        SELECT count(*)::text AS count
+        FROM input
+        JOIN negative_keyword_candidates c
+          ON c.organization_id = $1
+         AND c.sweep_run_id = $2
+         AND c.sweep_account_run_id = $3
+         AND c.account_id = $4
+         AND c.item_id = input.item_id
+        JOIN negative_keyword_decisions d
+          ON d.organization_id = c.organization_id
+         AND d.candidate_id = c.id
+         AND d.sweep_run_id = c.sweep_run_id
+         AND d.sweep_account_run_id = c.sweep_account_run_id
+         AND d.account_id = c.account_id
+         AND d.decision = input.llm_decision
+        JOIN negative_keyword_decision_outcomes outcome
+          ON outcome.organization_id = d.organization_id
+         AND outcome.decision_id = d.id
+         AND outcome.llm_decision = input.llm_decision
+         AND outcome.effective_outcome = input.effective_outcome
+         AND outcome.protection_source IS NOT DISTINCT FROM input.protection_source
+         AND outcome.positive_criterion_ids = input.positive_criterion_ids
+         AND outcome.positive_match_types = input.positive_match_types
+      `, [this.organizationId, runId, handle.id, handle.accountId, serializedRows]);
+      if (verified.rows[0]?.count !== String(decisions.length)) {
+        throw new Error("Effective decision outcomes did not reconcile with stored LLM decisions.");
+      }
+    });
+  }
+
   async finishAccount(summary: SweepAccountSummaryRecord): Promise<void> {
     const handle = this.requiredAccount(summary.customerId);
     await this.transaction(async (client) => {
