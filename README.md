@@ -197,8 +197,9 @@ Account selection is governed by two committed JSON files, not the long env allo
   if the file is missing does the env allowlist remain as a fallback (the active source
   is logged at startup).
 - `data/sweep-30day-state.json` (override with `SWEEP_30DAY_STATE_FILE`) — records which
-  master-list companies have completed their initial 30-day-lookback sweep. The seeded
-  version marks only 3J Collision Center (8500809656) complete. `npm run sweep:30day`
+  master-list companies have completed their initial 30-day-lookback sweep. The committed
+  version includes 3J Collision Center plus fourteen accounts manually confirmed as
+  completed on the production server on September 18, 2026. `npm run sweep:30day`
   rewrites this file atomically (temporary file plus rename) after each successful
   account run, so it changes at runtime; commit intentional updates to it.
 

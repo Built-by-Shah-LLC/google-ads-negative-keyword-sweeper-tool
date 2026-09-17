@@ -108,11 +108,32 @@ test("a present but invalid master file fails fast instead of falling back", asy
   });
 });
 
-test("the seeded state file records only 3J Collision Center", async () => {
+test("the committed state activates the 15 confirmed daily-sweep accounts", async () => {
   const { state, existed } = await loadSweep30DayState(resolve(repositoryRoot, "data/sweep-30day-state.json"));
   assert.equal(existed, true);
-  assert.deepEqual(Object.keys(state.completed), ["8500809656"]);
+  const confirmedIds = [
+    "8500809656",
+    "8402372674",
+    "2305040084",
+    "9459997727",
+    "6304919700",
+    "1130534333",
+    "8820051592",
+    "3666014313",
+    "7990574090",
+    "6592667815",
+    "8791302016",
+    "7289311819",
+    "1618289856",
+    "3419276158",
+    "4007102747"
+  ];
+  assert.deepEqual(Object.keys(state.completed).sort(), [...confirmedIds].sort());
   assert.equal(state.completed["8500809656"]?.source, "seeded-manual");
+  for (const customerId of confirmedIds.slice(1)) {
+    assert.equal(state.completed[customerId]?.source, "manual-server-confirmed");
+    assert.equal(hasSweep30DayCompletion(state, customerId), true);
+  }
 });
 
 test("a missing state file reads as no completions", async () => {

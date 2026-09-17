@@ -23,6 +23,10 @@ import { PipelineError } from "../observability/errors.js";
 import { createLogger, type Logger } from "../observability/logger.js";
 import { emptyTokenUsage, RunTelemetry, type TokenTotals } from "../observability/run-telemetry.js";
 import { RunArtifacts } from "../storage/run-artifacts.js";
+import {
+  createCipirianKeywordAnalysisWorkbook,
+  createRunClassificationReport
+} from "../storage/cipirian-keyword-analysis.js";
 import { createRunWorkbook } from "../storage/run-workbook.js";
 import {
   DisabledSweepPersistence,
@@ -407,14 +411,32 @@ async function finalizeRun(
     const filename = `negative-keyword-sweeper-${artifacts.runId}.xlsx`;
     await artifacts.writeBuffer(filename, workbook);
     workbookWritten = true;
+    const classificationReport = await createRunClassificationReport({
+      runId: artifacts.runId,
+      runDirectory: artifacts.runDirectory,
+      summaries,
+      provider,
+      model,
+      ruleVersion: rules.version
+    });
+    const cipirianAnalysisWorkbook = await createCipirianKeywordAnalysisWorkbook({
+      completedAt,
+      rows: classificationReport.rows
+    });
+    const cipirianAnalysisFilename = `cipirian-keyword-analysis-${artifacts.runId}.xlsx`;
+    await artifacts.writeBuffer(cipirianAnalysisFilename, cipirianAnalysisWorkbook);
     const delivery = await runReportEmail?.send({
       runId: artifacts.runId,
       status,
+      completedAt,
       workbook,
       filename,
+      cipirianAnalysisWorkbook,
+      cipirianAnalysisFilename,
       organizationCount: summaries.length,
       inputTokens: telemetrySnapshot.tokenUsage.inputTokens,
-      outputTokens: telemetrySnapshot.tokenUsage.outputTokens
+      outputTokens: telemetrySnapshot.tokenUsage.outputTokens,
+      accountOverviews: classificationReport.accountOverviews
     });
     reportDelivery = delivery ?? reportDelivery;
     await artifacts.write("report-email.json", reportDelivery);

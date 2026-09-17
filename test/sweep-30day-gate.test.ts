@@ -147,16 +147,19 @@ test("the gate is inactive when the env allowlist fallback is in use", async () 
   });
 });
 
-test("the seeded repository state gates a standard run down to 3J Collision Center", async () => {
+test("the committed repository state admits confirmed daily-sweep accounts", async () => {
   const config = {
     sweepAccounts: {
       source: "master-file",
       filePath: "config/sweep-accounts.json",
-      accounts: [{ customerId: "8500809656", name: "3J Collision Center" }]
+      accounts: [
+        { customerId: "8500809656", name: "3J Collision Center" },
+        { customerId: "8402372674", name: "Akins Collision Center" }
+      ]
     },
     sweep30DayStateFile: join(process.cwd(), "data", "sweep-30day-state.json")
   } as AppConfig;
   const eligible = [organization("8500809656", "3J Collision Center"), organization("8402372674", "Akins")];
   const gated = await applyThirtyDayGate(config, optionsWith({}), eligible, logger);
-  assert.deepEqual(gated.map((item) => item.customerId), ["8500809656"]);
+  assert.deepEqual(gated.map((item) => item.customerId), ["8500809656", "8402372674"]);
 });

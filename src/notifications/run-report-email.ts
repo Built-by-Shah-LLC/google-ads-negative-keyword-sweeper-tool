@@ -1,18 +1,20 @@
 import type { RunReportEmailConfig } from "../config/env.js";
 import { PipelineError } from "../observability/errors.js";
 import type { Logger } from "../observability/logger.js";
+import {
+  renderRunReportEmailHtml,
+  renderRunReportEmailText,
+  type RunReportEmailContent
+} from "./run-report-template.js";
 
 const RESEND_EMAILS_URL = "https://api.resend.com/emails";
 const RETRYABLE_STATUS = new Set([408, 409, 429, 500, 502, 503, 504]);
 
-export interface RunReportMessage {
-  runId: string;
-  status: "SUCCEEDED" | "PARTIAL" | "FAILED";
+export interface RunReportMessage extends RunReportEmailContent {
   workbook: Buffer;
   filename: string;
-  organizationCount: number;
-  inputTokens: number;
-  outputTokens: number;
+  cipirianAnalysisWorkbook: Buffer;
+  cipirianAnalysisFilename: string;
 }
 
 export interface RunReportDelivery {
@@ -39,19 +41,20 @@ export class RunReportEmailService {
       from: this.config.from,
       to: this.config.recipients,
       subject: `${this.config.subjectPrefix} ${message.status} — ${message.runId}`,
-      text: [
-        `Negative keyword sweeper run ${message.runId} finished with status ${message.status}.`,
-        `Organizations: ${message.organizationCount}`,
-        `Actual LLM generation input tokens: ${message.inputTokens}`,
-        `Actual LLM generation output tokens: ${message.outputTokens}`,
-        `Calculated generation total (input + output): ${message.inputTokens + message.outputTokens}`,
-        "The attached Excel workbook contains one worksheet per organization, including decisions, rules, reasons, batch token usage, and errors/timeouts."
-      ].join("\n"),
-      attachments: [{
-        filename: message.filename,
-        content: message.workbook.toString("base64"),
-        content_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-      }]
+      text: renderRunReportEmailText(message),
+      html: renderRunReportEmailHtml(message),
+      attachments: [
+        {
+          filename: message.filename,
+          content: message.workbook.toString("base64"),
+          content_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        },
+        {
+          filename: message.cipirianAnalysisFilename,
+          content: message.cipirianAnalysisWorkbook.toString("base64"),
+          content_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        }
+      ]
     };
 
     for (let attempt = 0; attempt <= this.config.maxRetries; attempt += 1) {

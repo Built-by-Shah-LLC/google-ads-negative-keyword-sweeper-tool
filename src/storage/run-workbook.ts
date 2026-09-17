@@ -1,9 +1,11 @@
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
 import ExcelJS from "exceljs";
 import type { SerializedError } from "../observability/errors.js";
 import type { OrganizationSummary } from "../pipeline/process-organization.js";
-import type { ClassificationCandidate, ClassificationDecision, LlmTokenUsage, RuleSet } from "../types.js";
+import type { LlmTokenUsage, RuleSet } from "../types.js";
+import {
+  loadOrganizationClassificationArtifacts,
+  type OrganizationClassificationArtifacts
+} from "./classification-artifacts.js";
 
 export interface RunWorkbookInput {
   runId: string;
@@ -15,12 +17,6 @@ export interface RunWorkbookInput {
   model: string;
   rules: RuleSet;
   summaries: OrganizationSummary[];
-}
-
-interface OrganizationArtifacts {
-  candidates: ClassificationCandidate[];
-  decisions: ClassificationDecision[];
-  errors: SerializedError[];
 }
 
 // Light red highlight for rows whose candidate was classified as a negative keyword.
@@ -35,7 +31,7 @@ export async function createRunWorkbook(input: RunWorkbookInput): Promise<Buffer
 
   const usedNames = new Set<string>();
   for (const summary of input.summaries) {
-    const artifacts = await loadOrganizationArtifacts(input.runDirectory, summary.customerId);
+    const artifacts = await loadOrganizationClassificationArtifacts(input.runDirectory, summary.customerId);
     const sheet = workbook.addWorksheet(uniqueSheetName(summary.descriptiveName, summary.customerId, usedNames), {
       views: [{ state: "frozen", ySplit: 1 }]
     });
@@ -60,23 +56,11 @@ export async function createRunWorkbook(input: RunWorkbookInput): Promise<Buffer
   return Buffer.from(generated);
 }
 
-async function loadOrganizationArtifacts(runDirectory: string, customerId: string): Promise<OrganizationArtifacts> {
-  const base = join(runDirectory, "organizations", customerId);
-  const candidatesFile = await readJsonIfExists<{ candidates?: ClassificationCandidate[] }>(join(base, "candidates.json"));
-  const decisionsFile = await readJsonIfExists<{ decisions?: ClassificationDecision[] }>(join(base, "decisions.json"));
-  const errorsFile = await readJsonIfExists<{ errors?: SerializedError[] }>(join(base, "errors.json"));
-  return {
-    candidates: Array.isArray(candidatesFile?.candidates) ? candidatesFile.candidates : [],
-    decisions: Array.isArray(decisionsFile?.decisions) ? decisionsFile.decisions : [],
-    errors: Array.isArray(errorsFile?.errors) ? errorsFile.errors : []
-  };
-}
-
 function addOrganizationSheet(
   sheet: ExcelJS.Worksheet,
   input: RunWorkbookInput,
   summary: OrganizationSummary,
-  artifacts: OrganizationArtifacts
+  artifacts: OrganizationClassificationArtifacts
 ): void {
   sheet.columns = Array.from({ length: 27 }, (_, index) => ({
     key: `column-${index + 1}`,
@@ -369,13 +353,4 @@ function uniqueSheetName(name: string, customerId: string, used: Set<string>): s
   }
   used.add(candidate.toLocaleLowerCase("en-US"));
   return candidate;
-}
-
-async function readJsonIfExists<T>(path: string): Promise<T | null> {
-  try {
-    return JSON.parse(await readFile(path, "utf8")) as T;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
-    throw error;
-  }
 }
