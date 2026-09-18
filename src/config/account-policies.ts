@@ -1,27 +1,25 @@
 /**
+ * SEED SOURCE ONLY — not read at runtime.
+ *
  * Trusted per-account policy configuration, keyed by the canonical ten-digit
  * Google Ads customer ID (no hyphens). Account names are mutable and supplied
  * by Google Ads; the customer ID is the stable policy identity.
  *
- * This is the partial implementation of
- * docs/ACCOUNT_SPECIFIC_POLICY_COMPILATION_PLAN.md:
- * - the base rules markdown stays the agency-wide static policy;
+ * Runtime policy is loaded from the database (see src/config/db-policy.ts).
+ * This file remains the initial seed content that scripts/seed-policy-to-db.ts
+ * imports into the negative_keyword_account_rules and
+ * negative_keyword_phrase_protections tables:
  * - `customRules` is the dynamic rule set for one account, rendered into that
  *   account's effective rules document at runtime;
  * - `phraseProtectionsFile` is the per-company phrase-protection document that
  *   is combined with the agency-wide protections for that account only.
  */
 
-export interface AccountRuleDefinition {
-  /** Uppercase, unique within the effective bundle, must end in -KEEP or -NEGATIVE. */
-  id: string;
-  /** Short title rendered after the rule heading. */
-  title: string;
-  /** Markdown body of the rule, sent to the LLM verbatim. */
-  instruction: string;
-}
+import type { AccountRuleDefinition } from "./account-policy-compiler.js";
 
-export interface AccountPolicyConfig {
+export type { AccountRuleDefinition };
+
+export interface AccountPolicySeedConfig {
   /** Stable policy identity used in artifacts; not the mutable descriptive name. */
   policyKey: string;
   /** Bump on every change to this account entry. */
@@ -32,7 +30,7 @@ export interface AccountPolicyConfig {
   phraseProtectionsFile: string;
 }
 
-export const ACCOUNT_POLICIES: Record<string, AccountPolicyConfig> = {
+export const ACCOUNT_POLICIES: Record<string, AccountPolicySeedConfig> = {
   // 3J Collision Center
   "8500809656": {
     policyKey: "3j-collision-center",

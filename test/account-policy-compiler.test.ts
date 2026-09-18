@@ -1,36 +1,56 @@
 import assert from "node:assert/strict";
-import { mkdtemp, writeFile, mkdir } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import test from "node:test";
-import { compileAccountPolicy } from "../src/config/account-policy-compiler.js";
-import type { AccountPolicyConfig } from "../src/config/account-policies.js";
+import { compileAccountPolicy, type AccountPolicyConfig } from "../src/config/account-policy-compiler.js";
+import { ACCOUNT_POLICIES } from "../src/config/account-policies.js";
+import { parsePhraseProtections } from "../src/config/phrase-protections.js";
 import { loadRuleSet } from "../src/config/rule-set.js";
+import type { PhraseProtection } from "../src/types.js";
 
 const THREE_J = "8500809656";
 
-function protectionsMarkdown(entries: unknown[]): string {
-  return `# test protections\n\n\`\`\`json\n${JSON.stringify(entries, null, 2)}\n\`\`\`\n`;
+async function threeJPolicy(): Promise<Record<string, AccountPolicyConfig>> {
+  const base = await loadRuleSet(process.cwd());
+  const seed = ACCOUNT_POLICIES[THREE_J]!;
+  const markdown = await readFile(resolve(process.cwd(), seed.phraseProtectionsFile), "utf8");
+  const phraseProtections = parsePhraseProtections(markdown, [
+    ...base.ruleIds,
+    ...seed.customRules.map((rule) => rule.id)
+  ]);
+  return {
+    [THREE_J]: {
+      policyKey: seed.policyKey,
+      revision: seed.revision,
+      customRules: seed.customRules,
+      phraseProtections
+    }
+  };
 }
 
-async function tempRoot(markdown: string): Promise<{ root: string; file: string }> {
-  const root = await mkdtemp(join(tmpdir(), "account-policy-"));
-  await mkdir(join(root, "accounts"), { recursive: true });
-  await writeFile(join(root, "accounts", "protections.md"), markdown, "utf8");
-  return { root, file: "accounts/protections.md" };
+function protection(overrides: Partial<PhraseProtection>): PhraseProtection {
+  return {
+    id: "test-entry",
+    phrase: "frame repair",
+    customerIds: [],
+    ruleId: "POL-MECHANICAL-ONLY-NEGATIVE",
+    excusedEvidence: "x",
+    ...overrides
+  };
 }
 
 test("base-only account returns the unchanged base bundle", async () => {
   const base = await loadRuleSet(process.cwd());
-  const result = await compileAccountPolicy(base, process.cwd(), "1234567890");
+  const result = await compileAccountPolicy(base, "1234567890", {});
   assert.equal(result.manifest, null);
-  assert.equal(result.accountPhraseProtectionsMarkdown, null);
+  assert.equal(result.accountPhraseProtections, null);
   assert.equal(result.rules, base);
 });
 
 test("3J policy compiles dynamic rules and account phrase protections", async () => {
   const base = await loadRuleSet(process.cwd());
-  const result = await compileAccountPolicy(base, process.cwd(), THREE_J);
+  const policies = await threeJPolicy();
+  const result = await compileAccountPolicy(base, THREE_J, policies);
   assert.ok(result.manifest);
   assert.equal(result.manifest.policyKey, "3j-collision-center");
   assert.deepEqual(result.manifest.dynamicRuleIds, [
@@ -64,92 +84,83 @@ test("3J policy compiles dynamic rules and account phrase protections", async ()
   assert.match(result.rules.markdown, /fill holes in car body/iu);
   assert.match(result.rules.markdown, /Safelite/iu);
   // Deterministic: compiling again yields the same hash.
-  const again = await compileAccountPolicy(base, process.cwd(), THREE_J);
+  const again = await compileAccountPolicy(base, THREE_J, policies);
   assert.equal(again.manifest!.effectivePolicySha256, result.manifest.effectivePolicySha256);
   assert.equal(again.rules.markdown, result.rules.markdown);
 });
 
 test("rejects a malformed customer ID", async () => {
   const base = await loadRuleSet(process.cwd());
-  await assert.rejects(() => compileAccountPolicy(base, process.cwd(), "850-080-9656"), /ten-digit/u);
+  await assert.rejects(() => compileAccountPolicy(base, "850-080-9656", {}), /ten-digit/u);
 });
 
 test("rejects a dynamic rule colliding with a base rule ID", async () => {
   const base = await loadRuleSet(process.cwd());
-  const { root, file } = await tempRoot(protectionsMarkdown([]));
   const policies: Record<string, AccountPolicyConfig> = {
     "1234567890": {
       policyKey: "bad",
       revision: "1",
       customRules: [{ id: base.ruleIds[0]!, title: "collision", instruction: "collision" }],
-      phraseProtectionsFile: file
+      phraseProtections: []
     }
   };
-  await assert.rejects(() => compileAccountPolicy(base, root, "1234567890", policies), /collides/u);
+  await assert.rejects(() => compileAccountPolicy(base, "1234567890", policies), /collides/u);
 });
 
 test("rejects a dynamic rule ID without a decision suffix", async () => {
   const base = await loadRuleSet(process.cwd());
-  const { root, file } = await tempRoot(protectionsMarkdown([]));
   const policies: Record<string, AccountPolicyConfig> = {
     "1234567890": {
       policyKey: "bad",
       revision: "1",
       customRules: [{ id: "POL-X-AMBIGUOUS", title: "t", instruction: "i" }],
-      phraseProtectionsFile: file
+      phraseProtections: []
     }
   };
-  await assert.rejects(() => compileAccountPolicy(base, root, "1234567890", policies), /-KEEP or -NEGATIVE/u);
+  await assert.rejects(() => compileAccountPolicy(base, "1234567890", policies), /-KEEP or -NEGATIVE/u);
 });
 
 test("rejects an account protection referencing an unknown rule", async () => {
   const base = await loadRuleSet(process.cwd());
-  const { root, file } = await tempRoot(protectionsMarkdown([{
-    id: "bad-entry",
-    phrase: "frame repair",
-    customerIds: ["1234567890"],
-    ruleId: "POL-DOES-NOT-EXIST-NEGATIVE",
-    excusedEvidence: "x"
-  }]));
   const policies: Record<string, AccountPolicyConfig> = {
-    "1234567890": { policyKey: "bad", revision: "1", customRules: [], phraseProtectionsFile: file }
+    "1234567890": {
+      policyKey: "bad",
+      revision: "1",
+      customRules: [],
+      phraseProtections: [protection({ id: "bad-entry", ruleId: "POL-DOES-NOT-EXIST-NEGATIVE" })]
+    }
   };
-  await assert.rejects(() => compileAccountPolicy(base, root, "1234567890", policies));
+  await assert.rejects(() => compileAccountPolicy(base, "1234567890", policies));
 });
 
 test("rejects an account protection scoped to a different account", async () => {
   const base = await loadRuleSet(process.cwd());
-  const { root, file } = await tempRoot(protectionsMarkdown([{
-    id: "other-account",
-    phrase: "frame repair",
-    customerIds: ["9999999999"],
-    ruleId: "POL-MECHANICAL-ONLY-NEGATIVE",
-    excusedEvidence: "x"
-  }]));
   const policies: Record<string, AccountPolicyConfig> = {
-    "1234567890": { policyKey: "bad", revision: "1", customRules: [], phraseProtectionsFile: file }
+    "1234567890": {
+      policyKey: "bad",
+      revision: "1",
+      customRules: [],
+      phraseProtections: [protection({ id: "other-account", customerIds: ["9999999999"] })]
+    }
   };
-  await assert.rejects(() => compileAccountPolicy(base, root, "1234567890", policies), /scoped to other accounts/u);
+  await assert.rejects(() => compileAccountPolicy(base, "1234567890", policies), /scoped to other accounts/u);
 });
 
 test("account protections may reference dynamic negative rules of the same account", async () => {
   const base = await loadRuleSet(process.cwd());
-  const { root, file } = await tempRoot(protectionsMarkdown([{
-    id: "custom-rule-protection",
-    phrase: "moped frame repair",
-    customerIds: [],
-    ruleId: "POL-X-MOTORCYCLE-NEGATIVE",
-    excusedEvidence: "x"
-  }]));
   const policies: Record<string, AccountPolicyConfig> = {
     "1234567890": {
       policyKey: "x",
       revision: "1",
       customRules: [{ id: "POL-X-MOTORCYCLE-NEGATIVE", title: "t", instruction: "i" }],
-      phraseProtectionsFile: file
+      phraseProtections: [protection({
+        id: "custom-rule-protection",
+        phrase: "moped frame repair",
+        ruleId: "POL-X-MOTORCYCLE-NEGATIVE"
+      })]
     }
   };
-  const result = await compileAccountPolicy(base, root, "1234567890", policies);
+  const result = await compileAccountPolicy(base, "1234567890", policies);
   assert.equal(result.manifest!.accountPhraseProtectionCount, 1);
   assert.ok(result.rules.phraseProtections!.some((entry) => entry.id === "custom-rule-protection"));
 });

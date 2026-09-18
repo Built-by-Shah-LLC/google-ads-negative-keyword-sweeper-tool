@@ -8,6 +8,14 @@ export function parsePhraseProtections(markdown: string, ruleIds: string[]): Phr
   const blocks = [...markdown.matchAll(/^```json\s*\n([\s\S]*?)^```\s*$/gmu)];
   if (blocks.length !== 1) throw new Error("Phrase protections require exactly one JSON block.");
   const entries: unknown = JSON.parse(blocks[0]![1]!);
+  return validatePhraseProtectionEntries(entries, ruleIds);
+}
+
+/**
+ * Shared strict validation for phrase-protection entries, whether they were
+ * parsed from a markdown policy file or loaded from the database.
+ */
+export function validatePhraseProtectionEntries(entries: unknown, ruleIds: string[]): PhraseProtection[] {
   if (!Array.isArray(entries)) throw new Error("Phrase protections must be an array.");
   const ids = new Set<string>();
   for (const entry of entries) {

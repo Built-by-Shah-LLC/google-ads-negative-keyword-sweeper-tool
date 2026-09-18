@@ -113,7 +113,9 @@ test("validation orchestration reports validated without a post-mutation read", 
     chunkSize: 500
   });
 
-  assert.equal(reads, 2);
+  // One read: the pre-mutation existing-negatives check. The positive-keyword
+  // re-fetch guard was removed; protection is classification-time LLM policy.
+  assert.equal(reads, 1);
   assert.equal(summary.status, "VALIDATED");
   assert.equal(summary.validatedCount, 1);
   assert.equal(summary.appliedCount, 0);
@@ -149,7 +151,7 @@ test("mutation preparation deduplicates normalized campaign terms and skips exis
     chunkSize: 500
   });
 
-  assert.equal(searchCalls, 2);
+  assert.equal(searchCalls, 1);
   assert.equal(summary.status, "MOCKED");
   assert.equal(summary.proposedCount, 2);
   assert.equal(summary.duplicateDecisionCount, 1);
@@ -254,10 +256,11 @@ test("production orchestration verifies applied writes through a read before rep
   const item = candidate();
   let reads = 0;
   const googleAds = {
-    async searchStream(_customerId: string, query: string) {
+    async searchStream(_customerId: string, _query: string) {
       reads += 1;
-      if (query.includes("FROM ad_group_criterion")) return [];
-      return reads < 3 ? [] : [{
+      // First read: pre-mutation existing-negatives check (empty). Second
+      // read: post-mutation verification finds the applied exact negative.
+      return reads < 2 ? [] : [{
         campaign: { id: item.campaignId },
         campaignCriterion: { negative: true, keyword: { text: item.searchTerm, matchType: "EXACT" } }
       }];
@@ -286,7 +289,7 @@ test("production orchestration verifies applied writes through a read before rep
     chunkSize: 500
   });
 
-  assert.equal(reads, 3);
+  assert.equal(reads, 2);
   assert.equal(summary.status, "APPLIED");
   assert.equal(summary.appliedCount, 1);
   assert.equal(summary.verifiedCount, 1);
@@ -298,10 +301,9 @@ test("an ambiguous production write is read back once and never blindly retried"
   let reads = 0;
   let writes = 0;
   const googleAds = {
-    async searchStream(_customerId: string, query: string) {
+    async searchStream(_customerId: string, _query: string) {
       reads += 1;
-      if (query.includes("FROM ad_group_criterion")) return [];
-      return reads < 3 ? [] : [{
+      return reads < 2 ? [] : [{
         campaign: { id: item.campaignId },
         campaignCriterion: { negative: true, keyword: { text: item.searchTerm, matchType: "EXACT" } }
       }];
@@ -325,36 +327,34 @@ test("an ambiguous production write is read back once and never blindly retried"
   });
 
   assert.equal(writes, 1);
-  assert.equal(reads, 3);
+  assert.equal(reads, 2);
   assert.equal(summary.status, "APPLIED");
   assert.equal(summary.appliedCount, 1);
   assert.equal(summary.verifiedCount, 1);
   assert.equal(summary.outcomeAmbiguous, false);
 });
 
-test("active same-campaign exact positive keyword blocks a negative before any writer call", async () => {
+test("a same-campaign exact positive keyword no longer blocks a negative (LLM prompt is the protection layer)", async () => {
   const item = candidate({ searchTerm: "caliber collision" });
   let writes = 0;
   const writer: NegativeKeywordWriter = {
-    mode: "production",
-    async writeChunk() {
+    mode: "development",
+    async writeChunk(_customerId, operations) {
       writes += 1;
-      throw new Error("protected operation must never reach the writer");
+      return {
+        requestId: null,
+        results: operations.map((operation) => ({
+          ...operation,
+          status: "MOCKED" as const,
+          resourceName: `mock://${operation.operationId}`,
+          error: null
+        }))
+      };
     }
   };
   const summary = await applyNegativeExactDecisions({
     googleAds: {
-      async searchStream(_customerId, query) {
-        if (query.includes("FROM ad_group_criterion")) {
-          return [{
-            campaign: { id: item.campaignId, name: item.campaignName, status: "ENABLED" },
-            adGroup: { id: item.adGroupId, name: item.adGroupName, status: "ENABLED" },
-            adGroupCriterion: {
-              criterionId: "333", status: "ENABLED", negative: false,
-              keyword: { text: "Caliber   Collision", matchType: "PHRASE" }
-            }
-          }];
-        }
+      async searchStream() {
         return [];
       }
     },
@@ -365,13 +365,15 @@ test("active same-campaign exact positive keyword blocks a negative before any w
     chunkSize: 500
   });
 
-  assert.equal(writes, 0);
-  assert.equal(summary.status, "NO_CHANGES");
+  // No post-LLM exact-match guard: the writer is called and conflict
+  // reporting stays empty. The classifier saw the positive inventory and
+  // chose this decision; the pipeline honors it.
+  assert.equal(writes, 1);
+  assert.equal(summary.status, "MOCKED");
   assert.equal(summary.proposedCount, 1);
-  assert.equal(summary.positiveKeywordConflictCount, 1);
-  assert.equal(summary.attemptedCount, 0);
-  assert.deepEqual(summary.positiveKeywordConflicts[0]?.sourceItemIds, [item.itemId]);
-  assert.deepEqual(summary.positiveKeywordConflicts[0]?.positiveCriterionIds, ["333"]);
+  assert.equal(summary.positiveKeywordConflictCount, 0);
+  assert.deepEqual(summary.positiveKeywordConflicts, []);
+  assert.equal(summary.attemptedCount, 1);
   assert.equal(summary.googleAdsMutationPerformed, false);
 });
 
@@ -395,17 +397,7 @@ test("a longer competitor query matched by a positive phrase remains mutation el
   };
   const summary = await applyNegativeExactDecisions({
     googleAds: {
-      async searchStream(_customerId, query) {
-        if (query.includes("FROM ad_group_criterion")) {
-          return [{
-            campaign: { id: item.campaignId, name: item.campaignName, status: "ENABLED" },
-            adGroup: { id: item.adGroupId, name: item.adGroupName, status: "ENABLED" },
-            adGroupCriterion: {
-              criterionId: "333", status: "ENABLED", negative: false,
-              keyword: { text: "caliber collision", matchType: "PHRASE" }
-            }
-          }];
-        }
+      async searchStream() {
         return [];
       }
     },

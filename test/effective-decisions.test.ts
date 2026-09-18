@@ -41,38 +41,7 @@ const negative: ClassificationDecision = {
   confidence: 0.99
 };
 
-test("reports the final mutation guard conflict without changing the LLM decision", () => {
-  const mutation: NegativeKeywordMutationSummary = {
-    ...disabledMutationSummary(),
-    mode: "validation",
-    status: "NO_CHANGES",
-    proposedCount: 1,
-    positiveKeywordConflictCount: 1,
-    positiveKeywordConflicts: [{
-      operationId: "operation-1",
-      campaignId: candidate.campaignId,
-      negativeText: candidate.searchTerm,
-      sourceItemIds: [candidate.itemId],
-      positiveCriterionIds: ["333"],
-      positiveMatchTypes: ["PHRASE"]
-    }]
-  };
-
-  const [effective] = createEffectiveDecisions([candidate], [negative], mutation);
-  assert.equal(effective?.decision, "NEGATIVE_EXACT");
-  assert.equal(effective?.effectiveOutcome, "PROTECTED_BY_POSITIVE_KEYWORD");
-  assert.equal(effective?.positiveKeywordProtectionSource, "FINAL_MUTATION_GUARD");
-  assert.deepEqual(effective?.positiveCriterionIds, ["333"]);
-});
-
-test("uses the account snapshot for read-only reports when the final guard did not run", () => {
-  const [effective] = createEffectiveDecisions([candidate], [negative], disabledMutationSummary());
-  assert.equal(effective?.effectiveOutcome, "PROTECTED_BY_POSITIVE_KEYWORD");
-  assert.equal(effective?.positiveKeywordProtectionSource, "INITIAL_ACCOUNT_SNAPSHOT");
-  assert.deepEqual(effective?.positiveMatchTypes, ["PHRASE"]);
-});
-
-test("a completed final guard overrides stale initial snapshot context", () => {
+test("effective outcomes pass the LLM decision through unchanged (protection is classification-time policy)", () => {
   const mutation: NegativeKeywordMutationSummary = {
     ...disabledMutationSummary(),
     mode: "validation",
@@ -83,6 +52,22 @@ test("a completed final guard overrides stale initial snapshot context", () => {
   };
 
   const [effective] = createEffectiveDecisions([candidate], [negative], mutation);
+  assert.equal(effective?.decision, "NEGATIVE_EXACT");
   assert.equal(effective?.effectiveOutcome, "NEGATIVE_EXACT");
+  assert.equal(effective?.positiveKeywordProtectionSource, null);
+  assert.deepEqual(effective?.positiveCriterionIds, []);
+  assert.deepEqual(effective?.positiveMatchTypes, []);
+});
+
+test("positive-keyword snapshot context no longer rewrites read-only outcomes", () => {
+  const [effective] = createEffectiveDecisions([candidate], [negative], disabledMutationSummary());
+  assert.equal(effective?.effectiveOutcome, "NEGATIVE_EXACT");
+  assert.equal(effective?.positiveKeywordProtectionSource, null);
+});
+
+test("KEEP decisions pass through unchanged", () => {
+  const keep: ClassificationDecision = { ...negative, decision: "KEEP", negativeText: null };
+  const [effective] = createEffectiveDecisions([candidate], [keep]);
+  assert.equal(effective?.effectiveOutcome, "KEEP");
   assert.equal(effective?.positiveKeywordProtectionSource, null);
 });

@@ -48,7 +48,7 @@ test("creates one spreadsheet-safe CSV row with validated context", () => {
   assert.equal(csv.split("\r\n").filter(Boolean).length, 2);
 });
 
-test("shows a protected effective outcome while preserving the LLM negative decision", () => {
+test("effective outcome mirrors the LLM decision (protection is classification-time policy)", () => {
   const protectedCandidate: ClassificationCandidate = {
     ...candidate,
     searchTerm: "caliber collision",
@@ -70,5 +70,6 @@ test("shows a protected effective outcome while preserving the LLM negative deci
   }], "openai-test", "rules-v1", disabledMutationSummary());
 
   assert.match(csv, /"decision","effectiveOutcome","positiveKeywordProtectionSource"/u);
-  assert.match(csv, /"NEGATIVE_EXACT","PROTECTED_BY_POSITIVE_KEYWORD","INITIAL_ACCOUNT_SNAPSHOT"/u);
+  assert.match(csv, /"NEGATIVE_EXACT","NEGATIVE_EXACT"/u);
+  assert.ok(!csv.includes("PROTECTED_BY_POSITIVE_KEYWORD"));
 });

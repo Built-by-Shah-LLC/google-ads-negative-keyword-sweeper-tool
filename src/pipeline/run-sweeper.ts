@@ -10,7 +10,11 @@ import {
   recordSweep30DayCompletion
 } from "../config/sweep-30day-state.js";
 import type { RuleSet } from "../types.js";
-import { compileAccountPolicy, type EffectiveAccountPolicy } from "../config/account-policy-compiler.js";
+import {
+  compileAccountPolicy,
+  type AccountPolicyConfig,
+  type EffectiveAccountPolicy
+} from "../config/account-policy-compiler.js";
 import { GoogleAdsClient } from "../google-ads/client.js";
 import { DevelopmentNegativeKeywordWriter } from "../google-ads/negative-keyword-writer.dev.js";
 import { createLiveProductionNegativeKeywordWriter } from "../google-ads/negative-keyword-writer.prod.js";
@@ -54,6 +58,8 @@ export interface SweepOptions {
   allPending: boolean;
   /** Standard runs only: bypass the 30-day completion gate. Defaults to enforced. */
   ignoreThirtyDayCheck: boolean;
+  /** Dynamic per-account policy loaded from the database by the entrypoint. */
+  accountPolicies: Record<string, AccountPolicyConfig>;
 }
 
 export interface SweepServices {
@@ -215,7 +221,7 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
     // LLM spend. Misconfigured account policy fails the run closed here.
     const accountPolicies = new Map<string, EffectiveAccountPolicy>();
     for (const organization of selected) {
-      const accountPolicy = await compileAccountPolicy(rules, options.rootDirectory, organization.customerId);
+      const accountPolicy = await compileAccountPolicy(rules, organization.customerId, options.accountPolicies);
       accountPolicies.set(organization.customerId, accountPolicy);
       const organizationBasePath = `organizations/${organization.customerId}`;
       await artifacts.write(`${organizationBasePath}/policy-manifest.json`, {
@@ -234,11 +240,11 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
           effectivePolicySha256: null
         })
       });
-      if (accountPolicy.manifest && accountPolicy.accountPhraseProtectionsMarkdown !== null) {
+      if (accountPolicy.manifest && accountPolicy.accountPhraseProtections !== null) {
         await artifacts.writeText(`${organizationBasePath}/rules.md`, accountPolicy.rules.markdown);
-        await artifacts.writeText(
-          `${organizationBasePath}/phrase-protections.md`,
-          accountPolicy.accountPhraseProtectionsMarkdown
+        await artifacts.write(
+          `${organizationBasePath}/phrase-protections.json`,
+          accountPolicy.accountPhraseProtections
         );
       }
       logger.info({

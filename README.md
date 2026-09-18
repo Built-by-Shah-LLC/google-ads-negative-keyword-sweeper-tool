@@ -34,7 +34,7 @@ The new application under `src/` is isolated from `legacy-reference/`. It curren
 1. Discover enabled leaf organizations under the configured MCC.
 2. Fetch Search and Performance Max reported search terms for the single calendar day 48 hours before execution in `RUN_TIME_ZONE` (a September 3 run processes September 1 for every organization).
 3. Aggregate organization- and campaign-scoped candidates.
-4. Send bounded organization-specific batches and the authoritative Markdown policy at `src/config/negative-keyword-rules.md` to the selected LLM provider. Moonshot/Kimi is primary; OpenAI, Gemini, and the prior Kimi coding endpoint remain available through `LLM_PROVIDER`.
+4. Send bounded organization-specific batches and the authoritative policy loaded from the database (agency-wide static rules from `negative_keyword_static_rule_sets`, per-account dynamic rules from `negative_keyword_account_rules`, phrase protections from `negative_keyword_phrase_protections`, and the account's freshly fetched Google Ads positive keyword inventory with descriptions) to the selected LLM provider. Moonshot/Kimi is primary; OpenAI, Gemini, and the prior Kimi coding endpoint remain available through `LLM_PROVIDER`. The repository Markdown/TS policy files are seed content only — `npm run policy:seed` imports them into the database (migration `0024` in `built-ads-manager`), and runtime sweeps fail closed when no active static rule set exists.
 5. Strictly validate the structured result and persist the complete run to the
    shared Built Ads Manager PostgreSQL database. Ignored files under `runs/`
    remain a diagnostic mirror; they are not the durable source of truth.

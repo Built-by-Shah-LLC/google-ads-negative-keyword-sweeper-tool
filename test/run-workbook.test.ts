@@ -127,20 +127,22 @@ test("creates one organization worksheet with decisions, batch tokens, rules, an
   assert.match(values, /BATCH SUM \| RECONCILED/u);
   assert.match(values, /Fixed shared-input baseline .* \| 300/u);
   assert.match(values, /NEGATIVE_EXACT/u);
-  assert.match(values, /PROTECTED_BY_POSITIVE_KEYWORD/u);
-  assert.match(values, /INITIAL_ACCOUNT_SNAPSHOT/u);
+  // Protection is classification-time LLM policy now; no guard-rewritten
+  // outcomes appear in the workbook.
+  assert.ok(!values.includes("PROTECTED_BY_POSITIVE_KEYWORD"));
+  assert.ok(!values.includes("INITIAL_ACCOUNT_SNAPSHOT"));
   assert.match(values, /Free-item intent/u);
   assert.match(values, /timed out after 600000ms/u);
   assert.match(values, /POL-FREE-NEGATIVE/u);
 
-  // Protected rows retain the red-eligible LLM decision but are highlighted yellow.
+  // The effective outcome column mirrors the LLM decision.
   const sheet = workbook.worksheets[0]!;
-  let protectedRowFill: string | undefined;
+  let sawEffectiveOutcome = false;
   sheet.eachRow((row) => {
-    if (row.getCell(22).value === "PROTECTED_BY_POSITIVE_KEYWORD") {
+    if (row.getCell(22).value === "NEGATIVE_EXACT") {
       assert.equal(row.getCell(21).value, "NEGATIVE_EXACT");
-      protectedRowFill = (row.getCell(22).fill as ExcelJS.FillPattern)?.fgColor?.argb;
+      sawEffectiveOutcome = true;
     }
   });
-  assert.equal(protectedRowFill, "FFFFF2CC");
+  assert.equal(sawEffectiveOutcome, true);
 });

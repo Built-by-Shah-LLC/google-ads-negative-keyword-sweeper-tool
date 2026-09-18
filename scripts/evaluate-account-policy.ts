@@ -1,8 +1,11 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { execSync } from "node:child_process";
 import { resolve } from "node:path";
-import { compileAccountPolicy } from "../src/config/account-policy-compiler.js";
+import { readFile } from "node:fs/promises";
+import { compileAccountPolicy, type AccountPolicyConfig } from "../src/config/account-policy-compiler.js";
+import { ACCOUNT_POLICIES } from "../src/config/account-policies.js";
 import { loadConfig } from "../src/config/env.js";
+import { parsePhraseProtections } from "../src/config/phrase-protections.js";
 import { loadRuleSet, parseRuleSet } from "../src/config/rule-set.js";
 import { createKeywordClassifier } from "../src/llm/classifier-factory.js";
 import { buildClassifierPrompt } from "../src/llm/prompt.js";
@@ -36,7 +39,21 @@ const preSplit = {
   ...parseRuleSet(preSplitMarkdown, "git:HEAD:src/config/negative-keyword-rules.md"),
   phraseProtections: base.phraseProtections ?? []
 };
-const threeJ = await compileAccountPolicy(base, process.cwd(), CUSTOMER_ID);
+const seed = ACCOUNT_POLICIES[CUSTOMER_ID];
+if (!seed) throw new Error(`No seed account policy configured for ${CUSTOMER_ID}.`);
+const accountProtections = parsePhraseProtections(
+  await readFile(resolve(process.cwd(), seed.phraseProtectionsFile), "utf8"),
+  [...base.ruleIds, ...seed.customRules.map((rule) => rule.id)]
+);
+const policies: Record<string, AccountPolicyConfig> = {
+  [CUSTOMER_ID]: {
+    policyKey: seed.policyKey,
+    revision: seed.revision,
+    customRules: seed.customRules,
+    phraseProtections: accountProtections
+  }
+};
+const threeJ = await compileAccountPolicy(base, CUSTOMER_ID, policies);
 if (!threeJ.manifest) throw new Error("3J account policy did not compile.");
 
 const dateRange = { startDate: "2026-09-15", endDate: "2026-09-15" };

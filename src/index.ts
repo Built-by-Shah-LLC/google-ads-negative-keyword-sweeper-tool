@@ -6,7 +6,7 @@ import {
   type EmailAlertConfig,
   type RunReportEmailConfig
 } from "./config/env.js";
-import { loadRuleSet } from "./config/rule-set.js";
+import { loadPolicyFromDatabase } from "./config/db-policy.js";
 import { EmailAlertService } from "./notifications/email-alerts.js";
 import { RunReportEmailService } from "./notifications/run-report-email.js";
 import { runSweeper, type SweepOptions } from "./pipeline/run-sweeper.js";
@@ -24,7 +24,9 @@ async function main(
   if (!config.persistence.enabled) {
     throw new Error("PERSIST_RUNS_TO_DATABASE must be true for keyword sweeper runs.");
   }
-  const rules = await loadRuleSet(rootDirectory);
+  const policy = await loadPolicyFromDatabase(config.persistence);
+  const rules = policy.rules;
+  options.accountPolicies = policy.accountPolicies;
 
   logger.info({
     scope: options.allOrganizations
@@ -54,7 +56,8 @@ function parseArguments(argumentsList: string[], rootDirectory: string): SweepOp
     productionMutationAuthorized: false,
     thirtyDayMode: false,
     allPending: false,
-    ignoreThirtyDayCheck: false
+    ignoreThirtyDayCheck: false,
+    accountPolicies: {}
   };
   for (let index = 0; index < argumentsList.length; index += 1) {
     const argument = argumentsList[index];

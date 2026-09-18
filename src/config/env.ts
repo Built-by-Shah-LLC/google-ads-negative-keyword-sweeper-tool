@@ -168,7 +168,7 @@ function commaSeparated(value: string | undefined): string[] {
   return (value ?? "").split(",").map((item) => item.trim()).filter(Boolean);
 }
 
-async function loadEnvironment(rootDirectory: string): Promise<Record<string, string | undefined>> {
+export async function loadEnvironment(rootDirectory: string): Promise<Record<string, string | undefined>> {
   let fileValues: Record<string, string> = {};
   let localValues: Record<string, string> = {};
   try {

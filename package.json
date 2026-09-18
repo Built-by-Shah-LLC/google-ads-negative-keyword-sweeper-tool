@@ -14,7 +14,8 @@
     "mutation:test-account": "tsx scripts/smoke-test-google-ads-mutation.ts",
     "positive-keywords:validate-read-only": "tsx scripts/validate-positive-keyword-guard-read-only.ts",
     "negatives:manage": "tsx src/manage-negatives.ts",
-    "rules:check": "node --import tsx scripts/check-rule-release.ts"
+    "rules:check": "node --import tsx scripts/check-rule-release.ts",
+    "policy:seed": "tsx scripts/seed-policy-to-db.ts"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

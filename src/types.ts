@@ -62,7 +62,7 @@ export interface PositiveKeywordContext {
 
 export interface ClassificationCandidate extends Omit<SearchTermRow, "date">, DateRange {
   itemId: string;
-  /** Trusted Google Ads configuration context; mutation safety never depends on the LLM honoring it. */
+  /** Informational Google Ads configuration context (reporting stats only; protection is LLM policy now). */
   positiveKeywordContext?: PositiveKeywordContext;
 }
 

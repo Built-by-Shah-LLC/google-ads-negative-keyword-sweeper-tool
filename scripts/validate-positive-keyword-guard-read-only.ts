@@ -36,6 +36,7 @@ const result = await runSweeper(config, rules, {
   thirtyDayMode: false,
   allPending: false,
   ignoreThirtyDayCheck: true,
+  accountPolicies: {},
 }, {
   // This explicit no-op persistence seam guarantees this validation cannot
   // touch Cloud SQL even when the local environment normally enables it.

@@ -1,13 +1,39 @@
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
 import type { PhraseProtection, RuleSet } from "../types.js";
-import { ACCOUNT_POLICIES, type AccountPolicyConfig } from "./account-policies.js";
-import { parsePhraseProtections } from "./phrase-protections.js";
+import { validatePhraseProtectionEntries } from "./phrase-protections.js";
 import { parseRuleSet } from "./rule-set.js";
 
 const CUSTOMER_ID_PATTERN = /^\d{10}$/u;
 const RULE_ID_PATTERN = /^[A-Z][A-Z0-9-]+$/u;
+
+/** Where the effective policy configuration lives; loaded from the database at runtime. */
+export const ACCOUNT_POLICY_SOURCE = "db:negative_keyword_account_rules";
+export const PHRASE_PROTECTIONS_SOURCE = "db:negative_keyword_phrase_protections";
+
+export interface AccountRuleDefinition {
+  /** Uppercase, unique within the effective bundle, must end in -KEEP or -NEGATIVE. */
+  id: string;
+  /** Short title rendered after the rule heading. */
+  title: string;
+  /** Markdown body of the rule, sent to the LLM verbatim. */
+  instruction: string;
+}
+
+/**
+ * Runtime per-account policy loaded from the database (dynamic rules plus
+ * parsed per-company phrase protections). Seed scripts build the same shape
+ * from the repository's file-based policy when importing it into the DB.
+ */
+export interface AccountPolicyConfig {
+  /** Stable policy identity used in artifacts; not the mutable descriptive name. */
+  policyKey: string;
+  /** Bump on every change to this account entry. */
+  revision: string;
+  /** Dynamic account-specific rules appended after the base rules. */
+  customRules: AccountRuleDefinition[];
+  /** Parsed per-company phrase protections for this account. */
+  phraseProtections: PhraseProtection[];
+}
 
 export interface AccountPolicyManifest {
   customerId: string;
@@ -25,8 +51,8 @@ export interface AccountPolicyManifest {
 export interface EffectiveAccountPolicy {
   /** The exact policy bundle this account is classified with. */
   rules: RuleSet;
-  /** The exact per-company phrase-protection markdown sent to the LLM; null for base-only. */
-  accountPhraseProtectionsMarkdown: string | null;
+  /** The exact per-company phrase protections sent to the LLM; null for base-only. */
+  accountPhraseProtections: PhraseProtection[] | null;
   /** Null when the account has no configured policy and runs base-only. */
   manifest: AccountPolicyManifest | null;
 }
@@ -34,22 +60,22 @@ export interface EffectiveAccountPolicy {
 /**
  * Compile the effective policy for one account: base rules plus the account's
  * dynamic rules, and base phrase protections plus the account's per-company
- * phrase-protection file. Accounts without a configured policy compile to the
+ * phrase protections. Accounts without a configured policy compile to the
  * unchanged base bundle.
  *
- * Fails closed on any misconfiguration; nothing here calls an LLM or Google Ads.
+ * Fails closed on any misconfiguration; nothing here calls an LLM, Google Ads,
+ * the filesystem, or the database.
  */
 export async function compileAccountPolicy(
   base: RuleSet,
-  rootDirectory: string,
   customerId: string,
-  policies: Record<string, AccountPolicyConfig> = ACCOUNT_POLICIES
+  policies: Record<string, AccountPolicyConfig>
 ): Promise<EffectiveAccountPolicy> {
   if (!CUSTOMER_ID_PATTERN.test(customerId)) {
     throw new Error(`Account policy compilation requires a canonical ten-digit customer ID, got '${customerId}'.`);
   }
   const config = policies[customerId];
-  if (!config) return { rules: base, accountPhraseProtectionsMarkdown: null, manifest: null };
+  if (!config) return { rules: base, accountPhraseProtections: null, manifest: null };
 
   validateCustomRules(config, base.ruleIds);
   const markdown = renderEffectiveRulesMarkdown(base, config);
@@ -57,14 +83,12 @@ export async function compileAccountPolicy(
   // run on exactly what will be sent to the LLM.
   const parsed = parseRuleSet(markdown, `account-policy:${config.policyKey}`);
 
-  const protectionsPath = resolve(rootDirectory, config.phraseProtectionsFile);
-  const protectionsMarkdown = await readFile(protectionsPath, "utf8");
-  const accountProtections = parsePhraseProtections(protectionsMarkdown, parsed.ruleIds);
+  const accountProtections = validatePhraseProtectionEntries(config.phraseProtections, parsed.ruleIds);
   for (const entry of accountProtections) {
     if (entry.customerIds.length > 0 && !entry.customerIds.includes(customerId)) {
       throw new Error(
-        `Phrase protection '${entry.id}' in ${config.phraseProtectionsFile} is scoped to other accounts; ` +
-        `an account file must use customerIds [] or include ${customerId}.`
+        `Phrase protection '${entry.id}' in policy '${config.policyKey}' is scoped to other accounts; ` +
+        `an account policy must use customerIds [] or include ${customerId}.`
       );
     }
   }
@@ -84,19 +108,19 @@ export async function compileAccountPolicy(
   const effectivePolicySha256 = createHash("sha256")
     .update(markdown)
     .update("\n")
-    .update(protectionsMarkdown)
+    .update(canonicalProtectionsJson(accountProtections))
     .digest("hex");
 
   const rules: RuleSet = {
     ...base,
-    sourcePath: `${base.sourcePath}+${config.phraseProtectionsFile}`,
+    sourcePath: `${base.sourcePath}+${PHRASE_PROTECTIONS_SOURCE}`,
     markdown,
     ruleIds: parsed.ruleIds,
     phraseProtections
   };
   return {
     rules,
-    accountPhraseProtectionsMarkdown: protectionsMarkdown,
+    accountPhraseProtections: accountProtections,
     manifest: {
       customerId,
       policyKey: config.policyKey,
@@ -106,7 +130,7 @@ export async function compileAccountPolicy(
       baseReleaseId: base.releaseId ?? null,
       dynamicRuleIds: config.customRules.map((rule) => rule.id),
       accountPhraseProtectionCount: accountProtections.length,
-      phraseProtectionsSourcePath: config.phraseProtectionsFile,
+      phraseProtectionsSourcePath: PHRASE_PROTECTIONS_SOURCE,
       effectivePolicySha256
     }
   };
@@ -146,4 +170,15 @@ function renderEffectiveRulesMarkdown(base: RuleSet, config: AccountPolicyConfig
     "",
     ...sections
   ].join("\n");
+}
+
+/** Deterministic serialization used only for the effective-policy content hash. */
+function canonicalProtectionsJson(entries: PhraseProtection[]): string {
+  return JSON.stringify(entries.map((entry) => ({
+    id: entry.id,
+    phrase: entry.phrase,
+    customerIds: [...entry.customerIds].sort(),
+    ruleId: entry.ruleId,
+    excusedEvidence: entry.excusedEvidence
+  })));
 }

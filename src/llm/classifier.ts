@@ -3,6 +3,7 @@ import type {
   DateRange,
   FixedInputTokenCount,
   LlmTokenUsage,
+  PositiveKeywordCriterion,
   RuleSet,
   ValidatedBatch
 } from "../types.js";
@@ -17,6 +18,11 @@ export interface ClassificationContext {
   dateRange: DateRange;
   rules: RuleSet;
   searchTerms: ClassificationCandidate[];
+  /**
+   * Trusted Google Ads positive-keyword inventory for this account, shown to
+   * the classifier as protected purchased demand. Fetched fresh per account.
+   */
+  positiveKeywords?: PositiveKeywordCriterion[];
 }
 
 export interface ClassificationResult {

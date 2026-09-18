@@ -1,11 +1,7 @@
 import { createHash } from "node:crypto";
 import type { ClassificationCandidate, ClassificationDecision } from "../types.js";
 import type { GoogleAdsClient } from "./client.js";
-import {
-  activeSameCampaignPositiveMatches,
-  fetchPositiveKeywords,
-  normalizeKeywordText
-} from "./positive-keywords.js";
+import { normalizeKeywordText } from "./positive-keywords.js";
 
 export type NegativeKeywordWriterMode = "development" | "validation" | "production";
 
@@ -130,30 +126,14 @@ export async function applyNegativeExactDecisions(input: {
     };
   }
 
-  // Google Ads remains authoritative. Re-fetch immediately before mutation
-  // preparation so a keyword added or re-enabled after classification still
-  // blocks an unsafe same-campaign exact negative.
-  const positiveKeywords = await fetchPositiveKeywords(input.googleAds, customerId);
-  const positiveKeywordConflicts = operations.flatMap((operation) => {
-    const matches = activeSameCampaignPositiveMatches(
-      operation.campaignId,
-      operation.negativeText,
-      positiveKeywords
-    );
-    return matches.length === 0 ? [] : [{
-      operationId: operation.operationId,
-      campaignId: operation.campaignId,
-      negativeText: operation.negativeText,
-      sourceItemIds: [...operation.sourceItemIds],
-      positiveCriterionIds: [...new Set(matches.map((match) => match.criterionId))].sort(),
-      positiveMatchTypes: [...new Set(matches.map((match) => match.matchType))].sort()
-    }];
-  });
-  const protectedOperationIds = new Set(positiveKeywordConflicts.map((conflict) => conflict.operationId));
-  const mutationEligible = operations.filter((operation) => !protectedOperationIds.has(operation.operationId));
+  // Positive-keyword protection is classification-time policy: the LLM sees
+  // the account's positive keyword inventory in its prompt and is instructed
+  // never to negative an exact active positive. No post-LLM exact-match guard
+  // runs here, so conflict reporting stays empty.
+  const positiveKeywordConflicts: NegativeKeywordMutationSummary["positiveKeywordConflicts"] = [];
   const existingBefore = await fetchExistingCampaignExactNegatives(input.googleAds, customerId);
-  const pending = mutationEligible.filter((operation) => !existingBefore.has(operationKey(operation)));
-  const existingCount = mutationEligible.length - pending.length;
+  const pending = operations.filter((operation) => !existingBefore.has(operationKey(operation)));
+  const existingCount = operations.length - pending.length;
   if (pending.length === 0) {
     return {
       ...disabledMutationSummary(),
@@ -161,8 +141,6 @@ export async function applyNegativeExactDecisions(input: {
       status: "NO_CHANGES",
       proposedCount: operations.length,
       duplicateDecisionCount,
-      positiveKeywordConflictCount: positiveKeywordConflicts.length,
-      positiveKeywordConflicts,
       existingCount
     };
   }

@@ -201,7 +201,8 @@ export async function processOrganization(
       }, () => dependencies.classifier.countFixedInputTokens({
         account: organizationContext(organization),
         dateRange,
-        rules: dependencies.rules
+        rules: dependencies.rules,
+        positiveKeywords
       }));
       organizationUsage.fixedInputTokens = fixedInput.totalTokens;
       organizationUsage.fixedInputDefinition = fixedInput.definition;
@@ -322,7 +323,8 @@ export async function processOrganization(
         account: organizationContext(organization),
         dateRange,
         rules: dependencies.rules,
-        searchTerms: batch
+        searchTerms: batch,
+        positiveKeywords
       };
       try {
         await dependencies.persistence?.markBatchRunning(

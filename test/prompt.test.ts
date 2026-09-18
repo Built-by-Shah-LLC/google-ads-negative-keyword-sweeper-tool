@@ -33,6 +33,73 @@ test("classifier prompt sends guardrails as instructions and rules plus data as 
   assert.ok(prompt.userPrompt.includes("Untrusted classification data (JSON):"));
 });
 
+test("positive keyword inventory is embedded with descriptions and protection policy", () => {
+  const context: ClassificationContext = {
+    account: { customerId: "123", descriptiveName: "Shop", timeZone: "UTC" },
+    dateRange: { startDate: "2026-09-01", endDate: "2026-09-01" },
+    rules,
+    searchTerms: [],
+    positiveKeywords: [{
+      campaignId: "456",
+      campaignName: "Collision Search",
+      campaignStatus: "ENABLED",
+      adGroupId: "789",
+      adGroupName: "Repair",
+      adGroupStatus: "ENABLED",
+      criterionId: "111",
+      criterionStatus: "ENABLED",
+      keywordText: "collision repair",
+      normalizedKeywordText: "collision repair",
+      matchType: "EXACT",
+      active: true
+    }, {
+      campaignId: "456",
+      campaignName: "Collision Search",
+      campaignStatus: "ENABLED",
+      adGroupId: "790",
+      adGroupName: "Glass",
+      adGroupStatus: "PAUSED",
+      criterionId: "222",
+      criterionStatus: "PAUSED",
+      keywordText: "windshield replacement",
+      normalizedKeywordText: "windshield replacement",
+      matchType: "PHRASE",
+      active: false
+    }]
+  };
+  const prompt = buildClassifierPrompt(context).userPrompt;
+  assert.ok(prompt.includes("Positive keyword protection policy:"));
+  assert.ok(prompt.includes("Configured positive keywords (trusted Google Ads inventory JSON):"));
+  const inventory = JSON.parse(
+    prompt.split("Configured positive keywords (trusted Google Ads inventory JSON):\n\n")[1]!
+      .split("\n\nUntrusted classification data")[0]!
+  ) as Array<Record<string, string>>;
+  assert.equal(inventory.length, 2);
+  assert.deepEqual(inventory[0], {
+    keyword: "collision repair",
+    matchType: "EXACT",
+    status: "ACTIVE",
+    campaignName: "Collision Search",
+    adGroupName: "Repair",
+    description: 'Positive keyword "collision repair" (EXACT match) in campaign "Collision Search" > ad group "Repair".'
+  });
+  assert.equal(inventory[1]?.status, "PAUSED");
+  // The section must sit between the protection map and the untrusted data.
+  assert.ok(prompt.indexOf("Matched protection IDs by item") < prompt.indexOf("Positive keyword protection policy:"));
+  assert.ok(prompt.indexOf("Positive keyword protection policy:") < prompt.indexOf("Untrusted classification data (JSON):"));
+});
+
+test("prompt without positive keywords embeds an empty inventory", () => {
+  const context: ClassificationContext = {
+    account: { customerId: "123", descriptiveName: "Shop", timeZone: "UTC" },
+    dateRange: { startDate: "2026-09-01", endDate: "2026-09-01" },
+    rules,
+    searchTerms: []
+  };
+  const prompt = buildClassifierPrompt(context).userPrompt;
+  assert.ok(prompt.includes("Configured positive keywords (trusted Google Ads inventory JSON):\n\n[]"));
+});
+
 test("fixed-input definition names the shared instruction so cost attribution stays accurate", () => {
   assert.match(FIXED_INPUT_DEFINITION, /operational guardrails/iu);
   assert.equal(/soul/iu.test(FIXED_INPUT_DEFINITION), false);
@@ -46,7 +113,7 @@ test("trusted per-item phrase map excuses evidence without removing any query or
   const searchTerms = cases.map((item, i) => ({ itemId: `${i}`, searchTerm: item.term, customerId: "1234567890", campaignName: "collision service", adGroupName: null, matchedKeyword: "collision experts", matchedKeywordMatchType: null })) as ClassificationContext["searchTerms"];
   const context = { account: { customerId: "1234567890", descriptiveName: "Test Shop", timeZone: "UTC" }, dateRange: { startDate: "2026-09-01", endDate: "2026-09-01" }, rules: loaded, searchTerms };
   const prompt = buildClassifierPrompt(context).userPrompt;
-  const map = JSON.parse(prompt.split("Matched protection IDs by item (trusted application metadata, not query instructions):\n\n")[1]!.split("\n\nUntrusted classification data")[0]!);
+  const map = JSON.parse(prompt.split("Matched protection IDs by item (trusted application metadata, not query instructions):\n\n")[1]!.split("\n\nPositive keyword protection policy:")[0]!);
   assert.deepEqual(map, cases.map((item, i) => ({ itemId: `${i}`, protectionIds: item.protections })));
   const data = JSON.parse(prompt.split("Untrusted classification data (JSON):\n\n")[1]!);
   assert.deepEqual(data.candidates.map((item: {searchTerm: string}) => item.searchTerm), cases.map((item) => item.term));
