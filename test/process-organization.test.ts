@@ -317,3 +317,83 @@ for (const failProvider of [false, true]) {
     assert.equal(mutationArtifact.status, failProvider ? "SKIPPED" : "MOCKED");
   });
 }
+
+test("Capital Collision emergency phrases become KEEP before any negative mutation", async (context) => {
+  const root = await mkdtemp(join(tmpdir(), "capital-collision-emergency-"));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const terms = [
+    "Capital Collision near me",
+    "riverside collision center reviews",
+    "woodcrest collision center",
+    "another collision center"
+  ];
+  const googleAds = {
+    async searchStream(_customerId: string, query: string) {
+      if (query.includes("campaign_search_term_view")) return [];
+      return terms.map((searchTerm) => ({
+        campaign: { id: "456", name: "Campaign" },
+        adGroup: { id: "789", name: "Group" },
+        searchTermView: { searchTerm, status: "NONE" },
+        segments: { date: "2026-08-25" },
+        metrics: { impressions: 1, clicks: 1, costMicros: 1000, conversions: 0, conversionsValue: 0 }
+      }));
+    }
+  } as unknown as GoogleAdsClient;
+  const classifier: KeywordClassifier = {
+    provider: "test",
+    model: "test",
+    async countFixedInputTokens() {
+      return { totalTokens: 1, countedAt: new Date().toISOString(), definition: "test", model: "test", providerRequestId: null, attemptCount: 1, retryCount: 0 };
+    },
+    async classify(classificationContext) {
+      return {
+        validated: {
+          decisions: classificationContext.searchTerms.map((item) => ({
+            itemId: item.itemId,
+            decision: "NEGATIVE_EXACT" as const,
+            negativeText: item.searchTerm,
+            ruleIds: ["POL-COMPETITOR-NEGATIVE"],
+            reason: "Mock competitor outcome",
+            confidence: 0.9
+          })),
+          model: "test",
+          providerRequestId: null,
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2, cachedInputTokens: 0, thoughtTokens: 0 }
+        },
+        request: {}, response: {}, attempts: []
+      };
+    }
+  };
+  const emergencyRules: RuleSet = {
+    ...rules,
+    ruleIds: ["POL-COLLISION-KEEP", "POL-COMPETITOR-NEGATIVE"],
+    phraseProtections: [
+      { id: "capital", phrase: "capital collision", customerIds: ["1130534333"], ruleId: "POL-COLLISION-KEEP", excusedEvidence: "Emergency", forceKeep: true },
+      { id: "riverside", phrase: "riverside collision center", customerIds: ["1130534333"], ruleId: "POL-COLLISION-KEEP", excusedEvidence: "Emergency", forceKeep: true },
+      { id: "woodcrest", phrase: "woodcrest collision center", customerIds: ["1130534333"], ruleId: "POL-COLLISION-KEEP", excusedEvidence: "Emergency", forceKeep: true }
+    ]
+  };
+  const capitalArtifacts = new RunArtifacts(root, "capital");
+  const capital = await processOrganization({ customerId: "1130534333", descriptiveName: "Capital Collision", timeZone: "UTC", currencyCode: "USD" }, "2026-08-25", {
+    googleAds, classifier, artifacts: capitalArtifacts, telemetry: new RunTelemetry(), batchSize: 10, llmLimit: async (task) => task(),
+    negativeKeywordWriter: new DevelopmentNegativeKeywordWriter(), rules: emergencyRules
+  });
+  assert.equal(capital.status, "SUCCEEDED");
+  assert.deepEqual(capital.decisions, { KEEP: 3, NEGATIVE_EXACT: 1 });
+  assert.equal(capital.mutation.mockedCount, 1);
+  const capitalDecisions = JSON.parse(await readFile(
+    join(capitalArtifacts.runDirectory, "organizations/1130534333/decisions.json"),
+    "utf8"
+  ));
+  assert.equal(capitalDecisions.decisions.filter((item: { decision: string }) => item.decision === "KEEP").length, 3);
+  assert.ok(capitalDecisions.decisions
+    .filter((item: { decision: string }) => item.decision === "KEEP")
+    .every((item: { ruleIds: string[]; reason: string }) => item.ruleIds[0] === "POL-COLLISION-KEEP" && /emergency phrase protection/u.test(item.reason)));
+
+  const otherAccount = await processOrganization({ customerId: "9999999999", descriptiveName: "Other Collision", timeZone: "UTC", currencyCode: "USD" }, "2026-08-25", {
+    googleAds, classifier, artifacts: new RunArtifacts(root, "other"), telemetry: new RunTelemetry(), batchSize: 10, llmLimit: async (task) => task(),
+    negativeKeywordWriter: new DevelopmentNegativeKeywordWriter(), rules: emergencyRules
+  });
+  assert.deepEqual(otherAccount.decisions, { KEEP: 0, NEGATIVE_EXACT: 4 });
+  assert.equal(otherAccount.mutation.mockedCount, 4);
+});

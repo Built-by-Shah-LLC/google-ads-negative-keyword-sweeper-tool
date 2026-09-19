@@ -1,9 +1,17 @@
 # Conditional phrase protection
 
-This manually maintained list excuses specific evidence, never an entire rule.
-All queries still go to the LLM for full-query classification. A matched phrase
-is not an automatic KEEP. Remaining independent negative evidence still wins,
-including additional evidence under the same rule. Never count rule IDs to decide.
+This manually maintained list ordinarily excuses specific evidence, never an
+entire rule. All ordinary phrase matches still go to the LLM for full-query
+classification. A matched ordinary phrase is not an automatic KEEP. Remaining
+independent negative evidence still wins, including additional evidence under the
+same rule. Never count rule IDs to decide.
+
+`forceKeep: true` is reserved for a short-lived, owner-approved emergency
+exception. It must name at least one ten-digit customer ID and an existing
+`-KEEP` rule. It is enforced deterministically after LLM response validation,
+so its phrase and metadata are never included in provider prompts. It turns every
+matching full search term into `KEEP`, including a longer query with a location
+modifier. Do not use it for ordinary evidence exceptions.
 
 Only search-term text activates entries. Matching uses contiguous whole Unicode
 letter/number tokens after NFKC, case, punctuation and whitespace normalization.
@@ -63,6 +71,30 @@ Edit the JSON block and follow `docs/RULE_RELEASES.md` for release review.
     "customerIds": [],
     "ruleId": "POL-MECHANICAL-ONLY-NEGATIVE",
     "excusedEvidence": "Disregard mechanical-negative evidence caused solely by services describing body-shop repair within this phrase. Separate mechanical evidence, such as mechanic, oil change, or another service use outside the phrase, remains effective under the same rule."
+  },
+  {
+    "id": "capital-collision-emergency-keep",
+    "phrase": "capital collision",
+    "customerIds": ["1130534333"],
+    "ruleId": "POL-COLLISION-KEEP",
+    "excusedEvidence": "Owner-approved emergency protection for Capital Collision while account-specific dynamic rules are being completed.",
+    "forceKeep": true
+  },
+  {
+    "id": "riverside-collision-center-emergency-keep",
+    "phrase": "riverside collision center",
+    "customerIds": ["1130534333"],
+    "ruleId": "POL-COLLISION-KEEP",
+    "excusedEvidence": "Owner-approved emergency protection for Capital Collision while account-specific dynamic rules are being completed.",
+    "forceKeep": true
+  },
+  {
+    "id": "woodcrest-collision-center-emergency-keep",
+    "phrase": "woodcrest collision center",
+    "customerIds": ["1130534333"],
+    "ruleId": "POL-COLLISION-KEEP",
+    "excusedEvidence": "Owner-approved emergency protection for Capital Collision while account-specific dynamic rules are being completed.",
+    "forceKeep": true
   }
 ]
 ```

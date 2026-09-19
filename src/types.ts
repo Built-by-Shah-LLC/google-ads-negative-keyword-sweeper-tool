@@ -66,6 +66,11 @@ export interface PhraseProtection {
   customerIds: string[];
   ruleId: string;
   excusedEvidence: string;
+  /**
+   * Emergency-only account-scoped override. A matching search term is made a
+   * deterministic KEEP after the provider response has been validated.
+   */
+  forceKeep?: true;
 }
 
 export interface LlmTokenUsage {

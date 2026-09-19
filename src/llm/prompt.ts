@@ -27,8 +27,11 @@ export function buildClassifierPrompt(context: ClassificationContext): {
     organizationContext: { descriptiveName: context.account.descriptiveName },
     candidates
   };
+  // Emergency deterministic KEEPs are enforced after provider validation, so
+  // their phrases and policy metadata are never sent to any provider prompt.
   const entries = (context.rules.phraseProtections ?? []).filter((entry) =>
-    !entry.customerIds.length || entry.customerIds.includes(context.account.customerId));
+    entry.forceKeep !== true
+      && (!entry.customerIds.length || entry.customerIds.includes(context.account.customerId)));
   const matchedProtections = context.searchTerms.map((candidate) => ({
     itemId: candidate.itemId,
     protectionIds: matchingPhraseProtections(candidate.searchTerm, context.account.customerId, entries).map((entry) => entry.id)

@@ -61,6 +61,15 @@ decision-order preamble parenthetical are not yet refreshed. The redundant
 `rust hole` clause in `POL-COSMETIC-ONLY-NEGATIVE` is unchanged; both rules
 are negative.
 
+Emergency release `2026-09-19.1` adds three owner-approved, deterministic
+`forceKeep` phrase protections for Capital Collision only (customer
+`1130534333`): `capital collision`, `riverside collision center`, and
+`woodcrest collision center`. They cite the existing `POL-COLLISION-KEEP` rule,
+are never sent to an LLM prompt, and turn a matching full search term into KEEP
+after the provider result has passed normal validation. This is a temporary
+exception while the account-specific dynamic-rule work is completed; it is not a
+global competitor-policy change and does not apply to any other account.
+
 ## Enforced locally
 
 - Application startup rejects policy or phrase-protection content that differs from the
@@ -80,19 +89,26 @@ are negative.
 
 ## Conditional evidence exceptions
 
-Each manually maintained entry specifies a phrase, a negative rule ID, the exact
-evidence it excuses, and optional customer IDs. Empty IDs means all accounts.
-Code matches contiguous whole tokens after case, punctuation, whitespace, and
-Unicode NFKC normalization. Longer queries and location modifiers need no extra
-entries. Substrings, plurals, reordered words, and synonyms are not expanded.
-Only search terms activate entries, never campaign or matched-keyword text.
+Ordinary manually maintained entries specify a phrase, a negative rule ID, the
+exact evidence they excuse, and optional customer IDs. Empty IDs means all
+accounts. Code matches contiguous whole tokens after case, punctuation,
+whitespace, and Unicode NFKC normalization. Longer queries and location
+modifiers need no extra entries. Substrings, plurals, reordered words, and
+synonyms are not expanded. Only search terms activate entries, never campaign or
+matched-keyword text.
 
-The prompt includes account-scoped definitions and a trusted per-item match map.
-Only matched entries apply. Every candidate still reaches the LLM with its complete
-original text. The model must evaluate all remaining independent exclusions,
-including additional evidence under the same rule. It must not count rule IDs,
-skip a whole rule, remove the phrase, or force KEEP. Decisions cite existing rule
-IDs; there is no synthetic KEEP rule or deterministic confidence.
+An entry with `forceKeep: true` is a separate emergency mechanism: it must have
+at least one customer ID and cite an existing `-KEEP` rule. Its phrase and
+metadata are excluded from all LLM prompts. After a provider result passes normal
+schema/rule validation, a matched negative is changed to a deterministic KEEP
+before persistence, reporting, or the negative-keyword write stage.
+
+For ordinary evidence exceptions, the prompt includes account-scoped definitions
+and a trusted per-item match map. Only matched entries apply. Every candidate
+still reaches the LLM with its complete original text. The model must evaluate all
+remaining independent exclusions, including additional evidence under the same
+rule. It must not count rule IDs, skip a whole rule, remove the phrase, or force
+KEEP. Decisions cite existing rule IDs; there is no synthetic KEEP rule.
 
 - `collision service` excuses only `service` describing collision repair under
   `POL-MECHANICAL-ONLY-NEGATIVE`. `mechanic collision service` and `collision
@@ -106,17 +122,21 @@ IDs; there is no synthetic KEEP rule or deterministic confidence.
 - `mobile collision service` and `collision experts reviews` retain their mobile
   and reviews exclusions. Unambiguous locations such as NYC and Texas do not
   require new phrase entries.
+- The three Capital Collision emergency phrases force KEEP only for customer
+  `1130534333`; their contiguous phrase match includes a longer query such as
+  `capital collision near me`. They have no effect for the other sweep accounts.
 
 The standard per-batch input/output artifacts retain rules, configured entries,
-provider requests, and model decisions. `decisions.json` includes the release ID.
-The removed `always-keep-decisions.json` is no longer written. Existing consumers
-of that special artifact must use ordinary model outputs instead. Scripts using
-`loadRuleSet` and the shared prompt builder now receive protections too. Callers
-that only parse raw Markdown must explicitly load the full release bundle.
-On provider failure, matched candidates fail normally; no KEEP is manufactured.
-Fixed-token counts include configured definitions; per-item matches are variable
-input. This design costs model tokens for every candidate and relies on model
-compliance, not a deterministic guarantee of the final classification.
+provider requests, and effective decisions. `decisions.json` includes the release
+ID. The removed `always-keep-decisions.json` is no longer written. Existing
+consumers of that special artifact must use ordinary model outputs instead.
+Scripts using `loadRuleSet` and the shared prompt builder now receive protections
+too. Callers that only parse raw Markdown must explicitly load the full release
+bundle. On provider failure, even a force-KEEP candidate fails normally because
+there is no validated provider result to override. Fixed-token counts include
+ordinary configured definitions; per-item matches are variable input. Ordinary
+phrase exceptions still rely on model compliance; force-KEEP is deterministic
+only after successful provider validation.
 
 ## Verification and live evaluation
 

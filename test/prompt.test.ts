@@ -51,7 +51,9 @@ test("trusted per-item phrase map excuses evidence without removing any query or
   const data = JSON.parse(prompt.split("Untrusted classification data (JSON):\n\n")[1]!);
   assert.deepEqual(data.candidates.map((item: {searchTerm: string}) => item.searchTerm), cases.map((item) => item.term));
   assert.ok(prompt.includes(loaded.markdown));
-  for (const entry of loaded.phraseProtections!) assert.ok(prompt.includes(entry.excusedEvidence));
+  for (const entry of loaded.phraseProtections!.filter((entry) => entry.forceKeep !== true)) {
+    assert.ok(prompt.includes(entry.excusedEvidence));
+  }
   assert.match(prompt, /additional evidence under the SAME ruleId/);
   assert.match(prompt, /Do not disable or skip a rule/);
   assert.match(prompt, /never an automatic KEEP/);
@@ -60,4 +62,13 @@ test("trusted per-item phrase map excuses evidence without removing any query or
   const scoped = buildClassifierPrompt({ ...context, rules: { ...loaded, phraseProtections: loaded.phraseProtections!.map((entry) => ({ ...entry, customerIds: ["9999999999"] })) } }).userPrompt;
   assert.ok(scoped.includes('Configured phrase protections (trusted policy JSON):\n\n[]'));
   assert.equal(scoped.includes('"protectionIds":["collision-service"]'), false);
+  const emergency = loaded.phraseProtections!.find((entry) => entry.forceKeep === true)!;
+  const capitalPrompt = buildClassifierPrompt({
+    ...context,
+    account: { ...context.account, customerId: "1130534333", descriptiveName: "Capital Collision" },
+    rules: { ...loaded, phraseProtections: [emergency] },
+    searchTerms: [{ ...searchTerms[0]!, searchTerm: "capital collision near me" }]
+  }).userPrompt;
+  assert.equal(capitalPrompt.includes(emergency.id), false);
+  assert.equal(capitalPrompt.includes('"forceKeep":true'), false);
 });

@@ -1,4 +1,14 @@
-import type { DateRange, FixedInputTokenCount, LlmTokenUsage, Organization, RuleSet, SearchTermRow } from "../types.js";
+import type {
+  ClassificationCandidate,
+  ClassificationDecision,
+  DateRange,
+  FixedInputTokenCount,
+  LlmTokenUsage,
+  Organization,
+  RuleSet,
+  SearchTermRow
+} from "../types.js";
+import { matchingForcedKeepProtections } from "../config/phrase-protections.js";
 import type { GoogleAdsClient } from "../google-ads/client.js";
 import {
   applyNegativeExactDecisions,
@@ -305,6 +315,16 @@ export async function processOrganization(
           provider: dependencies.classifier.provider,
           details: { candidateCount: batch.length }
         }, () => dependencies.classifier.classify(context));
+        const effectiveDecisions = applyForcedKeepPhraseProtections(
+          result.validated.decisions,
+          batch,
+          organization.customerId,
+          dependencies.rules.phraseProtections
+        );
+        const effectiveResult = {
+          ...result,
+          validated: { ...result.validated, decisions: effectiveDecisions }
+        };
         recordAttempts(
           dependencies.telemetry,
           result.attempts,
@@ -313,18 +333,18 @@ export async function processOrganization(
           dependencies.classifier.provider
         );
         dependencies.telemetry.recordBatch(true);
-        organizationUsage = addOrganizationUsage(organizationUsage, result.validated.usage, result.attempts.length);
+        organizationUsage = addOrganizationUsage(organizationUsage, effectiveResult.validated.usage, result.attempts.length);
         batchTokenUsage.push(createBatchTokenUsage(
           batchId,
           "VALIDATED",
           batch.length,
           result.attempts.length,
-          result.validated.usage
+          effectiveResult.validated.usage
         ));
         await dependencies.persistence?.recordBatchSuccess(
           organization.customerId,
           batchId,
-          result,
+          effectiveResult,
           new Date().toISOString()
         );
         await dependencies.artifacts.write(`${basePath}/llm/batch-${batchId}-output.json`, {
@@ -333,15 +353,15 @@ export async function processOrganization(
           model: dependencies.classifier.model,
           ruleVersion: dependencies.rules.version,
           promptVersion: dependencies.rules.promptVersion,
-          providerRequestId: result.validated.providerRequestId,
-          tokenUsage: result.validated.usage,
+          providerRequestId: effectiveResult.validated.providerRequestId,
+          tokenUsage: effectiveResult.validated.usage,
           attempts: result.attempts,
           providerRequest: result.request,
           rawResponse: result.response,
-          decisions: result.validated.decisions
+          decisions: effectiveResult.validated.decisions
         });
         batchesCompleted += 1;
-        decisionsCompleted += result.validated.decisions.length;
+        decisionsCompleted += effectiveResult.validated.decisions.length;
         dependencies.logger?.info({
           progressEvent: "organization_batch_completed",
           ...batchContext,
@@ -349,16 +369,16 @@ export async function processOrganization(
           durationMs: elapsedMs(batchStarted),
           generationAttempts: result.attempts.length,
           httpAttempts: result.attempts.reduce((total, attempt) => total + attempt.httpAttempts.length, 0),
-          decisions: result.validated.decisions.length,
-          inputTokens: result.validated.usage.inputTokens,
-          outputTokens: result.validated.usage.outputTokens,
-          totalTokens: result.validated.usage.totalTokens,
+          decisions: effectiveResult.validated.decisions.length,
+          inputTokens: effectiveResult.validated.usage.inputTokens,
+          outputTokens: effectiveResult.validated.usage.outputTokens,
+          totalTokens: effectiveResult.validated.usage.totalTokens,
           batchesCompleted,
           batchesFailed,
           batchesRemaining: batches.length - batchesCompleted,
           decisionsCompleted
         }, "Organization LLM batch completed");
-        return result.validated.decisions;
+        return effectiveResult.validated.decisions;
       } catch (error) {
         failedBatchCount += 1;
         const failure = error instanceof ClassificationFailure ? error : null;
@@ -653,6 +673,36 @@ function createSummary(
     mutation: disabledMutationSummary(),
     errorCount
   };
+}
+
+/**
+ * Applies the deliberately narrow account-scoped emergency override only after
+ * the provider's response has passed normal schema/rule validation. The
+ * resulting decision is the one persisted, reported, and supplied to the
+ * negative-keyword writer.
+ */
+function applyForcedKeepPhraseProtections(
+  decisions: ClassificationDecision[],
+  candidates: ClassificationCandidate[],
+  customerId: string,
+  protections: RuleSet["phraseProtections"]
+): ClassificationDecision[] {
+  const candidateById = new Map(candidates.map((candidate) => [candidate.itemId, candidate]));
+  return decisions.map((decision) => {
+    if (decision.decision === "KEEP") return decision;
+    const candidate = candidateById.get(decision.itemId);
+    if (!candidate) return decision;
+    const matches = matchingForcedKeepProtections(candidate.searchTerm, customerId, protections);
+    if (matches.length === 0) return decision;
+    return {
+      ...decision,
+      decision: "KEEP",
+      negativeText: null,
+      ruleIds: [...new Set(matches.map((entry) => entry.ruleId))],
+      reason: "Account-scoped emergency phrase protection requires KEEP.",
+      confidence: 1
+    };
+  });
 }
 
 async function runMutationStage(
