@@ -4,31 +4,31 @@ import { loadOrganizationClassificationArtifacts } from "./classification-artifa
 
 export const CIPIRIAN_KEYWORD_ANALYSIS_HEADERS = [
   "Classification status",
-  "Run ID",
-  "Customer ID",
   "Organization",
-  "Start date",
-  "End date",
-  "Item ID",
-  "Channel",
-  "Campaign ID",
-  "Campaign",
-  "Ad group ID",
-  "Ad group",
   "Search term",
-  "Targeting status",
-  "Matched keyword",
-  "Matched keyword match type",
+  "Decision",
+  "Reason",
+  "Campaign",
+  "Ad group",
+  "Negative keyword",
+  "Rule IDs",
+  "Confidence",
   "Impressions",
   "Clicks",
   "Cost micros",
   "Conversions",
   "Conversion value",
-  "Decision",
-  "Negative keyword",
-  "Rule IDs",
-  "Reason",
-  "Confidence",
+  "Channel",
+  "Targeting status",
+  "Matched keyword",
+  "Matched keyword match type",
+  "Start date",
+  "End date",
+  "Customer ID",
+  "Campaign ID",
+  "Ad group ID",
+  "Item ID",
+  "Run ID",
   "Provider",
   "Model",
   "Rule version"
@@ -157,7 +157,7 @@ export async function createRunClassificationReport(
         model: input.model,
         ruleVersion: input.ruleVersion
       } satisfies ClassifiedKeywordRow;
-    });
+    }).sort(compareRowsBySearchTerm);
     rows.push(...accountRows);
     accountOverviews.push({
       customerId: summary.customerId,
@@ -235,18 +235,18 @@ export async function createCipirianKeywordAnalysisWorkbook(input: {
   });
   sheet.getRow(1).height = 30;
   sheet.getRow(1).alignment = { vertical: "middle", wrapText: true };
-  for (const column of [10, 12, 13, 15, 23, 24, 25]) {
+  for (const column of [2, 3, 5, 6, 7, 8, 9, 17, 18, 19]) {
     sheet.getColumn(column).alignment = { vertical: "top", wrapText: true };
   }
-  for (const column of [17, 18, 19, 20, 21, 26]) {
+  for (const column of [10, 11, 12, 13, 14, 15]) {
     sheet.getColumn(column).alignment = { horizontal: "right", vertical: "top" };
   }
-  sheet.getColumn(17).numFmt = "#,##0";
-  sheet.getColumn(18).numFmt = "#,##0";
-  sheet.getColumn(19).numFmt = "#,##0";
-  sheet.getColumn(20).numFmt = "0.00";
-  sheet.getColumn(21).numFmt = "0.00";
-  sheet.getColumn(26).numFmt = "0.00";
+  sheet.getColumn(10).numFmt = "0.00";
+  sheet.getColumn(11).numFmt = "#,##0";
+  sheet.getColumn(12).numFmt = "#,##0";
+  sheet.getColumn(13).numFmt = "#,##0";
+  sheet.getColumn(14).numFmt = "0.00";
+  sheet.getColumn(15).numFmt = "0.00";
 
   const generated = await workbook.xlsx.writeBuffer();
   return Buffer.from(generated);
@@ -255,35 +255,42 @@ export async function createCipirianKeywordAnalysisWorkbook(input: {
 function rowToCells(row: ClassifiedKeywordRow): Array<string | number> {
   return [
     safeCell(row.classificationStatus),
-    safeCell(row.runId),
-    safeCell(row.customerId),
     safeCell(row.organizationName),
-    safeCell(row.startDate),
-    safeCell(row.endDate),
-    safeCell(row.itemId),
-    safeCell(row.channel),
-    safeCell(row.campaignId),
-    safeCell(row.campaignName),
-    safeCell(row.adGroupId),
-    safeCell(row.adGroupName),
     safeCell(row.searchTerm),
-    safeCell(row.targetingStatus),
-    safeCell(row.matchedKeyword),
-    safeCell(row.matchedKeywordMatchType),
+    safeCell(row.decision),
+    safeCell(row.reason),
+    safeCell(row.campaignName),
+    safeCell(row.adGroupName),
+    safeCell(row.negativeText),
+    safeCell(row.ruleIds.join("; ")),
+    row.confidence ?? "",
     row.impressions,
     row.clicks,
     row.costMicros,
     row.conversions,
     row.conversionValue,
-    safeCell(row.decision),
-    safeCell(row.negativeText),
-    safeCell(row.ruleIds.join("; ")),
-    safeCell(row.reason),
-    row.confidence ?? "",
+    safeCell(row.channel),
+    safeCell(row.targetingStatus),
+    safeCell(row.matchedKeyword),
+    safeCell(row.matchedKeywordMatchType),
+    safeCell(row.startDate),
+    safeCell(row.endDate),
+    safeCell(row.customerId),
+    safeCell(row.campaignId),
+    safeCell(row.adGroupId),
+    safeCell(row.itemId),
+    safeCell(row.runId),
     safeCell(row.provider),
     safeCell(row.model),
     safeCell(row.ruleVersion)
   ];
+}
+
+function compareRowsBySearchTerm(left: ClassifiedKeywordRow, right: ClassifiedKeywordRow): number {
+  return left.searchTerm.localeCompare(right.searchTerm, "en-US", { sensitivity: "base", numeric: true })
+    || left.campaignName.localeCompare(right.campaignName, "en-US", { sensitivity: "base", numeric: true })
+    || left.campaignId.localeCompare(right.campaignId, "en-US", { numeric: true })
+    || left.itemId.localeCompare(right.itemId, "en-US");
 }
 
 function safeCell(value: string | null): string {
@@ -292,6 +299,6 @@ function safeCell(value: string | null): string {
 }
 
 function columnWidth(index: number): number {
-  const widths = [20, 30, 16, 28, 13, 13, 23, 18, 16, 32, 16, 28, 32, 18, 28, 22, 14, 12, 16, 14, 18, 18, 30, 26, 38, 12, 18, 22, 20];
+  const widths = [20, 28, 32, 18, 38, 32, 28, 30, 26, 12, 14, 12, 16, 14, 18, 18, 18, 28, 22, 13, 13, 16, 16, 16, 23, 30, 18, 22, 20];
   return widths[index] ?? 18;
 }
