@@ -6,9 +6,9 @@ import type { GoogleAdsClient } from "./client.js";
  * campaign-level negative from the daily sweeper.
  *
  * A primary status that has no entry in `allowedPrimaryStatusReasons` passes
- * without a reason restriction. When an entry exists, at least one returned
- * reason must be allowlisted. To permit another LIMITED reason, add its enum
- * name as one line in the LIMITED array below.
+ * without a reason restriction. When an entry exists, every returned reason
+ * must be allowlisted. To permit another LIMITED reason, add its enum name as
+ * one line in the LIMITED array below.
  */
 export const CAMPAIGN_SWEEP_FILTER: Readonly<{
   allowedStatuses: readonly string[];
@@ -19,7 +19,10 @@ export const CAMPAIGN_SWEEP_FILTER: Readonly<{
   allowedPrimaryStatuses: ["ELIGIBLE", "LIMITED"],
   allowedPrimaryStatusReasons: {
     LIMITED: [
-      "BUDGET_CONSTRAINED"
+      "BUDGET_CONSTRAINED",
+      "BIDDING_STRATEGY_LIMITED",
+      "BIDDING_STRATEGY_CONSTRAINED",
+      "SEARCH_VOLUME_LIMITED"
     ]
   }
 };
@@ -60,7 +63,7 @@ export function campaignPassesSweepFilter(context: CampaignSweepFilterContext): 
   const reasons = context.campaignPrimaryStatusReasons
     .map(enumValue)
     .filter(Boolean);
-  return reasons.some((reason) => allowedReasons.includes(reason));
+  return reasons.length > 0 && reasons.every((reason) => allowedReasons.includes(reason));
 }
 
 /**

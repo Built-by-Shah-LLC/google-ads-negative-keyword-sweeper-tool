@@ -91,7 +91,7 @@ test("retains exact Google metric strings beyond JavaScript safe integers", asyn
   assert.ok(queries.every((query) => !query.includes("campaign.primary_status = 'ENDED'")));
 });
 
-test("admits only enabled eligible campaigns or budget-constrained limited campaigns", async () => {
+test("admits only enabled eligible campaigns or limited campaigns with allowlisted reasons", async () => {
   const queries: string[] = [];
   const searchRow = (
     id: string,
@@ -115,7 +115,12 @@ test("admits only enabled eligible campaigns or budget-constrained limited campa
         searchRow("102", "ENABLED", "LIMITED", ["HAS_ADS_LIMITED_BY_POLICY"]),
         searchRow("103", "ENABLED", "LIMITED", ["BUDGET_CONSTRAINED", "HAS_ADS_LIMITED_BY_POLICY"]),
         searchRow("104", "PAUSED", "ELIGIBLE", []),
-        searchRow("105", "ENABLED", "ENDED", [])
+        searchRow("105", "ENABLED", "ENDED", []),
+        searchRow("106", "ENABLED", "LIMITED", ["BIDDING_STRATEGY_LIMITED"]),
+        searchRow("107", "ENABLED", "LIMITED", ["BIDDING_STRATEGY_CONSTRAINED"]),
+        searchRow("108", "ENABLED", "LIMITED", ["SEARCH_VOLUME_LIMITED"]),
+        searchRow("109", "ENABLED", "LIMITED", ["BUDGET_CONSTRAINED", "SEARCH_VOLUME_LIMITED"]),
+        searchRow("110", "ENABLED", "LIMITED", [])
       ];
     }
   } as unknown as GoogleAdsClient;
@@ -125,9 +130,9 @@ test("admits only enabled eligible campaigns or budget-constrained limited campa
     endDate: "2026-08-25"
   });
 
-  assert.deepEqual(rows.map((row) => row.campaignId), ["100", "101", "103"]);
+  assert.deepEqual(rows.map((row) => row.campaignId), ["100", "101", "106", "107", "108", "109"]);
   assert.deepEqual(rows[1]?.campaignPrimaryStatusReasons, ["BUDGET_CONSTRAINED"]);
-  assert.deepEqual(rows[2]?.campaignPrimaryStatusReasons, ["BUDGET_CONSTRAINED", "HAS_ADS_LIMITED_BY_POLICY"]);
+  assert.deepEqual(rows[5]?.campaignPrimaryStatusReasons, ["BUDGET_CONSTRAINED", "SEARCH_VOLUME_LIMITED"]);
   const query = queries.find((item) => item.includes("FROM search_term_view")) ?? "";
   assert.match(query, /campaign\.status,/u);
   assert.match(query, /campaign\.primary_status,/u);
