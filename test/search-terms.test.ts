@@ -52,8 +52,10 @@ test("keeps the same term in different campaigns as separate candidates", () => 
 });
 
 test("retains exact Google metric strings beyond JavaScript safe integers", async () => {
+  const queries: string[] = [];
   const client = {
     async searchStream(_customerId: string, query: string) {
+      queries.push(query);
       if (query.includes("campaign_search_term_view")) return [];
       return [{
         campaign: { id: "456", name: "Campaign" },
@@ -78,4 +80,6 @@ test("retains exact Google metric strings beyond JavaScript safe integers", asyn
   assert.equal(rows[0]?.costMicrosExact, "9007199254740995");
   assert.equal(rows[0]?.conversionsExact, "1.25");
   assert.equal(rows[0]?.conversionValueExact, "9.99");
+  assert.equal(queries.length, 2);
+  assert.ok(queries.every((query) => query.includes("campaign.primary_status = 'ENDED'")));
 });

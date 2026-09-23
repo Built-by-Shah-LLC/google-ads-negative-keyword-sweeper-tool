@@ -106,8 +106,10 @@ test("creates one all-account analysis worksheet and one table from classified c
     ruleVersion: "rules-v1"
   });
   assert.equal(report.rows.length, 2);
-  assert.equal(report.rows[0]?.classificationStatus, "VALIDATED");
-  assert.equal(report.rows[1]?.classificationStatus, "MISSING_OR_FAILED");
+  assert.equal(report.rows[0]?.searchTerm, "=formula-shaped query");
+  assert.equal(report.rows[0]?.classificationStatus, "MISSING_OR_FAILED");
+  assert.equal(report.rows[1]?.searchTerm, "free car");
+  assert.equal(report.rows[1]?.classificationStatus, "VALIDATED");
   assert.deepEqual(report.accountOverviews[0]?.negativeKeywords, [{
     channel: "SEARCH",
     campaignName: "Collision",
@@ -124,15 +126,21 @@ test("creates one all-account analysis worksheet and one table from classified c
   assert.equal(workbook.worksheets.length, 1);
   const sheet = workbook.worksheets[0]!;
   assert.equal(sheet.name, "Keyword Analysis");
+  const view = sheet.views[0];
+  assert.equal(view?.state, "frozen");
+  assert.equal(view?.state === "frozen" ? view.xSplit : undefined, 0);
   assert.deepEqual(
     CIPIRIAN_KEYWORD_ANALYSIS_HEADERS.map((_, index) => sheet.getRow(1).getCell(index + 1).value),
     [...CIPIRIAN_KEYWORD_ANALYSIS_HEADERS]
   );
   assert.equal(sheet.getTables().length, 1);
   assert.equal(sheet.getTable("CipirianKeywordAnalysisTable").name, "CipirianKeywordAnalysisTable");
-  assert.equal(sheet.getRow(2).getCell(1).value, "VALIDATED");
-  assert.equal(sheet.getRow(3).getCell(1).value, "MISSING_OR_FAILED");
-  assert.equal(sheet.getRow(3).getCell(13).value, "'=formula-shaped query");
+  assert.equal(sheet.getRow(2).getCell(1).value, "MISSING_OR_FAILED");
+  assert.equal(sheet.getRow(3).getCell(1).value, "VALIDATED");
+  assert.equal(sheet.getRow(2).getCell(3).value, "'=formula-shaped query");
+  assert.equal(sheet.getRow(3).getCell(3).value, "free car");
+  assert.equal(sheet.getRow(3).getCell(4).value, "NEGATIVE_EXACT");
+  assert.equal(sheet.getRow(3).getCell(5).value, "Free-item intent");
 });
 
 test("keeps the one-sheet, one-table contract when no candidates were classified", async () => {

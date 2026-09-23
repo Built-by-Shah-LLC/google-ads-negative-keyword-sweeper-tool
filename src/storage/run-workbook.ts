@@ -62,10 +62,8 @@ function addOrganizationSheet(
   summary: OrganizationSummary,
   artifacts: OrganizationClassificationArtifacts
 ): void {
-  sheet.columns = Array.from({ length: 27 }, (_, index) => ({
-    key: `column-${index + 1}`,
-    width: index === 0 ? 24 : index < 5 ? 20 : 16
-  }));
+  const widths = [24, 28, 32, 18, 40, 32, 28, 30, 26, 12, 14, 12, 16, 14, 18, 18, 18, 28, 22, 13, 13, 16, 16, 16, 23, 18, 22];
+  sheet.columns = widths.map((width, index) => ({ key: `column-${index + 1}`, width }));
 
   const organizationArithmetic = tokenArithmetic(summary.tokenUsage);
   const batchTotals = summary.batchTokenUsage.reduce((total, batch) => ({
@@ -190,41 +188,41 @@ function addOrganizationSheet(
 
   addTitle(sheet, "KEEP and negative-keyword decisions");
   const decisionHeader = sheet.addRow([
-    "Classification status", "Customer ID", "Organization", "Start date", "End date", "Item ID", "Channel",
-    "Campaign ID", "Campaign", "Ad group ID", "Ad group", "Search term", "Targeting status", "Matched keyword",
-    "Matched keyword match type", "Impressions", "Clicks", "Cost micros", "Conversions", "Conversion value",
-    "Decision", "Negative keyword", "Rule IDs", "Reason", "Confidence", "Provider", "Model"
+    "Classification status", "Organization", "Search term", "Decision", "Reason", "Campaign", "Ad group",
+    "Negative keyword", "Rule IDs", "Confidence", "Impressions", "Clicks", "Cost micros", "Conversions",
+    "Conversion value", "Channel", "Targeting status", "Matched keyword", "Matched keyword match type",
+    "Start date", "End date", "Customer ID", "Campaign ID", "Ad group ID", "Item ID", "Provider", "Model"
   ]);
   styleHeader(decisionHeader);
   const decisionsById = new Map(artifacts.decisions.map((decision) => [decision.itemId, decision]));
-  for (const candidate of artifacts.candidates) {
+  for (const candidate of [...artifacts.candidates].sort(compareCandidatesBySearchTerm)) {
     const decision = decisionsById.get(candidate.itemId);
     const decisionRow = sheet.addRow([
       decision ? "VALIDATED" : "MISSING_OR_FAILED",
-      safeCell(summary.customerId),
       safeCell(summary.descriptiveName),
-      candidate.startDate,
-      candidate.endDate,
-      safeCell(candidate.itemId),
-      candidate.channel,
-      safeCell(candidate.campaignId),
-      safeCell(candidate.campaignName),
-      safeCell(candidate.adGroupId),
-      safeCell(candidate.adGroupName),
       safeCell(candidate.searchTerm),
-      safeCell(candidate.targetingStatus),
-      safeCell(candidate.matchedKeyword),
-      safeCell(candidate.matchedKeywordMatchType),
+      decision?.decision ?? "",
+      safeCell(decision?.reason ?? null),
+      safeCell(candidate.campaignName),
+      safeCell(candidate.adGroupName),
+      safeCell(decision?.negativeText ?? null),
+      safeCell(decision?.ruleIds.join("; ") ?? null),
+      decision?.confidence ?? "",
       candidate.impressions,
       candidate.clicks,
       candidate.costMicros,
       candidate.conversions,
       candidate.conversionValue,
-      decision?.decision ?? "",
-      safeCell(decision?.negativeText ?? null),
-      safeCell(decision?.ruleIds.join("; ") ?? null),
-      safeCell(decision?.reason ?? null),
-      decision?.confidence ?? "",
+      candidate.channel,
+      safeCell(candidate.targetingStatus),
+      safeCell(candidate.matchedKeyword),
+      safeCell(candidate.matchedKeywordMatchType),
+      candidate.startDate,
+      candidate.endDate,
+      safeCell(summary.customerId),
+      safeCell(candidate.campaignId),
+      safeCell(candidate.adGroupId),
+      safeCell(candidate.itemId),
       input.provider,
       input.model
     ]);
@@ -270,6 +268,16 @@ function addOrganizationSheet(
       cell.alignment = { ...cell.alignment, vertical: "top", wrapText: true };
     });
   });
+}
+
+function compareCandidatesBySearchTerm(
+  left: OrganizationClassificationArtifacts["candidates"][number],
+  right: OrganizationClassificationArtifacts["candidates"][number]
+): number {
+  return left.searchTerm.localeCompare(right.searchTerm, "en-US", { sensitivity: "base", numeric: true })
+    || left.campaignName.localeCompare(right.campaignName, "en-US", { sensitivity: "base", numeric: true })
+    || left.campaignId.localeCompare(right.campaignId, "en-US", { numeric: true })
+    || left.itemId.localeCompare(right.itemId, "en-US");
 }
 
 function addTitle(sheet: ExcelJS.Worksheet, title: string): void {

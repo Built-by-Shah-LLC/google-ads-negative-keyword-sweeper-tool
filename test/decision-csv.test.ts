@@ -44,5 +44,16 @@ test("creates one spreadsheet-safe CSV row with validated context", () => {
   assert.match(csv, /"Collision ""Search"""/u);
   assert.match(csv, /"'=HYPERLINK\(""https:\/\/example\.com""\)"/u);
   assert.match(csv, /"VALIDATED"/u);
+  assert.ok(csv.startsWith('"classificationStatus","organizationName","searchTerm","decision","reason"'));
   assert.equal(csv.split("\r\n").filter(Boolean).length, 2);
+});
+
+test("sorts each organization's CSV rows alphabetically by search term", () => {
+  const later = { ...candidate, itemId: "item-z", searchTerm: "Zoo repair" };
+  const earlier = { ...candidate, itemId: "item-a", searchTerm: "auto repair" };
+  const csv = createDecisionCsv(organization, "2026-08-24..2026-08-25", [later, earlier], [], "model", "rules");
+  const rows = csv.split("\r\n").filter(Boolean);
+
+  assert.match(rows[1]!, /"auto repair"/u);
+  assert.match(rows[2]!, /"Zoo repair"/u);
 });

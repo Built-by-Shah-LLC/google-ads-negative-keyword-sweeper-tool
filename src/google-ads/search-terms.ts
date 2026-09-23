@@ -26,6 +26,7 @@ export async function fetchSearchTermsForDateRange(
       metrics.conversions_value
     FROM search_term_view
     WHERE segments.date BETWEEN '${dateRange.startDate}' AND '${dateRange.endDate}'
+      AND campaign.primary_status = 'ENDED'
       AND metrics.impressions > 0
   `;
   const performanceMaxQuery = `
@@ -43,6 +44,7 @@ export async function fetchSearchTermsForDateRange(
     FROM campaign_search_term_view
     WHERE segments.date BETWEEN '${dateRange.startDate}' AND '${dateRange.endDate}'
       AND campaign.advertising_channel_type = PERFORMANCE_MAX
+      AND campaign.primary_status = 'ENDED'
       AND metrics.impressions > 0
   `;
 

@@ -242,6 +242,10 @@ Scheduler trigger and runs with `--all-organizations` (still restricted to eligi
 master-list companies by the 30-day gate above). See `docs/DEPLOYMENT.md`; only one
 production scheduler should be enabled to avoid duplicate daily runs.
 
+Search-term collection is further restricted to campaigns whose Google Ads primary status
+is `ENDED` (their configured end time has passed). Paused, removed, pending, eligible,
+learning, limited, misconfigured, and otherwise ineligible campaigns are not swept.
+
 ## Provider selection, run reports, and error email
 
 `LLM_PROVIDER=moonshot` is the default and uses `MOONSHOT_API_KEY`,
