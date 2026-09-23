@@ -4,6 +4,7 @@ import { GoogleOAuthClient } from "./oauth.js";
 import type {
   NegativeKeywordChunkResult,
   NegativeKeywordCreate,
+  NegativeKeywordWriteOptions,
   NegativeKeywordWriteResult,
   NegativeKeywordWriter
 } from "./negative-keyword-writer.js";
@@ -35,7 +36,8 @@ export class ProductionNegativeKeywordWriter implements NegativeKeywordWriter {
 
   async writeChunk(
     customerId: string,
-    operations: NegativeKeywordCreate[]
+    operations: NegativeKeywordCreate[],
+    options?: NegativeKeywordWriteOptions
   ): Promise<NegativeKeywordChunkResult> {
     if (!this.armed) throw new Error("Production Google Ads mutation writer is not armed.");
     const cleanCustomerId = sanitizeId(customerId);
@@ -75,6 +77,7 @@ export class ProductionNegativeKeywordWriter implements NegativeKeywordWriter {
       return { requestId: validation.requestId, results: output as NegativeKeywordWriteResult[] };
     }
 
+    await options?.beforeLiveMutation?.(validOperations);
     const mutation = await this.transport.post(path, campaignCriterionMutationRequest(cleanCustomerId, validOperations, false));
     assertMutationHttpSuccess(mutation, cleanCustomerId, false);
     const mutationErrors = parsePartialFailureErrors(mutation.payload);

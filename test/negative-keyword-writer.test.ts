@@ -24,6 +24,9 @@ function candidate(overrides: Partial<ClassificationCandidate> = {}): Classifica
     channel: "SEARCH",
     campaignId: "100",
     campaignName: "Built by Shah - Search",
+    campaignStatus: "ENABLED",
+    campaignPrimaryStatus: "ELIGIBLE",
+    campaignPrimaryStatusReasons: [],
     adGroupId: "200",
     adGroupName: "General",
     searchTerm: "free collision repair course",
@@ -36,6 +39,17 @@ function candidate(overrides: Partial<ClassificationCandidate> = {}): Classifica
     conversions: 0,
     conversionValue: 0,
     ...overrides
+  };
+}
+
+function currentlyEligibleCampaign(item: ClassificationCandidate): Record<string, unknown> {
+  return {
+    campaign: {
+      id: item.campaignId,
+      status: "ENABLED",
+      primaryStatus: "ELIGIBLE",
+      primaryStatusReasons: []
+    }
   };
 }
 
@@ -97,8 +111,9 @@ test("validation orchestration reports validated without a post-mutation read", 
   let reads = 0;
   const summary = await applyNegativeExactDecisions({
     googleAds: {
-      async searchStream() {
+      async searchStream(_customerId, query) {
         reads += 1;
+        if (/FROM campaign\b/u.test(query)) return [currentlyEligibleCampaign(item)];
         return [];
       }
     },
@@ -113,12 +128,167 @@ test("validation orchestration reports validated without a post-mutation read", 
     chunkSize: 500
   });
 
-  assert.equal(reads, 1);
+  // An all-operation campaign preflight, a per-chunk campaign recheck, and
+  // the pre-mutation existing-negatives check. The positive-keyword re-fetch
+  // guard remains removed.
+  assert.equal(reads, 3);
   assert.equal(summary.status, "VALIDATED");
   assert.equal(summary.validatedCount, 1);
   assert.equal(summary.appliedCount, 0);
   assert.equal(summary.verifiedCount, 0);
   assert.equal(summary.googleAdsMutationPerformed, false);
+});
+
+test("mutation preflight blocks every write when a campaign no longer passes the filter", async () => {
+  const item = candidate();
+  let writerCalls = 0;
+  let campaignReads = 0;
+  const writer: NegativeKeywordWriter = {
+    mode: "production",
+    async writeChunk() {
+      writerCalls += 1;
+      throw new Error("writer must not be called for a filtered campaign");
+    }
+  };
+
+  await assert.rejects(() => applyNegativeExactDecisions({
+    googleAds: {
+      async searchStream(_customerId, query) {
+        if (/FROM campaign\b/u.test(query)) {
+          campaignReads += 1;
+          return [{
+            campaign: {
+              id: item.campaignId,
+              status: "ENABLED",
+              primaryStatus: "LIMITED",
+              primaryStatusReasons: ["HAS_ADS_LIMITED_BY_POLICY"]
+            }
+          }];
+        }
+        throw new Error("Existing-negative lookup must not run after a failed campaign preflight.");
+      }
+    },
+    writer,
+    customerId: item.customerId,
+    candidates: [item],
+    decisions: [negative(item)],
+    chunkSize: 500
+  }), /No mutation request was sent/u);
+
+  assert.equal(campaignReads, 1);
+  assert.equal(writerCalls, 0);
+});
+
+test("each mutation chunk is rechecked so a later ineligible campaign is never written", async () => {
+  const first = candidate();
+  const second = candidate({ itemId: "item-2", campaignId: "101", searchTerm: "free auto body estimate" });
+  const orderedOperations = createNegativeKeywordOperations(
+    first.customerId,
+    [first, second],
+    [negative(first), negative(second)]
+  ).operations;
+  const firstChunkCampaignId = orderedOperations[0]?.campaignId;
+  const secondChunkCampaignId = orderedOperations[1]?.campaignId;
+  assert.ok(firstChunkCampaignId);
+  assert.ok(secondChunkCampaignId);
+  let campaignReads = 0;
+  const writtenCampaignIds: string[] = [];
+  const writer: NegativeKeywordWriter = {
+    mode: "development",
+    async writeChunk(_customerId, operations) {
+      writtenCampaignIds.push(...operations.map((operation) => operation.campaignId));
+      return {
+        requestId: "mock-request",
+        results: operations.map((operation) => ({
+          ...operation,
+          status: "MOCKED" as const,
+          resourceName: null,
+          error: null
+        }))
+      };
+    }
+  };
+
+  await assert.rejects(() => applyNegativeExactDecisions({
+    googleAds: {
+      async searchStream(_customerId, query) {
+        if (!/FROM campaign\b/u.test(query)) return [];
+        campaignReads += 1;
+        if (campaignReads === 1) return [currentlyEligibleCampaign(first), currentlyEligibleCampaign(second)];
+        if (query.includes(`campaign.id IN (${firstChunkCampaignId})`)) {
+          return [currentlyEligibleCampaign(firstChunkCampaignId === first.campaignId ? first : second)];
+        }
+        assert.match(query, new RegExp(`campaign.id IN \\(${secondChunkCampaignId}\\)`, "u"));
+        const blocked = secondChunkCampaignId === first.campaignId ? first : second;
+        return [{
+          campaign: {
+            id: blocked.campaignId,
+            status: "PAUSED",
+            primaryStatus: "PAUSED",
+            primaryStatusReasons: ["CAMPAIGN_PAUSED"]
+          }
+        }];
+      }
+    },
+    writer,
+    customerId: first.customerId,
+    candidates: [first, second],
+    decisions: [negative(first), negative(second)],
+    chunkSize: 1
+  }), /No mutation request was sent/u);
+
+  assert.equal(campaignReads, 3);
+  assert.deepEqual(writtenCampaignIds, [firstChunkCampaignId]);
+});
+
+test("production writer stops after validation when its campaign becomes ineligible", async () => {
+  const item = candidate();
+  let campaignReads = 0;
+  const calls: Array<{ body: Record<string, unknown> }> = [];
+  const writer = new ProductionNegativeKeywordWriter(true, {
+    async post(_path, body) {
+      calls.push({ body });
+      return { ok: true, status: 200, requestId: "validation-request", payload: {} };
+    }
+  });
+
+  await assert.rejects(() => applyNegativeExactDecisions({
+    googleAds: {
+      async searchStream(_customerId, query) {
+        if (!/FROM campaign\b/u.test(query)) return [];
+        campaignReads += 1;
+        if (campaignReads < 3) return [currentlyEligibleCampaign(item)];
+        return [{
+          campaign: {
+            id: item.campaignId,
+            status: "PAUSED",
+            primaryStatus: "PAUSED",
+            primaryStatusReasons: ["CAMPAIGN_PAUSED"]
+          }
+        }];
+      }
+    },
+    writer,
+    customerId: item.customerId,
+    candidates: [item],
+    decisions: [negative(item)],
+    chunkSize: 500
+  }), /No mutation request was sent/u);
+
+  assert.equal(campaignReads, 3);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]?.body.validateOnly, true);
+});
+
+test("mutation preparation rejects a candidate that did not pass the campaign filter", () => {
+  const item = candidate({
+    campaignPrimaryStatus: "LIMITED",
+    campaignPrimaryStatusReasons: ["HAS_ADS_LIMITED_BY_POLICY"]
+  });
+  assert.throws(
+    () => createNegativeKeywordOperations(item.customerId, [item], [negative(item)]),
+    /did not pass the daily campaign filter/u
+  );
 });
 
 test("mutation preparation deduplicates normalized campaign terms and skips existing exact negatives", async () => {
@@ -131,8 +301,11 @@ test("mutation preparation deduplicates normalized campaign terms and skips exis
   const existing = candidate({ itemId: "item-3", campaignId: "101", searchTerm: "competitor shop" });
   let searchCalls = 0;
   const googleAds = {
-    async searchStream() {
+    async searchStream(_customerId: string, query: string) {
       searchCalls += 1;
+      if (/FROM campaign\b/u.test(query)) {
+        return [currentlyEligibleCampaign(first), currentlyEligibleCampaign(existing)];
+      }
       return [{
         campaign: { id: "101" },
         campaignCriterion: { negative: true, keyword: { text: "Competitor Shop", matchType: "EXACT" } }
@@ -149,7 +322,7 @@ test("mutation preparation deduplicates normalized campaign terms and skips exis
     chunkSize: 500
   });
 
-  assert.equal(searchCalls, 1);
+  assert.equal(searchCalls, 3);
   assert.equal(summary.status, "MOCKED");
   assert.equal(summary.proposedCount, 2);
   assert.equal(summary.duplicateDecisionCount, 1);
@@ -252,11 +425,18 @@ test("production mode also requires an explicit per-invocation command authoriza
 
 test("production orchestration verifies applied writes through a read before reporting success", async () => {
   const item = candidate();
-  let reads = 0;
+  let campaignReads = 0;
+  let negativeReads = 0;
   const googleAds = {
-    async searchStream() {
-      reads += 1;
-      return reads === 1 ? [] : [{
+    async searchStream(_customerId: string, query: string) {
+      if (/FROM campaign\b/u.test(query)) {
+        campaignReads += 1;
+        return [currentlyEligibleCampaign(item)];
+      }
+      negativeReads += 1;
+      // First negative read: pre-mutation existing-negatives check (empty).
+      // Second negative read: post-mutation verification finds the write.
+      return negativeReads < 2 ? [] : [{
         campaign: { id: item.campaignId },
         campaignCriterion: { negative: true, keyword: { text: item.searchTerm, matchType: "EXACT" } }
       }];
@@ -285,7 +465,8 @@ test("production orchestration verifies applied writes through a read before rep
     chunkSize: 500
   });
 
-  assert.equal(reads, 2);
+  assert.equal(campaignReads, 2);
+  assert.equal(negativeReads, 2);
   assert.equal(summary.status, "APPLIED");
   assert.equal(summary.appliedCount, 1);
   assert.equal(summary.verifiedCount, 1);
@@ -294,12 +475,17 @@ test("production orchestration verifies applied writes through a read before rep
 
 test("an ambiguous production write is read back once and never blindly retried", async () => {
   const item = candidate();
-  let reads = 0;
+  let campaignReads = 0;
+  let negativeReads = 0;
   let writes = 0;
   const googleAds = {
-    async searchStream() {
-      reads += 1;
-      return reads === 1 ? [] : [{
+    async searchStream(_customerId: string, query: string) {
+      if (/FROM campaign\b/u.test(query)) {
+        campaignReads += 1;
+        return [currentlyEligibleCampaign(item)];
+      }
+      negativeReads += 1;
+      return negativeReads < 2 ? [] : [{
         campaign: { id: item.campaignId },
         campaignCriterion: { negative: true, keyword: { text: item.searchTerm, matchType: "EXACT" } }
       }];
@@ -323,7 +509,8 @@ test("an ambiguous production write is read back once and never blindly retried"
   });
 
   assert.equal(writes, 1);
-  assert.equal(reads, 2);
+  assert.equal(campaignReads, 2);
+  assert.equal(negativeReads, 2);
   assert.equal(summary.status, "APPLIED");
   assert.equal(summary.appliedCount, 1);
   assert.equal(summary.verifiedCount, 1);

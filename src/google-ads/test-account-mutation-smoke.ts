@@ -6,6 +6,11 @@ import {
   type NegativeKeywordWriter
 } from "./negative-keyword-writer.js";
 import type { ClassificationCandidate, ClassificationDecision } from "../types.js";
+import {
+  campaignPassesSweepFilter,
+  campaignSweepFilterContext,
+  type CampaignSweepFilterContext
+} from "./campaign-filter.js";
 
 export const TEST_ACCOUNT_MUTATION_CONFIRMATION = "WRITE_ONE_EXACT_NEGATIVE_TO_GOOGLE_TEST_ACCOUNT";
 
@@ -27,7 +32,7 @@ export async function runTestAccountMutationSmoke(input: {
   const campaignId = digits(input.campaignId, "test campaign ID");
   assertKeywordText(input.negativeText);
   await assertTestAccount(input.googleAds, customerId);
-  await assertCampaignExists(input.googleAds, customerId, campaignId);
+  const campaignContext = await assertCampaignExists(input.googleAds, customerId, campaignId);
 
   const itemId = createHash("sha256")
     .update([customerId, campaignId, input.negativeText].join("\u0000"))
@@ -42,6 +47,9 @@ export async function runTestAccountMutationSmoke(input: {
     channel: "SEARCH",
     campaignId,
     campaignName: "Google Ads test-account smoke campaign",
+    campaignStatus: campaignContext.campaignStatus,
+    campaignPrimaryStatus: campaignContext.campaignPrimaryStatus,
+    campaignPrimaryStatusReasons: campaignContext.campaignPrimaryStatusReasons,
     adGroupId: null,
     adGroupName: null,
     searchTerm: input.negativeText,
@@ -98,19 +106,23 @@ async function assertCampaignExists(
   googleAds: Pick<GoogleAdsClient, "searchStream">,
   customerId: string,
   campaignId: string
-): Promise<void> {
+): Promise<CampaignSweepFilterContext> {
   const rows = await googleAds.searchStream(customerId, `
     SELECT
       campaign.id,
-      campaign.status
+      campaign.status,
+      campaign.primary_status,
+      campaign.primary_status_reasons
     FROM campaign
     WHERE campaign.id = ${campaignId}
     LIMIT 1
   `);
   const campaign = recordValue(rows[0]?.campaign);
-  if (String(campaign?.id ?? "") !== campaignId || campaign?.status === "REMOVED") {
-    throw new Error("The requested Google Ads test campaign was not found or has been removed.");
+  const campaignContext = campaignSweepFilterContext(campaignId, campaign);
+  if (String(campaign?.id ?? "") !== campaignId || !campaignPassesSweepFilter(campaignContext)) {
+    throw new Error("The requested Google Ads test campaign was not found or does not pass the daily campaign filter.");
   }
+  return campaignContext;
 }
 
 function assertKeywordText(value: string): void {

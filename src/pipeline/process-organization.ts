@@ -18,6 +18,10 @@ import {
   type NegativeKeywordWriter
 } from "../google-ads/negative-keyword-writer.js";
 import { aggregateCandidates, fetchSearchTermsForDateRange } from "../google-ads/search-terms.js";
+import {
+  assertCampaignsPassSweepFilter,
+  campaignSweepFilterContextFromRow
+} from "../google-ads/campaign-filter.js";
 import { ClassificationFailure, type KeywordClassifier, type LlmGenerationAttempt } from "../llm/classifier.js";
 import { PipelineError, serializeError } from "../observability/errors.js";
 import { addTokenUsage, emptyTokenUsage, type RunTelemetry } from "../observability/run-telemetry.js";
@@ -140,6 +144,10 @@ export async function processOrganization(
     });
 
     const scopedRows = filterRowsByCampaignName(rows, dependencies.campaignNameContains);
+    assertCampaignsPassSweepFilter(
+      scopedRows.map(campaignSweepFilterContextFromRow),
+      "classification"
+    );
     const availableCandidates = aggregateCandidates(scopedRows);
     const candidates = dependencies.candidateLimit === null || dependencies.candidateLimit === undefined
       ? availableCandidates

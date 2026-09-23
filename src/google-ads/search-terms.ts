@@ -1,6 +1,12 @@
 import { createHash } from "node:crypto";
 import type { ClassificationCandidate, DateRange, SearchTermRow } from "../types.js";
 import type { GoogleAdsClient } from "./client.js";
+import {
+  campaignPassesSweepFilter,
+  campaignSweepFilterContext,
+  campaignSweepFilterContextFromRow,
+  campaignSweepGaqlFilter
+} from "./campaign-filter.js";
 
 export async function fetchSearchTermsForDateRange(
   client: GoogleAdsClient,
@@ -12,6 +18,9 @@ export async function fetchSearchTermsForDateRange(
     SELECT
       campaign.id,
       campaign.name,
+      campaign.status,
+      campaign.primary_status,
+      campaign.primary_status_reasons,
       ad_group.id,
       ad_group.name,
       search_term_view.search_term,
@@ -26,13 +35,16 @@ export async function fetchSearchTermsForDateRange(
       metrics.conversions_value
     FROM search_term_view
     WHERE segments.date BETWEEN '${dateRange.startDate}' AND '${dateRange.endDate}'
-      AND campaign.primary_status = 'ENDED'
       AND metrics.impressions > 0
+      AND ${campaignSweepGaqlFilter()}
   `;
   const performanceMaxQuery = `
     SELECT
       campaign.id,
       campaign.name,
+      campaign.status,
+      campaign.primary_status,
+      campaign.primary_status_reasons,
       campaign_search_term_view.search_term,
       segments.date,
       segments.search_term_targeting_status,
@@ -44,8 +56,8 @@ export async function fetchSearchTermsForDateRange(
     FROM campaign_search_term_view
     WHERE segments.date BETWEEN '${dateRange.startDate}' AND '${dateRange.endDate}'
       AND campaign.advertising_channel_type = PERFORMANCE_MAX
-      AND campaign.primary_status = 'ENDED'
       AND metrics.impressions > 0
+      AND ${campaignSweepGaqlFilter()}
   `;
 
   const [searchRows, performanceMaxRows] = await Promise.all([
@@ -55,7 +67,9 @@ export async function fetchSearchTermsForDateRange(
   return [
     ...searchRows.map((row) => mapSearchRow(customerId, row, "SEARCH")),
     ...performanceMaxRows.map((row) => mapSearchRow(customerId, row, "PERFORMANCE_MAX"))
-  ].filter((row): row is SearchTermRow => row !== null);
+  ].filter((row): row is SearchTermRow =>
+    row !== null && campaignPassesSweepFilter(campaignSweepFilterContextFromRow(row))
+  );
 }
 
 export function aggregateCandidates(rows: SearchTermRow[]): ClassificationCandidate[] {
@@ -136,12 +150,16 @@ function mapSearchRow(
   const campaignId = stringValue(row.campaign?.id);
   const date = stringValue(row.segments?.date);
   if (!searchTerm || !campaignId || !date) return null;
+  const campaignContext = campaignSweepFilterContext(campaignId, recordValue(row.campaign));
   return {
     customerId,
     date,
     channel,
     campaignId,
     campaignName: stringValue(row.campaign?.name),
+    campaignStatus: campaignContext.campaignStatus,
+    campaignPrimaryStatus: campaignContext.campaignPrimaryStatus,
+    campaignPrimaryStatusReasons: campaignContext.campaignPrimaryStatusReasons,
     adGroupId: nullableString(row.adGroup?.id),
     adGroupName: nullableString(row.adGroup?.name),
     searchTerm,
@@ -231,4 +249,10 @@ function stringValue(value: unknown): string {
 
 function nullableString(value: unknown): string | null {
   return stringValue(value) || null;
+}
+
+function recordValue(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
 }

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import type { GoogleAdsClient } from "../src/google-ads/client.js";
 import { DevelopmentNegativeKeywordWriter } from "../src/google-ads/negative-keyword-writer.dev.js";
+import type { NegativeKeywordWriter } from "../src/google-ads/negative-keyword-writer.js";
 import { ClassificationFailure, type ClassificationContext, type KeywordClassifier } from "../src/llm/classifier.js";
 import { RunTelemetry } from "../src/observability/run-telemetry.js";
 import { processOrganization } from "../src/pipeline/process-organization.js";
@@ -19,6 +20,79 @@ const rules: RuleSet = {
   markdown: "### `POL-COLLISION-KEEP` — Keep collision",
   ruleIds: ["POL-COLLISION-KEEP"]
 };
+
+test("a filtered campaign reaches neither classification nor the mutation writer", async (context) => {
+  const root = await mkdtemp(join(tmpdir(), "campaign-filter-test-"));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  let classifyCalls = 0;
+  let writeCalls = 0;
+  const googleAds = {
+    async searchStream(_customerId: string, query: string): Promise<Record<string, unknown>[]> {
+      if (query.includes("campaign_search_term_view") || query.includes("FROM ad_group_criterion")) return [];
+      return [{
+        campaign: {
+          id: "456",
+          name: "Built by Shah - Search",
+          status: "ENABLED",
+          primaryStatus: "LIMITED",
+          primaryStatusReasons: ["HAS_ADS_LIMITED_BY_POLICY"]
+        },
+        adGroup: { id: "789", name: "Group" },
+        searchTermView: { searchTerm: "free collision repair course", status: "NONE" },
+        segments: { date: "2026-08-25" },
+        metrics: { impressions: 1, clicks: 0, costMicros: 0, conversions: 0, conversionsValue: 0 }
+      }];
+    }
+  } as unknown as GoogleAdsClient;
+  const classifier: KeywordClassifier = {
+    provider: "test-provider",
+    model: "test-model",
+    async countFixedInputTokens() {
+      return {
+        totalTokens: 1,
+        countedAt: new Date().toISOString(),
+        definition: "test",
+        model: "test-model",
+        providerRequestId: null,
+        attemptCount: 1,
+        retryCount: 0
+      };
+    },
+    async classify() {
+      classifyCalls += 1;
+      throw new Error("a filtered campaign must never be classified");
+    }
+  };
+  const writer: NegativeKeywordWriter = {
+    mode: "development",
+    async writeChunk() {
+      writeCalls += 1;
+      throw new Error("a filtered campaign must never be mutated");
+    }
+  };
+
+  const summary = await processOrganization({
+    customerId: "123",
+    descriptiveName: "Test",
+    timeZone: "UTC",
+    currencyCode: "USD"
+  }, "2026-08-25", {
+    googleAds,
+    classifier,
+    artifacts: new RunArtifacts(root, "campaign-filter-run"),
+    telemetry: new RunTelemetry(),
+    rules,
+    batchSize: 50,
+    llmLimit: async (task) => task(),
+    negativeKeywordWriter: writer
+  });
+
+  assert.equal(summary.status, "SUCCEEDED");
+  assert.equal(summary.candidateCount, 0);
+  assert.equal(summary.mutation.status, "NO_CHANGES");
+  assert.equal(classifyCalls, 0);
+  assert.equal(writeCalls, 0);
+});
 
 test("writes reconciled organization telemetry and token artifacts", async (context) => {
   const root = await mkdtemp(join(tmpdir(), "negative-sweeper-test-"));
@@ -58,13 +132,25 @@ test("writes reconciled organization telemetry and token artifacts", async (cont
       queries.push(query);
       if (query.includes("campaign_search_term_view")) return [];
       return [{
-        campaign: { id: "456", name: "Collision campaign" },
+        campaign: {
+          id: "456",
+          name: "Collision campaign",
+          status: "ENABLED",
+          primaryStatus: "ELIGIBLE",
+          primaryStatusReasons: []
+        },
         adGroup: { id: "789", name: "Body shop" },
         searchTermView: { searchTerm: "collision repair near me", status: "NONE" },
         segments: { date: "2026-08-25", keyword: { info: { text: "collision repair", matchType: "BROAD" } } },
         metrics: { impressions: 4, clicks: 1, costMicros: 1000, conversions: 1, conversionsValue: 10 }
       }, {
-        campaign: { id: "456", name: "Collision campaign" },
+        campaign: {
+          id: "456",
+          name: "Collision campaign",
+          status: "ENABLED",
+          primaryStatus: "ELIGIBLE",
+          primaryStatusReasons: []
+        },
         adGroup: { id: "789", name: "Body shop" },
         searchTermView: { searchTerm: "auto body repair near me", status: "NONE" },
         segments: { date: "2026-08-25", keyword: { info: { text: "body repair", matchType: "BROAD" } } },
@@ -195,7 +281,13 @@ test("logs an explicit failed outcome for every failed organization batch", asyn
     async searchStream(_customerId: string, query: string): Promise<Record<string, unknown>[]> {
       if (query.includes("campaign_search_term_view")) return [];
       return [{
-        campaign: { id: "456", name: "Campaign" },
+        campaign: {
+          id: "456",
+          name: "Campaign",
+          status: "ENABLED",
+          primaryStatus: "ELIGIBLE",
+          primaryStatusReasons: []
+        },
         adGroup: { id: "789", name: "Ad group" },
         searchTermView: { searchTerm: "sample query", status: "NONE" },
         segments: { date: "2026-08-25", keyword: { info: { text: "sample", matchType: "BROAD" } } },
@@ -269,7 +361,13 @@ for (const failProvider of [false, true]) {
       async searchStream(_customerId: string, query: string) {
         if (query.includes("campaign_search_term_view")) return [];
         return terms.map((searchTerm) => ({
-          campaign: { id: "456", name: "Campaign" }, adGroup: { id: "789", name: "Group" },
+          campaign: {
+            id: "456",
+            name: "Campaign",
+            status: "ENABLED",
+            primaryStatus: "ELIGIBLE",
+            primaryStatusReasons: []
+          }, adGroup: { id: "789", name: "Group" },
           searchTermView: { searchTerm, status: "NONE" }, segments: { date: "2026-08-25" },
           metrics: { impressions: 1, clicks: 1, costMicros: 1000, conversions: 0, conversionsValue: 0 }
         }));
@@ -331,7 +429,13 @@ test("Capital Collision emergency phrases become KEEP before any negative mutati
     async searchStream(_customerId: string, query: string) {
       if (query.includes("campaign_search_term_view")) return [];
       return terms.map((searchTerm) => ({
-        campaign: { id: "456", name: "Campaign" },
+        campaign: {
+          id: "456",
+          name: "Campaign",
+          status: "ENABLED",
+          primaryStatus: "ELIGIBLE",
+          primaryStatusReasons: []
+        },
         adGroup: { id: "789", name: "Group" },
         searchTermView: { searchTerm, status: "NONE" },
         segments: { date: "2026-08-25" },

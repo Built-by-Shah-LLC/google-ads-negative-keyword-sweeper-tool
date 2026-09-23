@@ -13,6 +13,12 @@ export interface SearchTermRow {
   channel: "SEARCH" | "PERFORMANCE_MAX";
   campaignId: string;
   campaignName: string;
+  /** Current Google Ads configuration state fetched with the search-term row. Missing values fail closed before classification/mutation. */
+  campaignStatus?: string;
+  /** Google Ads serving diagnosis used by the daily campaign safety filter. Missing values fail closed before classification/mutation. */
+  campaignPrimaryStatus?: string;
+  /** All diagnostic reasons contributing to campaignPrimaryStatus. Missing values fail closed before classification/mutation. */
+  campaignPrimaryStatusReasons?: readonly string[];
   adGroupId: string | null;
   adGroupName: string | null;
   searchTerm: string;

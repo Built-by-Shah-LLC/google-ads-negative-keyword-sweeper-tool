@@ -1,6 +1,12 @@
 import { createHash } from "node:crypto";
 import type { ClassificationCandidate, ClassificationDecision } from "../types.js";
 import type { GoogleAdsClient } from "./client.js";
+import {
+  CampaignSweepFilterError,
+  assertCampaignsStillPassSweepFilter,
+  assertCampaignsPassSweepFilter,
+  campaignSweepFilterContextFromRow
+} from "./campaign-filter.js";
 
 export type NegativeKeywordWriterMode = "development" | "validation" | "production";
 
@@ -23,9 +29,18 @@ export interface NegativeKeywordChunkResult {
   results: NegativeKeywordWriteResult[];
 }
 
+export interface NegativeKeywordWriteOptions {
+  /** Invoked after validation and immediately before a writer sends a live mutation. */
+  beforeLiveMutation?: (operations: readonly NegativeKeywordCreate[]) => Promise<void>;
+}
+
 export interface NegativeKeywordWriter {
   readonly mode: NegativeKeywordWriterMode;
-  writeChunk(customerId: string, operations: NegativeKeywordCreate[]): Promise<NegativeKeywordChunkResult>;
+  writeChunk(
+    customerId: string,
+    operations: NegativeKeywordCreate[],
+    options?: NegativeKeywordWriteOptions
+  ): Promise<NegativeKeywordChunkResult>;
 }
 
 export interface NegativeKeywordMutationSummary {
@@ -114,6 +129,14 @@ export async function applyNegativeExactDecisions(input: {
     };
   }
 
+  // This read happens after classification and immediately before any
+  // validation or live mutation request. It fails closed if the campaign's
+  // current state differs from the state that allowed it into the sweep.
+  await assertCampaignsStillPassSweepFilter(
+    input.googleAds,
+    customerId,
+    operations.map((operation) => operation.campaignId)
+  );
   const existingBefore = await fetchExistingCampaignExactNegatives(input.googleAds, customerId);
   const pending = operations.filter((operation) => !existingBefore.has(operationKey(operation)));
   const existingCount = operations.length - pending.length;
@@ -132,8 +155,23 @@ export async function applyNegativeExactDecisions(input: {
   for (let offset = 0; offset < pending.length; offset += input.chunkSize) {
     const operationsInChunk = pending.slice(offset, offset + input.chunkSize);
     const chunkId = String(chunks.length + 1).padStart(4, "0");
+    // Recheck each chunk as well as the initial all-operation preflight. This
+    // keeps the status read immediately adjacent to its validation/live write.
+    await assertCampaignsStillPassSweepFilter(
+      input.googleAds,
+      customerId,
+      operationsInChunk.map((operation) => operation.campaignId)
+    );
     try {
-      const result = await input.writer.writeChunk(customerId, operationsInChunk);
+      const result = await input.writer.writeChunk(customerId, operationsInChunk, {
+        beforeLiveMutation: async (operationsToMutate) => {
+          await assertCampaignsStillPassSweepFilter(
+            input.googleAds,
+            customerId,
+            operationsToMutate.map((operation) => operation.campaignId)
+          );
+        }
+      });
       assertChunkResult(operationsInChunk, result.results);
       chunks.push({
         chunkId,
@@ -142,6 +180,7 @@ export async function applyNegativeExactDecisions(input: {
         results: result.results
       });
     } catch (error) {
+      if (error instanceof CampaignSweepFilterError) throw error;
       chunks.push({
         chunkId,
         requestId: null,
@@ -229,6 +268,7 @@ export function createNegativeKeywordOperations(
     if (sanitizeId(candidate.customerId, "candidate customer ID") !== cleanCustomerId) {
       throw new Error(`Negative decision '${decision.itemId}' belongs to a different Google Ads customer.`);
     }
+    assertCampaignsPassSweepFilter([campaignSweepFilterContextFromRow(candidate)], "mutation preparation");
     if (decision.negativeText !== candidate.searchTerm) {
       throw new Error(`Negative decision '${decision.itemId}' does not preserve the complete search term.`);
     }

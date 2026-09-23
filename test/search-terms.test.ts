@@ -58,7 +58,13 @@ test("retains exact Google metric strings beyond JavaScript safe integers", asyn
       queries.push(query);
       if (query.includes("campaign_search_term_view")) return [];
       return [{
-        campaign: { id: "456", name: "Campaign" },
+        campaign: {
+          id: "456",
+          name: "Campaign",
+          status: "ENABLED",
+          primaryStatus: "ELIGIBLE",
+          primaryStatusReasons: []
+        },
         adGroup: { id: "789", name: "Group" },
         searchTermView: { searchTerm: "query", status: "NONE" },
         segments: { date: "2026-08-25" },
@@ -81,5 +87,51 @@ test("retains exact Google metric strings beyond JavaScript safe integers", asyn
   assert.equal(rows[0]?.conversionsExact, "1.25");
   assert.equal(rows[0]?.conversionValueExact, "9.99");
   assert.equal(queries.length, 2);
-  assert.ok(queries.every((query) => query.includes("campaign.primary_status = 'ENDED'")));
+  assert.ok(queries.every((query) => query.includes("campaign.status IN (ENABLED)")));
+  assert.ok(queries.every((query) => !query.includes("campaign.primary_status = 'ENDED'")));
+});
+
+test("admits only enabled eligible campaigns or budget-constrained limited campaigns", async () => {
+  const queries: string[] = [];
+  const searchRow = (
+    id: string,
+    status: string,
+    primaryStatus: string,
+    primaryStatusReasons: string[]
+  ) => ({
+    campaign: { id, name: `Campaign ${id}`, status, primaryStatus, primaryStatusReasons },
+    adGroup: { id: "789", name: "Group" },
+    searchTermView: { searchTerm: `term ${id}`, status: "NONE" },
+    segments: { date: "2026-08-25" },
+    metrics: { impressions: 1, clicks: 0, costMicros: 0, conversions: 0, conversionsValue: 0 }
+  });
+  const client = {
+    async searchStream(_customerId: string, query: string) {
+      queries.push(query);
+      if (query.includes("campaign_search_term_view")) return [];
+      return [
+        searchRow("100", "ENABLED", "ELIGIBLE", []),
+        searchRow("101", "ENABLED", "LIMITED", ["BUDGET_CONSTRAINED"]),
+        searchRow("102", "ENABLED", "LIMITED", ["HAS_ADS_LIMITED_BY_POLICY"]),
+        searchRow("103", "ENABLED", "LIMITED", ["BUDGET_CONSTRAINED", "HAS_ADS_LIMITED_BY_POLICY"]),
+        searchRow("104", "PAUSED", "ELIGIBLE", []),
+        searchRow("105", "ENABLED", "ENDED", [])
+      ];
+    }
+  } as unknown as GoogleAdsClient;
+
+  const rows = await fetchSearchTermsForDateRange(client, "123", {
+    startDate: "2026-08-25",
+    endDate: "2026-08-25"
+  });
+
+  assert.deepEqual(rows.map((row) => row.campaignId), ["100", "101", "103"]);
+  assert.deepEqual(rows[1]?.campaignPrimaryStatusReasons, ["BUDGET_CONSTRAINED"]);
+  assert.deepEqual(rows[2]?.campaignPrimaryStatusReasons, ["BUDGET_CONSTRAINED", "HAS_ADS_LIMITED_BY_POLICY"]);
+  const query = queries.find((item) => item.includes("FROM search_term_view")) ?? "";
+  assert.match(query, /campaign\.status,/u);
+  assert.match(query, /campaign\.primary_status,/u);
+  assert.match(query, /campaign\.primary_status_reasons,/u);
+  assert.match(query, /campaign\.status IN \(ENABLED\)/u);
+  assert.match(query, /campaign\.primary_status IN \(ELIGIBLE, LIMITED\)/u);
 });

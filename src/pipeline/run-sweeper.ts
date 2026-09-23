@@ -11,6 +11,7 @@ import {
 } from "../config/sweep-30day-state.js";
 import type { RuleSet } from "../types.js";
 import { GoogleAdsClient } from "../google-ads/client.js";
+import { CAMPAIGN_SWEEP_FILTER } from "../google-ads/campaign-filter.js";
 import { DevelopmentNegativeKeywordWriter } from "../google-ads/negative-keyword-writer.dev.js";
 import { createLiveProductionNegativeKeywordWriter } from "../google-ads/negative-keyword-writer.prod.js";
 import { createLiveValidationOnlyNegativeKeywordWriter } from "../google-ads/negative-keyword-writer.validation.js";
@@ -122,6 +123,7 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
     llm: { provider: classifier.provider, model: classifier.model },
     filters: {
       campaignNameContains: config.campaignNameContains,
+      campaignEligibility: CAMPAIGN_SWEEP_FILTER,
       accountSelectionSource: config.sweepAccounts.source,
       sweepAccountCount: config.sweepAccounts.accounts.length,
       accountAllowlistEntries: config.accountAllowlist.length,
