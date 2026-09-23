@@ -49,6 +49,40 @@ export function campaignSweepGaqlFilter(): string {
   ].join("\n      AND ");
 }
 
+/**
+ * Fetches campaign metadata only, then applies the complete eligibility policy
+ * locally. Callers must use the returned IDs to scope any later metrics or
+ * search-term query so rejected LIMITED campaigns never have their data read.
+ */
+export async function fetchCampaignsPassingSweepFilter(
+  googleAds: Pick<GoogleAdsClient, "searchStream">,
+  customerId: string
+): Promise<CampaignSweepFilterContext[]> {
+  const rows = await googleAds.searchStream(customerId, `
+    SELECT
+      campaign.id,
+      campaign.status,
+      campaign.primary_status,
+      campaign.primary_status_reasons
+    FROM campaign
+    WHERE ${campaignSweepGaqlFilter()}
+  `);
+
+  const passingByCampaignId = new Map<string, CampaignSweepFilterContext>();
+  for (const row of rows) {
+    const campaign = recordValue(row.campaign);
+    const campaignId = stringValue(campaign?.id);
+    if (!campaignId) continue;
+    const context = campaignSweepFilterContext(campaignId, campaign);
+    if (campaignPassesSweepFilter(context)) {
+      passingByCampaignId.set(campaignId, context);
+    }
+  }
+  return [...passingByCampaignId.values()].sort((left, right) =>
+    left.campaignId.localeCompare(right.campaignId)
+  );
+}
+
 /** Fails closed when Google omits an enum value or returns an unknown state. */
 export function campaignPassesSweepFilter(context: CampaignSweepFilterContext): boolean {
   const campaignStatus = enumValue(context.campaignStatus);

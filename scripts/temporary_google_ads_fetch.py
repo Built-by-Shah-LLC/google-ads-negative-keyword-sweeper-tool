@@ -208,6 +208,13 @@ def stream_results(payload: dict | list) -> list[dict]:
 
 
 def main() -> int:
+    supported_flags = {"--reauthorize", "--authorize-only"}
+    unknown_flags = set(sys.argv[1:]) - supported_flags
+    if unknown_flags:
+        raise RuntimeError("Unknown option(s): " + ", ".join(sorted(unknown_flags)))
+    force_reauthorize = "--reauthorize" in sys.argv[1:]
+    authorize_only = "--authorize-only" in sys.argv[1:]
+
     repo_root = Path(__file__).resolve().parents[1]
     env_path = repo_root / ".env"
     env = load_env(env_path)
@@ -224,13 +231,16 @@ def main() -> int:
     client_id = env["GOOGLE_ADS_CLIENT_ID"]
     client_secret = env["GOOGLE_ADS_CLIENT_SECRET"]
     refresh_token = env.get("GOOGLE_ADS_REFRESH_TOKEN", "")
-    if refresh_token:
+    if refresh_token and not force_reauthorize:
         access_token = refresh_access_token(client_id, client_secret, refresh_token)
         print("OAuth access token refreshed without browser authorization.")
     else:
         access_token, refresh_token = authorize_offline(client_id, client_secret)
         save_env_value(env_path, "GOOGLE_ADS_REFRESH_TOKEN", refresh_token)
         print("OAuth refresh token stored securely in the ignored .env file.")
+    if authorize_only:
+        print("Google Ads OAuth authorization completed.")
+        return 0
     developer_token = env["GOOGLE_ADS_DEVELOPER_TOKEN"]
     manager_id = env["GOOGLE_ADS_LOGIN_CUSTOMER_ID"].replace("-", "")
 

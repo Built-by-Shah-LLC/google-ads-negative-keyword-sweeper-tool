@@ -5,8 +5,11 @@ import {
   campaignPassesSweepFilter,
   campaignSweepFilterContext,
   campaignSweepFilterContextFromRow,
-  campaignSweepGaqlFilter
+  campaignSweepGaqlFilter,
+  fetchCampaignsPassingSweepFilter
 } from "./campaign-filter.js";
+
+const CAMPAIGN_ID_QUERY_CHUNK_SIZE = 200;
 
 export async function fetchSearchTermsForDateRange(
   client: GoogleAdsClient,
@@ -14,7 +17,16 @@ export async function fetchSearchTermsForDateRange(
   dateRange: DateRange
 ): Promise<SearchTermRow[]> {
   assertDateRange(dateRange);
-  const searchQuery = `
+  const passingCampaigns = await fetchCampaignsPassingSweepFilter(client, customerId);
+  if (passingCampaigns.length === 0) return [];
+
+  const rows: SearchTermRow[] = [];
+  for (let offset = 0; offset < passingCampaigns.length; offset += CAMPAIGN_ID_QUERY_CHUNK_SIZE) {
+    const campaignIds = passingCampaigns
+      .slice(offset, offset + CAMPAIGN_ID_QUERY_CHUNK_SIZE)
+      .map((campaign) => campaign.campaignId);
+    const campaignIdFilter = `campaign.id IN (${campaignIds.join(", ")})`;
+    const searchQuery = `
     SELECT
       campaign.id,
       campaign.name,
@@ -36,9 +48,10 @@ export async function fetchSearchTermsForDateRange(
     FROM search_term_view
     WHERE segments.date BETWEEN '${dateRange.startDate}' AND '${dateRange.endDate}'
       AND metrics.impressions > 0
+      AND ${campaignIdFilter}
       AND ${campaignSweepGaqlFilter()}
   `;
-  const performanceMaxQuery = `
+    const performanceMaxQuery = `
     SELECT
       campaign.id,
       campaign.name,
@@ -57,19 +70,22 @@ export async function fetchSearchTermsForDateRange(
     WHERE segments.date BETWEEN '${dateRange.startDate}' AND '${dateRange.endDate}'
       AND campaign.advertising_channel_type = PERFORMANCE_MAX
       AND metrics.impressions > 0
+      AND ${campaignIdFilter}
       AND ${campaignSweepGaqlFilter()}
   `;
 
-  const [searchRows, performanceMaxRows] = await Promise.all([
-    client.searchStream(customerId, searchQuery),
-    client.searchStream(customerId, performanceMaxQuery)
-  ]);
-  return [
-    ...searchRows.map((row) => mapSearchRow(customerId, row, "SEARCH")),
-    ...performanceMaxRows.map((row) => mapSearchRow(customerId, row, "PERFORMANCE_MAX"))
-  ].filter((row): row is SearchTermRow =>
-    row !== null && campaignPassesSweepFilter(campaignSweepFilterContextFromRow(row))
-  );
+    const [searchRows, performanceMaxRows] = await Promise.all([
+      client.searchStream(customerId, searchQuery),
+      client.searchStream(customerId, performanceMaxQuery)
+    ]);
+    rows.push(...[
+      ...searchRows.map((row) => mapSearchRow(customerId, row, "SEARCH")),
+      ...performanceMaxRows.map((row) => mapSearchRow(customerId, row, "PERFORMANCE_MAX"))
+    ].filter((row): row is SearchTermRow =>
+      row !== null && campaignPassesSweepFilter(campaignSweepFilterContextFromRow(row))
+    ));
+  }
+  return rows;
 }
 
 export function aggregateCandidates(rows: SearchTermRow[]): ClassificationCandidate[] {

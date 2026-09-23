@@ -242,9 +242,12 @@ Scheduler trigger and runs with `--all-organizations` (still restricted to eligi
 master-list companies by the 30-day gate above). See `docs/DEPLOYMENT.md`; only one
 production scheduler should be enabled to avoid duplicate daily runs.
 
-Search-term collection is further restricted to campaigns whose Google Ads primary status
-is `ENDED` (their configured end time has passed). Paused, removed, pending, eligible,
-learning, limited, misconfigured, and otherwise ineligible campaigns are not swept.
+Search-term collection first reads campaign status metadata without metrics. It then fetches
+search-term data only for campaigns whose advertiser status is `ENABLED` and whose Google Ads
+primary status is either `ELIGIBLE`, or `LIMITED` with a nonempty reason list containing only
+`BUDGET_CONSTRAINED`, `BIDDING_STRATEGY_LIMITED`, `BIDDING_STRATEGY_CONSTRAINED`, and/or
+`SEARCH_VOLUME_LIMITED`. Missing, unknown, or mixed allowed/disallowed LIMITED reasons fail
+closed. The same policy is checked again immediately before Google Ads mutation.
 
 ## Provider selection, run reports, and error email
 
