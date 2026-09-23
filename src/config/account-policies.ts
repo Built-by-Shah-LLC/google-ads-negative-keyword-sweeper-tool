@@ -136,3 +136,103 @@ export const ACCOUNT_POLICIES: Record<string, AccountPolicySeedConfig> = {
     phraseProtectionsFile: "src/config/accounts/8500809656/phrase-protections.md"
   }
 };
+
+/**
+ * The first three 3J rules are the reviewed standard collision-shop dynamic
+ * rules. They were moved out of the agency-wide document so approved services
+ * can vary per company; every completed company therefore needs its own copy.
+ */
+function standardCollisionDynamicRules(): AccountRuleDefinition[] {
+  const threeJ = ACCOUNT_POLICIES["8500809656"];
+  if (!threeJ) throw new Error("The 3J seed policy is required.");
+  return threeJ.customRules.slice(0, 3).map((rule) => ({ ...rule }));
+}
+
+const STANDARD_COMPLETED_ACCOUNT_POLICIES: Record<string, Omit<AccountPolicySeedConfig, "customRules">> = {
+  "8402372674": {
+    policyKey: "akins-collision-center",
+    revision: "2026-09-23.1",
+    phraseProtectionsFile: "src/config/accounts/8402372674/phrase-protections.md"
+  },
+  "2305040084": {
+    policyKey: "anderson-auto-body",
+    revision: "2026-09-23.1",
+    phraseProtectionsFile: "src/config/accounts/2305040084/phrase-protections.md"
+  },
+  "9459997727": {
+    policyKey: "arrow-body-services",
+    revision: "2026-09-23.1",
+    phraseProtectionsFile: "src/config/accounts/9459997727/phrase-protections.md"
+  },
+  "6304919700": {
+    policyKey: "art-city-auto-body-orem",
+    revision: "2026-09-23.1",
+    phraseProtectionsFile: "src/config/accounts/6304919700/phrase-protections.md"
+  },
+  "1130534333": {
+    policyKey: "capital-collision",
+    revision: "2026-09-23.1",
+    phraseProtectionsFile: "src/config/accounts/1130534333/phrase-protections.md"
+  },
+  "8820051592": {
+    policyKey: "carstar-santa-maria",
+    revision: "2026-09-23.1",
+    phraseProtectionsFile: "src/config/accounts/8820051592/phrase-protections.md"
+  },
+  "3666014313": {
+    policyKey: "art-city-auto-body-dg-enterprise",
+    revision: "2026-09-23.1",
+    phraseProtectionsFile: "src/config/accounts/3666014313/phrase-protections.md"
+  },
+  "7990574090": {
+    policyKey: "electrified-collision",
+    revision: "2026-09-23.1",
+    phraseProtectionsFile: "src/config/accounts/7990574090/phrase-protections.md"
+  },
+  "6592667815": {
+    policyKey: "frankie-ms-auto-body",
+    revision: "2026-09-23.1",
+    phraseProtectionsFile: "src/config/accounts/6592667815/phrase-protections.md"
+  },
+  "8791302016": {
+    policyKey: "lg-auto-body-rockville",
+    revision: "2026-09-23.1",
+    phraseProtectionsFile: "src/config/accounts/8791302016/phrase-protections.md"
+  },
+  "7289311819": {
+    policyKey: "pit-stop-auto-collision",
+    revision: "2026-09-23.1",
+    phraseProtectionsFile: "src/config/accounts/7289311819/phrase-protections.md"
+  },
+  "1618289856": {
+    policyKey: "sonoma-auto-center",
+    revision: "2026-09-23.1",
+    phraseProtectionsFile: "src/config/accounts/1618289856/phrase-protections.md"
+  },
+  "3419276158": {
+    policyKey: "tellos-collision-center",
+    revision: "2026-09-23.1",
+    phraseProtectionsFile: "src/config/accounts/3419276158/phrase-protections.md"
+  },
+  "4007102747": {
+    policyKey: "tri-state-auto-body",
+    revision: "2026-09-23.1",
+    phraseProtectionsFile: "src/config/accounts/4007102747/phrase-protections.md"
+  }
+};
+
+for (const [customerId, policy] of Object.entries(STANDARD_COMPLETED_ACCOUNT_POLICIES)) {
+  const customRules = standardCollisionDynamicRules();
+  if (customerId === "1130534333") {
+    customRules.push({
+      id: "POL-CAPITAL-OWN-BRANDS-KEEP",
+      title: "Capital Collision approved brand names",
+      instruction:
+        "KEEP service-seeking queries for Capital Collision and its approved location brands: " +
+        "Capital Collision, Riverside Collision Center, and Woodcrest Collision Center. " +
+        "These are this account's own brands, not competitors. Independent negative evidence " +
+        "such as careers, DIY, towing-only, price-shopping, or reviews still applies."
+    });
+  }
+  ACCOUNT_POLICIES[customerId] = { ...policy, customRules };
+}

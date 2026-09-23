@@ -9,6 +9,11 @@ import { loadRuleSet } from "../src/config/rule-set.js";
 import type { PhraseProtection } from "../src/types.js";
 
 const THREE_J = "8500809656";
+const COMPLETED_ACCOUNT_IDS = [
+  "8402372674", "2305040084", "9459997727", "6304919700", "1130534333",
+  "8820051592", "3666014313", "7990574090", "6592667815", "8791302016",
+  "7289311819", "1618289856", "3419276158", "4007102747"
+];
 
 async function threeJPolicy(): Promise<Record<string, AccountPolicyConfig>> {
   const base = await loadRuleSet(process.cwd());
@@ -87,6 +92,37 @@ test("3J policy compiles dynamic rules and account phrase protections", async ()
   const again = await compileAccountPolicy(base, THREE_J, policies);
   assert.equal(again.manifest!.effectivePolicySha256, result.manifest.effectivePolicySha256);
   assert.equal(again.rules.markdown, result.rules.markdown);
+});
+
+test("all fourteen additional completed companies compile an explicit dynamic policy", async () => {
+  const base = await loadRuleSet(process.cwd());
+  for (const customerId of COMPLETED_ACCOUNT_IDS) {
+    const seed = ACCOUNT_POLICIES[customerId];
+    assert.ok(seed, `missing policy seed for ${customerId}`);
+    const protections = parsePhraseProtections(
+      await readFile(resolve(process.cwd(), seed.phraseProtectionsFile), "utf8"),
+      [...base.ruleIds, ...seed.customRules.map((rule) => rule.id)]
+    );
+    const result = await compileAccountPolicy(base, customerId, {
+      [customerId]: {
+        policyKey: seed.policyKey,
+        revision: seed.revision,
+        customRules: seed.customRules,
+        phraseProtections: protections
+      }
+    });
+    assert.ok(result.manifest, `policy did not compile for ${customerId}`);
+    assert.ok(result.manifest.dynamicRuleIds.includes("POL-PARTS-ONLY-NEGATIVE"));
+    assert.ok(result.manifest.dynamicRuleIds.includes("POL-GLASS-TINT-NEGATIVE"));
+    assert.ok(result.manifest.dynamicRuleIds.includes("POL-COSMETIC-ONLY-NEGATIVE"));
+    if (customerId === "1130534333") {
+      assert.equal(result.manifest.dynamicRuleIds.length, 4);
+      assert.equal(result.manifest.accountPhraseProtectionCount, 3);
+    } else {
+      assert.equal(result.manifest.dynamicRuleIds.length, 3);
+      assert.equal(result.manifest.accountPhraseProtectionCount, 0);
+    }
+  }
 });
 
 test("rejects a malformed customer ID", async () => {

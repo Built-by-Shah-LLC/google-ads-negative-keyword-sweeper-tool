@@ -1,0 +1,173 @@
+{
+  "generatedAt": "2026-09-23T14:12:48.481Z",
+  "accounts": [
+    {
+      "customerId": "1130534333",
+      "name": "CAPITAL COLLISION",
+      "file": "docs/company-llm-prompts/1130534333-capital-collision.md",
+      "policyKey": "capital-collision",
+      "revision": "2026-09-23.1",
+      "dynamicRules": 4,
+      "accountPhraseProtections": 3,
+      "positiveKeywords": 38,
+      "positiveSource": "historical-observed-search-term-facts",
+      "requiresLiveRefresh": true
+    },
+    {
+      "customerId": "1618289856",
+      "name": "Sonoma Auto Center",
+      "file": "docs/company-llm-prompts/1618289856-sonoma-auto-center.md",
+      "policyKey": "sonoma-auto-center",
+      "revision": "2026-09-23.1",
+      "dynamicRules": 3,
+      "accountPhraseProtections": 0,
+      "positiveKeywords": 18,
+      "positiveSource": "historical-observed-search-term-facts",
+      "requiresLiveRefresh": true
+    },
+    {
+      "customerId": "2305040084",
+      "name": "Anderson Auto Body",
+      "file": "docs/company-llm-prompts/2305040084-anderson-auto-body.md",
+      "policyKey": "anderson-auto-body",
+      "revision": "2026-09-23.1",
+      "dynamicRules": 3,
+      "accountPhraseProtections": 0,
+      "positiveKeywords": 19,
+      "positiveSource": "historical-observed-search-term-facts",
+      "requiresLiveRefresh": true
+    },
+    {
+      "customerId": "3419276158",
+      "name": "Tello's Collision Center",
+      "file": "docs/company-llm-prompts/3419276158-tellos-collision-center.md",
+      "policyKey": "tellos-collision-center",
+      "revision": "2026-09-23.1",
+      "dynamicRules": 3,
+      "accountPhraseProtections": 0,
+      "positiveKeywords": 30,
+      "positiveSource": "historical-observed-search-term-facts",
+      "requiresLiveRefresh": true
+    },
+    {
+      "customerId": "3666014313",
+      "name": "DG Enterprise LLC DBA Art City Auto Body",
+      "file": "docs/company-llm-prompts/3666014313-art-city-auto-body-dg-enterprise.md",
+      "policyKey": "art-city-auto-body-dg-enterprise",
+      "revision": "2026-09-23.1",
+      "dynamicRules": 3,
+      "accountPhraseProtections": 0,
+      "positiveKeywords": 34,
+      "positiveSource": "historical-observed-search-term-facts",
+      "requiresLiveRefresh": true
+    },
+    {
+      "customerId": "4007102747",
+      "name": "TRI STATE AUTO BODY",
+      "file": "docs/company-llm-prompts/4007102747-tri-state-auto-body.md",
+      "policyKey": "tri-state-auto-body",
+      "revision": "2026-09-23.1",
+      "dynamicRules": 3,
+      "accountPhraseProtections": 0,
+      "positiveKeywords": 0,
+      "positiveSource": "historical-observed-search-term-facts",
+      "requiresLiveRefresh": true
+    },
+    {
+      "customerId": "8402372674",
+      "name": "Akins Collision Center",
+      "file": "docs/company-llm-prompts/8402372674-akins-collision-center.md",
+      "policyKey": "akins-collision-center",
+      "revision": "2026-09-23.1",
+      "dynamicRules": 3,
+      "accountPhraseProtections": 0,
+      "positiveKeywords": 12,
+      "positiveSource": "historical-observed-search-term-facts",
+      "requiresLiveRefresh": true
+    },
+    {
+      "customerId": "9459997727",
+      "name": "Arrow Body Services",
+      "file": "docs/company-llm-prompts/9459997727-arrow-body-services.md",
+      "policyKey": "arrow-body-services",
+      "revision": "2026-09-23.1",
+      "dynamicRules": 3,
+      "accountPhraseProtections": 0,
+      "positiveKeywords": 28,
+      "positiveSource": "historical-observed-search-term-facts",
+      "requiresLiveRefresh": true
+    },
+    {
+      "customerId": "6304919700",
+      "name": "Art City Auto Body - Orem",
+      "file": "docs/company-llm-prompts/6304919700-art-city-auto-body-orem.md",
+      "policyKey": "art-city-auto-body-orem",
+      "revision": "2026-09-23.1",
+      "dynamicRules": 3,
+      "accountPhraseProtections": 0,
+      "positiveKeywords": 40,
+      "positiveSource": "historical-observed-search-term-facts",
+      "requiresLiveRefresh": true
+    },
+    {
+      "customerId": "8820051592",
+      "name": "CARSTAR - Santa Maria",
+      "file": "docs/company-llm-prompts/8820051592-carstar-santa-maria.md",
+      "policyKey": "carstar-santa-maria",
+      "revision": "2026-09-23.1",
+      "dynamicRules": 3,
+      "accountPhraseProtections": 0,
+      "positiveKeywords": 0,
+      "positiveSource": "historical-observed-search-term-facts",
+      "requiresLiveRefresh": true
+    },
+    {
+      "customerId": "7990574090",
+      "name": "Electrified Collision",
+      "file": "docs/company-llm-prompts/7990574090-electrified-collision.md",
+      "policyKey": "electrified-collision",
+      "revision": "2026-09-23.1",
+      "dynamicRules": 3,
+      "accountPhraseProtections": 0,
+      "positiveKeywords": 23,
+      "positiveSource": "historical-observed-search-term-facts",
+      "requiresLiveRefresh": true
+    },
+    {
+      "customerId": "6592667815",
+      "name": "Frankie Ms Auto Body",
+      "file": "docs/company-llm-prompts/6592667815-frankie-ms-auto-body.md",
+      "policyKey": "frankie-ms-auto-body",
+      "revision": "2026-09-23.1",
+      "dynamicRules": 3,
+      "accountPhraseProtections": 0,
+      "positiveKeywords": 14,
+      "positiveSource": "historical-observed-search-term-facts",
+      "requiresLiveRefresh": true
+    },
+    {
+      "customerId": "8791302016",
+      "name": "LG Auto Body (Rockville)",
+      "file": "docs/company-llm-prompts/8791302016-lg-auto-body-rockville.md",
+      "policyKey": "lg-auto-body-rockville",
+      "revision": "2026-09-23.1",
+      "dynamicRules": 3,
+      "accountPhraseProtections": 0,
+      "positiveKeywords": 130,
+      "positiveSource": "historical-observed-search-term-facts",
+      "requiresLiveRefresh": true
+    },
+    {
+      "customerId": "7289311819",
+      "name": "Pit Stop Auto Collision",
+      "file": "docs/company-llm-prompts/7289311819-pit-stop-auto-collision.md",
+      "policyKey": "pit-stop-auto-collision",
+      "revision": "2026-09-23.1",
+      "dynamicRules": 3,
+      "accountPhraseProtections": 0,
+      "positiveKeywords": 49,
+      "positiveSource": "historical-observed-search-term-facts",
+      "requiresLiveRefresh": true
+    }
+  ]
+}

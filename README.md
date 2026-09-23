@@ -198,7 +198,7 @@ Account selection is governed by two committed JSON files, not the long env allo
   is logged at startup).
 - `data/sweep-30day-state.json` (override with `SWEEP_30DAY_STATE_FILE`) — records which
   master-list companies have completed their initial 30-day-lookback sweep. The seeded
-  version marks only 3J Collision Center (8500809656) complete. `npm run sweep:30day`
+  version records the 15 server-confirmed completions from September 2026. `npm run sweep:30day`
   rewrites this file atomically (temporary file plus rename) after each successful
   account run, so it changes at runtime; commit intentional updates to it.
 
@@ -217,12 +217,9 @@ npm run sweep:30day -- --customer 8402372674   # one company
 npm run sweep:30day -- --all-pending           # every master-list company without a record
 ```
 
-Known cross-check note (static, verify against the database before relying on it): the
-master-list companies 8820051592 (CARSTAR - Santa Maria), 8724978591 (Chris Auto Body),
-9879723872 (G&S / Bella's Collision), 5166711284 (Streamline Collision Inc), 3522557954
-(Sunrise Auto Body), 4007102747 (TRI STATE AUTO BODY), and 2356287166 (US Auto
-Connection) have no `client_accounts` mapping yet, so their runs fail closed at
-persistence until a row exists. That fail-closed behavior is intentional and unchanged.
+The completed set must also have active `client_accounts` mappings. The sweeper still
+fails closed at persistence when any selected customer is missing or archived; never
+infer or auto-create an account mapping from the completion file.
 
 Cloud Run caveat: the state file is container-local. The image ships the seeded copy, but
 completions recorded inside a job do not persist across executions. A minimal durable
