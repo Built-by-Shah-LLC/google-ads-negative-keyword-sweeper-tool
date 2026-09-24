@@ -1,6 +1,6 @@
 # Completed-company LLM prompt snapshots
 
-The 14 company files in this directory are generated views of the exact fixed
+The 15 company files in this directory are generated views of the exact fixed
 context produced by the shared LLM prompt builder. They contain the effective
 agency rules, company dynamic rules, effective phrase protections, positive
 keyword policy and inventory, and an empty candidate envelope. At runtime the
@@ -16,15 +16,20 @@ The Markdown files are audit/review artifacts, not runtime configuration:
   `negative_keyword_positive_keyword_snapshots` and
   `negative_keyword_positive_keyword_snapshot_entries`.
 
-The current snapshots were generated with
-`--allow-historical-fallback` because Google Ads rejected the configured OAuth
-identity after its 2-Step Verification settings changed. Their positive lists
-therefore contain only keywords observed in retained Google Ads search-term
-facts. CARSTAR Santa Maria and TRI STATE have no retained matched-keyword facts,
-so their fallback inventories are empty. Every file carries a warning and must
-be refreshed from live Google Ads before being treated as production-complete.
+Fourteen snapshots were generated with `--allow-historical-fallback` because
+Google Ads rejected the configured OAuth identity after its 2-Step Verification
+settings changed. Their positive lists therefore contain only keywords observed
+in retained Google Ads search-term facts. CARSTAR Santa Maria and TRI STATE have
+no retained matched-keyword facts, so their fallback inventories are empty.
+Those files carry a warning and must be refreshed from live Google Ads before
+being treated as production-complete.
 
-After Google Ads authentication is restored, regenerate all 14 without the
+The 3J Collision Center snapshot was generated from the complete live Google Ads
+inventory captured by run `20260918T141254279Z-98557b07`: 243 non-removed
+criteria, including 40 active criteria. It records that run as its source and,
+like every committed prompt snapshot, is not runtime configuration.
+
+After Google Ads authentication is restored, regenerate all 15 without the
 fallback flag:
 
 ```powershell

@@ -1,6 +1,18 @@
 {
-  "generatedAt": "2026-09-23T14:12:48.481Z",
+  "generatedAt": "2026-09-24T16:43:12.657Z",
   "accounts": [
+    {
+      "customerId": "8500809656",
+      "name": "3J Collision Center",
+      "file": "docs/company-llm-prompts/8500809656-3j-collision-center.md",
+      "policyKey": "3j-collision-center",
+      "revision": "2026-09-15.2",
+      "dynamicRules": 6,
+      "accountPhraseProtections": 8,
+      "positiveKeywords": 243,
+      "positiveSource": "live-google-ads-run-snapshot",
+      "requiresLiveRefresh": false
+    },
     {
       "customerId": "1130534333",
       "name": "CAPITAL COLLISION",

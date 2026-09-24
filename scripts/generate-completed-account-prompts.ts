@@ -13,7 +13,7 @@ import type { PositiveKeywordCriterion } from "../src/types.js";
 
 /**
  * Generate the company-level fixed LLM prompt for every completed 30-day
- * company except 3J (whose prompt already exists). This does not run an LLM,
+ * company. This does not run an LLM,
  * mutate Google Ads, start a sweep, persist rows, or send email.
  *
  * By default, positive keywords are read live from Google Ads. During an auth
@@ -25,7 +25,6 @@ import type { PositiveKeywordCriterion } from "../src/types.js";
  *   npm run policy:render-completed-prompts -- --allow-historical-fallback
  */
 
-const THREE_J_CUSTOMER_ID = "8500809656";
 const outputDirectory = resolve("docs", "company-llm-prompts");
 const allowHistoricalFallback = process.argv.includes("--allow-historical-fallback");
 
@@ -55,10 +54,9 @@ async function main(): Promise<void> {
   const completionState = JSON.parse(
     await readFile(resolve(root, "data", "sweep-30day-state.json"), "utf8")
   ) as CompletionState;
-  const completedIds = Object.keys(completionState.completed)
-    .filter((customerId) => customerId !== THREE_J_CUSTOMER_ID);
-  if (completedIds.length !== 14) {
-    throw new Error(`Expected 14 completed companies besides 3J, found ${completedIds.length}.`);
+  const completedIds = Object.keys(completionState.completed);
+  if (completedIds.length !== 15) {
+    throw new Error(`Expected 15 completed companies, found ${completedIds.length}.`);
   }
 
   const config = await loadConfig(root);
