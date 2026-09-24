@@ -129,7 +129,9 @@ export async function processOrganization(
         fetchSearchTermsForDateRange(dependencies.googleAds, organization.customerId, dateRange)
       ),
       dependencies.telemetry.track("GOOGLE_POSITIVE_KEYWORD_FETCH", errorContext, () =>
-        fetchPositiveKeywords(dependencies.googleAds, organization.customerId)
+        fetchPositiveKeywords(dependencies.googleAds, organization.customerId, {
+          campaignNameContains: dependencies.campaignNameContains
+        })
       )
     ]);
     positiveKeywords = fetchedPositiveKeywords;

@@ -60,6 +60,18 @@ test("writes reconciled organization telemetry and token artifacts", async (cont
     async searchStream(_customerId: string, query: string): Promise<Record<string, unknown>[]> {
       queries.push(query);
       if (query.includes("campaign_search_term_view")) return [];
+      if (query.includes("FROM campaign") && query.includes("campaign.primary_status")) {
+        return [{
+          campaign: {
+            id: "456",
+            name: "Collision campaign",
+            status: "ENABLED",
+            primaryStatus: "ELIGIBLE",
+            primaryStatusReasons: []
+          }
+        }];
+      }
+      if (query.includes("FROM ad_group_criterion")) return [];
       return [{
         campaign: { id: "456", name: "Collision campaign" },
         adGroup: { id: "789", name: "Body shop" },
@@ -174,7 +186,7 @@ test("writes reconciled organization telemetry and token artifacts", async (cont
   assert.equal(decisions.effectiveOutcomeContractVersion, "positive-keyword-guard-v1");
   assert.equal(decisions.decisions[0].decision, "KEEP");
   assert.equal(decisions.effectiveDecisions[0].effectiveOutcome, "KEEP");
-  assert.equal(queries.length, 3);
+  assert.equal(queries.length, 4);
   const searchTermQueries = queries.filter((query) => query.includes("segments.date BETWEEN"));
   assert.equal(searchTermQueries.length, 2);
   assert.ok(searchTermQueries.every((query) => query.includes("segments.date BETWEEN '2026-08-25' AND '2026-08-25'")));

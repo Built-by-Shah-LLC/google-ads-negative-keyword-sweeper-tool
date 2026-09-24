@@ -1,16 +1,13 @@
 # TRI STATE AUTO BODY — LLM fixed prompt context
 
 - Google Ads customer ID: `4007102747`
-- Generated at: `2026-09-23T14:12:20.849Z`
+- Generated at: `2026-09-24T18:02:33.706Z`
 - Policy: `tri-state-auto-body` revision `2026-09-23.1`
 - Base rule version: `2026-09-16.1`
 - Dynamic rules: 3
 - Account phrase protections: 0
 - Positive keywords: 0
-- Positive-keyword source: `historical-observed-search-term-facts`
-
-> [!WARNING]
-> LIVE GOOGLE ADS AUTHENTICATION WAS UNAVAILABLE. This inventory contains only positive keywords observed in retained search-term facts and can omit zero-impression, paused, or newly added criteria. Regenerate without --allow-historical-fallback before production use.
+- Positive-keyword source: `live-google-ads`
 
 This is the exact company-level fixed context produced by the shared prompt builder.
 The candidate list and per-item matched-protection map are intentionally empty here;

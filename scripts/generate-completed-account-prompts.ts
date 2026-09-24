@@ -89,7 +89,9 @@ async function main(): Promise<void> {
     let sourceWarning: string | null = null;
     try {
       if (!liveGoogleAdsAvailable) throw new Error("Live Google Ads was unavailable earlier in this generation run.");
-      positiveKeywords = await fetchPositiveKeywords(googleAds, customerId);
+      positiveKeywords = await fetchPositiveKeywords(googleAds, customerId, {
+        campaignNameContains: config.campaignNameContains
+      });
     } catch (error) {
       if (!allowHistoricalFallback) throw error;
       liveGoogleAdsAvailable = false;

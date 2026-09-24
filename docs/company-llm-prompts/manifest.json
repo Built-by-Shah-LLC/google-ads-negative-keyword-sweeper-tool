@@ -1,18 +1,6 @@
 {
-  "generatedAt": "2026-09-24T16:43:12.657Z",
+  "generatedAt": "2026-09-24T18:02:48.819Z",
   "accounts": [
-    {
-      "customerId": "8500809656",
-      "name": "3J Collision Center",
-      "file": "docs/company-llm-prompts/8500809656-3j-collision-center.md",
-      "policyKey": "3j-collision-center",
-      "revision": "2026-09-15.2",
-      "dynamicRules": 6,
-      "accountPhraseProtections": 8,
-      "positiveKeywords": 243,
-      "positiveSource": "live-google-ads-run-snapshot",
-      "requiresLiveRefresh": false
-    },
     {
       "customerId": "1130534333",
       "name": "CAPITAL COLLISION",
@@ -21,9 +9,9 @@
       "revision": "2026-09-23.1",
       "dynamicRules": 4,
       "accountPhraseProtections": 3,
-      "positiveKeywords": 38,
-      "positiveSource": "historical-observed-search-term-facts",
-      "requiresLiveRefresh": true
+      "positiveKeywords": 320,
+      "positiveSource": "live-google-ads",
+      "requiresLiveRefresh": false
     },
     {
       "customerId": "1618289856",
@@ -33,9 +21,9 @@
       "revision": "2026-09-23.1",
       "dynamicRules": 3,
       "accountPhraseProtections": 0,
-      "positiveKeywords": 18,
-      "positiveSource": "historical-observed-search-term-facts",
-      "requiresLiveRefresh": true
+      "positiveKeywords": 348,
+      "positiveSource": "live-google-ads",
+      "requiresLiveRefresh": false
     },
     {
       "customerId": "2305040084",
@@ -45,9 +33,9 @@
       "revision": "2026-09-23.1",
       "dynamicRules": 3,
       "accountPhraseProtections": 0,
-      "positiveKeywords": 19,
-      "positiveSource": "historical-observed-search-term-facts",
-      "requiresLiveRefresh": true
+      "positiveKeywords": 386,
+      "positiveSource": "live-google-ads",
+      "requiresLiveRefresh": false
     },
     {
       "customerId": "3419276158",
@@ -57,9 +45,9 @@
       "revision": "2026-09-23.1",
       "dynamicRules": 3,
       "accountPhraseProtections": 0,
-      "positiveKeywords": 30,
-      "positiveSource": "historical-observed-search-term-facts",
-      "requiresLiveRefresh": true
+      "positiveKeywords": 310,
+      "positiveSource": "live-google-ads",
+      "requiresLiveRefresh": false
     },
     {
       "customerId": "3666014313",
@@ -69,9 +57,9 @@
       "revision": "2026-09-23.1",
       "dynamicRules": 3,
       "accountPhraseProtections": 0,
-      "positiveKeywords": 34,
-      "positiveSource": "historical-observed-search-term-facts",
-      "requiresLiveRefresh": true
+      "positiveKeywords": 359,
+      "positiveSource": "live-google-ads",
+      "requiresLiveRefresh": false
     },
     {
       "customerId": "4007102747",
@@ -82,8 +70,20 @@
       "dynamicRules": 3,
       "accountPhraseProtections": 0,
       "positiveKeywords": 0,
-      "positiveSource": "historical-observed-search-term-facts",
-      "requiresLiveRefresh": true
+      "positiveSource": "live-google-ads",
+      "requiresLiveRefresh": false
+    },
+    {
+      "customerId": "8500809656",
+      "name": "3J Collision Center",
+      "file": "docs/company-llm-prompts/8500809656-3j-collision-center.md",
+      "policyKey": "3j-collision-center",
+      "revision": "2026-09-15.2",
+      "dynamicRules": 6,
+      "accountPhraseProtections": 8,
+      "positiveKeywords": 0,
+      "positiveSource": "live-google-ads",
+      "requiresLiveRefresh": false
     },
     {
       "customerId": "8402372674",
@@ -93,9 +93,9 @@
       "revision": "2026-09-23.1",
       "dynamicRules": 3,
       "accountPhraseProtections": 0,
-      "positiveKeywords": 12,
-      "positiveSource": "historical-observed-search-term-facts",
-      "requiresLiveRefresh": true
+      "positiveKeywords": 193,
+      "positiveSource": "live-google-ads",
+      "requiresLiveRefresh": false
     },
     {
       "customerId": "9459997727",
@@ -105,9 +105,9 @@
       "revision": "2026-09-23.1",
       "dynamicRules": 3,
       "accountPhraseProtections": 0,
-      "positiveKeywords": 28,
-      "positiveSource": "historical-observed-search-term-facts",
-      "requiresLiveRefresh": true
+      "positiveKeywords": 340,
+      "positiveSource": "live-google-ads",
+      "requiresLiveRefresh": false
     },
     {
       "customerId": "6304919700",
@@ -117,9 +117,9 @@
       "revision": "2026-09-23.1",
       "dynamicRules": 3,
       "accountPhraseProtections": 0,
-      "positiveKeywords": 40,
-      "positiveSource": "historical-observed-search-term-facts",
-      "requiresLiveRefresh": true
+      "positiveKeywords": 0,
+      "positiveSource": "live-google-ads",
+      "requiresLiveRefresh": false
     },
     {
       "customerId": "8820051592",
@@ -129,9 +129,9 @@
       "revision": "2026-09-23.1",
       "dynamicRules": 3,
       "accountPhraseProtections": 0,
-      "positiveKeywords": 0,
-      "positiveSource": "historical-observed-search-term-facts",
-      "requiresLiveRefresh": true
+      "positiveKeywords": 231,
+      "positiveSource": "live-google-ads",
+      "requiresLiveRefresh": false
     },
     {
       "customerId": "7990574090",
@@ -141,9 +141,9 @@
       "revision": "2026-09-23.1",
       "dynamicRules": 3,
       "accountPhraseProtections": 0,
-      "positiveKeywords": 23,
-      "positiveSource": "historical-observed-search-term-facts",
-      "requiresLiveRefresh": true
+      "positiveKeywords": 293,
+      "positiveSource": "live-google-ads",
+      "requiresLiveRefresh": false
     },
     {
       "customerId": "6592667815",
@@ -153,9 +153,9 @@
       "revision": "2026-09-23.1",
       "dynamicRules": 3,
       "accountPhraseProtections": 0,
-      "positiveKeywords": 14,
-      "positiveSource": "historical-observed-search-term-facts",
-      "requiresLiveRefresh": true
+      "positiveKeywords": 0,
+      "positiveSource": "live-google-ads",
+      "requiresLiveRefresh": false
     },
     {
       "customerId": "8791302016",
@@ -165,9 +165,9 @@
       "revision": "2026-09-23.1",
       "dynamicRules": 3,
       "accountPhraseProtections": 0,
-      "positiveKeywords": 130,
-      "positiveSource": "historical-observed-search-term-facts",
-      "requiresLiveRefresh": true
+      "positiveKeywords": 398,
+      "positiveSource": "live-google-ads",
+      "requiresLiveRefresh": false
     },
     {
       "customerId": "7289311819",
@@ -177,9 +177,9 @@
       "revision": "2026-09-23.1",
       "dynamicRules": 3,
       "accountPhraseProtections": 0,
-      "positiveKeywords": 49,
-      "positiveSource": "historical-observed-search-term-facts",
-      "requiresLiveRefresh": true
+      "positiveKeywords": 384,
+      "positiveSource": "live-google-ads",
+      "requiresLiveRefresh": false
     }
   ]
 }

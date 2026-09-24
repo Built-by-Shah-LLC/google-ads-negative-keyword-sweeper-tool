@@ -16,21 +16,19 @@ The Markdown files are audit/review artifacts, not runtime configuration:
   `negative_keyword_positive_keyword_snapshots` and
   `negative_keyword_positive_keyword_snapshot_entries`.
 
-Fourteen snapshots were generated with `--allow-historical-fallback` because
-Google Ads rejected the configured OAuth identity after its 2-Step Verification
-settings changed. Their positive lists therefore contain only keywords observed
-in retained Google Ads search-term facts. CARSTAR Santa Maria and TRI STATE have
-no retained matched-keyword facts, so their fallback inventories are empty.
-Those files carry a warning and must be refreshed from live Google Ads before
-being treated as production-complete.
+All 15 snapshots were refreshed from live Google Ads on 2026-09-24. Each
+positive-keyword inventory contains the complete set of non-removed keyword
+criteria from campaigns that pass the daily campaign filters: the configured
+campaign-name substring (currently `Built by Shah`), `ENABLED` campaign status,
+and an allowed primary status/reason combination. Zero-impression, paused, and
+newly added keyword criteria are included when their campaign qualifies. The
+generated files and manifest record `live-google-ads` as their source and do
+not carry historical-fallback warnings.
 
-The 3J Collision Center snapshot was generated from the complete live Google Ads
-inventory captured by run `20260918T141254279Z-98557b07`: 243 non-removed
-criteria, including 40 active criteria. It records that run as its source and,
-like every committed prompt snapshot, is not runtime configuration.
+The cross-company rules-conflict audit is in
+[`POSITIVE_KEYWORD_CONTRADICTION_FINDINGS.md`](./POSITIVE_KEYWORD_CONTRADICTION_FINDINGS.md).
 
-After Google Ads authentication is restored, regenerate all 15 without the
-fallback flag:
+To refresh all 15 snapshots again, run:
 
 ```powershell
 npm run policy:render-completed-prompts
