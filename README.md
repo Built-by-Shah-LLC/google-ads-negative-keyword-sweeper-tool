@@ -296,6 +296,17 @@ process run.
 
 Files in `legacy-reference/` are provided for complete project context. When they conflict with `docs/ARCHITECTURE_DECISIONS.md`, the current architecture decisions control.
 
+## BBS Jira delivery workflow
+
+For every bug, task, update, feature, review, test, release, or deployment
+request, agents must first read and apply the local
+[BBS Jira Delivery skill](.agents/skills/bbs-jira-delivery/SKILL.md), then the
+[Keyword Sweeper verification profile](.agents/skills/bbs-jira-delivery/REPO-PROFILES.md).
+It keeps Jira work in **BBS Software Support** (`DEV`), using the
+`bbs-keyword-sweeper` label, and requires a scoped plan, review evidence,
+appropriate tests, and explicit approval before a push, deployment, migration,
+or Google Ads mutation.
+
 ## Data handling
 
 The handoff copies replace live Google Ads customer IDs and recipient emails with stable placeholders. Do not commit API keys, OAuth tokens, service credentials, or unsanitized client identifiers.
