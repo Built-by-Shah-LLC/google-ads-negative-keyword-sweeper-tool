@@ -21,7 +21,7 @@ export function validatePhraseProtectionEntries(entries: unknown, ruleIds: strin
   for (const entry of entries) {
     if (!entry || typeof entry !== "object" || Array.isArray(entry)
       || Object.keys(entry).sort().join() !== "customerIds,excusedEvidence,id,phrase,ruleId"
-      || typeof entry.id !== "string" || !/^[a-z0-9-]{1,64}$/u.test(entry.id) || ids.has(entry.id)
+      || typeof entry.id !== "string" || !/^[A-Za-z0-9-]{1,64}$/u.test(entry.id) || ids.has(entry.id)
       || typeof entry.phrase !== "string" || !normalizeTerm(entry.phrase) || entry.phrase.length > 200
       || typeof entry.ruleId !== "string" || !entry.ruleId.endsWith("-NEGATIVE") || !ruleIds.includes(entry.ruleId)
       || typeof entry.excusedEvidence !== "string" || !entry.excusedEvidence.trim() || entry.excusedEvidence.length > 500

@@ -5,6 +5,14 @@ run a provider, database migration, deployment, or Google Ads command.
 
 ## Declaration and runs
 
+When an already-database-owned legacy policy needs the D-052 immutable
+revision/runtime linkage, run the separately approved one-account bridge first:
+`npm run policy:backfill-db -- --customer <customer-id>`. It reads the active
+static rules, dynamic rules, phrase protections, account mapping, and owner
+from PostgreSQL only; it does not read repository policy files or contact
+Google Ads or an LLM provider. It refuses to overwrite an existing enabled
+runtime revision.
+
 Create a reviewed JSON declaration for one named account containing the exact
 canonical customer ID, requested date, candidate limit, `mutationMode` set to
 `disabled`, and the current phase. Select the same explicit `--customer`,

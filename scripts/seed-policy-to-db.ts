@@ -49,20 +49,19 @@ async function main(): Promise<void> {
   const adminUrl = env.POLICY_ADMIN_DATABASE_URL ?? config.persistence.databaseUrl;
 
   const base = await loadRuleSet(rootDirectory);
-  for (const entry of base.phraseProtections ?? []) {
-    if (!/^[A-Z][A-Z0-9-]+$/u.test(entry.id)) {
-      throw new Error(`Base phrase protection '${entry.id}' must already use its canonical uppercase database ID.`);
-    }
-  }
+  base.phraseProtections = (base.phraseProtections ?? []).map((entry) => ({
+    ...entry,
+    id: entry.id.toUpperCase()
+  }));
   const accountSeeds: AccountSeed[] = [];
   for (const [customerId, seed] of Object.entries(ACCOUNT_POLICIES)) {
     const markdown = await readFile(resolve(rootDirectory, seed.phraseProtectionsFile), "utf8");
     const ruleIds = [...base.ruleIds, ...seed.customRules.map((rule) => rule.id)];
-    const protections = parsePhraseProtections(markdown, ruleIds);
+    const protections = parsePhraseProtections(markdown, ruleIds).map((entry) => ({
+      ...entry,
+      id: entry.id.toUpperCase()
+    }));
     for (const entry of protections) {
-      if (!/^[A-Z][A-Z0-9-]+$/u.test(entry.id)) {
-        throw new Error(`Phrase protection '${entry.id}' must already use its canonical uppercase database ID.`);
-      }
       if (entry.customerIds.length > 0 && !entry.customerIds.includes(customerId)) {
         throw new Error(
           `Phrase protection '${entry.id}' in ${seed.phraseProtectionsFile} is scoped to other accounts; ` +
