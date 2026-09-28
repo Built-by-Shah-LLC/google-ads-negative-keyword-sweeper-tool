@@ -12,6 +12,7 @@ import {
 import type { RuleSet } from "../types.js";
 import {
   compileAccountPolicy,
+  effectivePolicyHash,
   type AccountPolicyConfig,
   type EffectiveAccountPolicy
 } from "../config/account-policy-compiler.js";
@@ -60,6 +61,9 @@ export interface SweepOptions {
   ignoreThirtyDayCheck: boolean;
   /** Dynamic per-account policy loaded from the database by the entrypoint. */
   accountPolicies: Record<string, AccountPolicyConfig>;
+  /** Controlled-pilot baseline deliberately compiles base-only for comparison. */
+  policyMode?: "base-only" | "effective";
+  pilot?: { readonly pilotId: string; readonly phase: "baseline" | "policy"; readonly approver: string; readonly policyRevision: string } | null;
 }
 
 export interface SweepServices {
@@ -221,12 +225,14 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
     // LLM spend. Misconfigured account policy fails the run closed here.
     const accountPolicies = new Map<string, EffectiveAccountPolicy>();
     for (const organization of selected) {
-      const accountPolicy = await compileAccountPolicy(rules, organization.customerId, options.accountPolicies);
+      const accountPolicy = await compileAccountPolicy(rules, organization.customerId, options.policyMode === "base-only" ? {} : options.accountPolicies);
       accountPolicies.set(organization.customerId, accountPolicy);
       const organizationBasePath = `organizations/${organization.customerId}`;
       await artifacts.write(`${organizationBasePath}/policy-manifest.json`, {
         runId: artifacts.runId,
         generatedAt: new Date().toISOString(),
+        policyMode: options.policyMode ?? "effective",
+        pilot: options.pilot ?? null,
         ...(accountPolicy.manifest ?? {
           customerId: organization.customerId,
           policyKey: null,
@@ -237,16 +243,12 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
           dynamicRuleIds: [],
           accountPhraseProtectionCount: 0,
           phraseProtectionsSourcePath: null,
-          effectivePolicySha256: null
+          effectivePolicySha256: effectivePolicyHash(accountPolicy.rules.markdown, accountPolicy.rules.phraseProtections ?? [])
         })
       });
-      if (accountPolicy.manifest && accountPolicy.accountPhraseProtections !== null) {
-        await artifacts.writeText(`${organizationBasePath}/rules.md`, accountPolicy.rules.markdown);
-        await artifacts.write(
-          `${organizationBasePath}/phrase-protections.json`,
-          accountPolicy.accountPhraseProtections
-        );
-      }
+      await artifacts.writeText(`${organizationBasePath}/rules.md`, accountPolicy.rules.markdown);
+      await artifacts.write(`${organizationBasePath}/phrase-protections.json`, accountPolicy.rules.phraseProtections ?? []);
+      await artifacts.writeText(`${organizationBasePath}/phrase-protections.md`, renderPhraseProtections(accountPolicy.rules.phraseProtections ?? []));
       logger.info({
         progressEvent: "account_policy_compiled",
         customerId: organization.customerId,
@@ -360,6 +362,11 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
   } finally {
     await persistence.close();
   }
+}
+
+function renderPhraseProtections(entries: readonly { id: string; phrase: string; customerIds: string[]; ruleId: string; excusedEvidence: string }[]): string {
+  if (entries.length === 0) return "# Phrase protections\n\nNo phrase protections apply.\n";
+  return ["# Phrase protections", "", ...entries.flatMap((entry) => [`## ${entry.id}`, "", `- Phrase: \`${entry.phrase}\``, `- Rule: \`${entry.ruleId}\``, `- Customer IDs: ${entry.customerIds.length === 0 ? "all accounts" : entry.customerIds.join(", ")}`, `- Excused evidence: ${entry.excusedEvidence}`, ""])].join("\n");
 }
 
 export function assertProductionMutationAuthorized(

@@ -16,6 +16,7 @@
     "negatives:manage": "tsx src/manage-negatives.ts",
     "rules:check": "node --import tsx scripts/check-rule-release.ts",
     "policy:seed": "tsx scripts/seed-policy-to-db.ts",
+    "pilot:review": "tsx scripts/review-policy-pilot.ts",
     "policy:render-completed-prompts": "tsx scripts/generate-completed-account-prompts.ts"
   },
   "devDependencies": {

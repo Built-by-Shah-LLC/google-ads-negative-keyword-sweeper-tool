@@ -33,6 +33,10 @@ export interface AccountPolicyConfig {
   customRules: AccountRuleDefinition[];
   /** Parsed per-company phrase protections for this account. */
   phraseProtections: PhraseProtection[];
+  approvedServices?: string[];
+  competitorAliases?: string[];
+  canAppearAsCompetitor?: boolean;
+  expectedEffectivePolicySha256?: string;
 }
 
 export interface AccountPolicyManifest {
@@ -44,6 +48,9 @@ export interface AccountPolicyManifest {
   baseReleaseId: string | null;
   dynamicRuleIds: string[];
   accountPhraseProtectionCount: number;
+  approvedServices: string[];
+  competitorAliases: string[];
+  canAppearAsCompetitor: boolean;
   phraseProtectionsSourcePath: string;
   effectivePolicySha256: string;
 }
@@ -105,11 +112,15 @@ export async function compileAccountPolicy(
     protectionIds.add(entry.id);
   }
 
-  const effectivePolicySha256 = createHash("sha256")
-    .update(markdown)
-    .update("\n")
-    .update(canonicalProtectionsJson(accountProtections))
-    .digest("hex");
+  const effectivePolicySha256 = effectivePolicyHash(markdown, phraseProtections);
+  /*
+   * The authoring service stores this same canonical hash. A mismatch means
+   * the runtime did not compile exactly the reviewed bundle and must stop.
+   */
+  /* c8 ignore next 2 */
+  if (config.expectedEffectivePolicySha256 && config.expectedEffectivePolicySha256 !== effectivePolicySha256) {
+    throw new Error(`Effective policy hash mismatch for customer ${customerId}: database authoring and runtime compilation differ.`);
+  }
 
   const rules: RuleSet = {
     ...base,
@@ -130,6 +141,9 @@ export async function compileAccountPolicy(
       baseReleaseId: base.releaseId ?? null,
       dynamicRuleIds: config.customRules.map((rule) => rule.id),
       accountPhraseProtectionCount: accountProtections.length,
+      approvedServices: [...(config.approvedServices ?? [])].sort(),
+      competitorAliases: [...(config.competitorAliases ?? [])].sort(),
+      canAppearAsCompetitor: config.canAppearAsCompetitor ?? false,
       phraseProtectionsSourcePath: PHRASE_PROTECTIONS_SOURCE,
       effectivePolicySha256
     }
@@ -180,5 +194,9 @@ function canonicalProtectionsJson(entries: PhraseProtection[]): string {
     customerIds: [...entry.customerIds].sort(),
     ruleId: entry.ruleId,
     excusedEvidence: entry.excusedEvidence
-  })));
+  })).sort((first, second) => JSON.stringify(first).localeCompare(JSON.stringify(second))));
+}
+
+export function effectivePolicyHash(rulesMarkdown: string, protections: PhraseProtection[]): string {
+  return createHash("sha256").update(rulesMarkdown).update("\n").update(canonicalProtectionsJson(protections)).digest("hex");
 }

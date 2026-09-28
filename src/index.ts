@@ -1,5 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
+import { readFile } from "node:fs/promises";
 import {
   loadConfig,
   loadOperationalConfig,
@@ -12,6 +13,7 @@ import { RunReportEmailService } from "./notifications/run-report-email.js";
 import { runSweeper, type SweepOptions } from "./pipeline/run-sweeper.js";
 import { serializeError } from "./observability/errors.js";
 import { createLogger, type Logger } from "./observability/logger.js";
+import type { PilotRunDeclaration } from "./pilot/policy-pilot.js";
 
 async function main(
   rootDirectory: string,
@@ -26,7 +28,20 @@ async function main(
   }
   const policy = await loadPolicyFromDatabase(config.persistence);
   const rules = policy.rules;
-  options.accountPolicies = policy.accountPolicies;
+  options.accountPolicies = options.policyMode === "base-only" ? {} : policy.accountPolicies;
+  if (options.pilotDeclarationPath !== null) {
+    const declaration = JSON.parse(await readFile(resolve(options.pilotDeclarationPath), "utf8")) as PilotRunDeclaration;
+    const customerId = options.customerId?.replaceAll("-", "") ?? null;
+    if (!declaration.pilotId || !declaration.approver || !["baseline", "policy"].includes(declaration.phase)) throw new Error("Pilot declaration is incomplete.");
+    if (declaration.mutationMode !== "disabled") throw new Error("Pilot declarations must explicitly set mutationMode to disabled.");
+    if (customerId === null || customerId !== declaration.customerId.replaceAll("-", "")) throw new Error("Pilot runs require the one explicitly declared --customer.");
+    if (options.date !== declaration.requestedDate || options.candidateLimitPerOrganization !== declaration.candidateLimit) throw new Error("Pilot date and candidate limit must exactly match the reviewed declaration.");
+    if (config.googleAdsMutation.mode !== "disabled" || options.productionMutationAuthorized) throw new Error("Controlled policy pilots require Google Ads mutation mode disabled.");
+    if ((options.policyMode === "base-only" ? "baseline" : "policy") !== declaration.phase) throw new Error("Pilot phase and --policy-mode do not match.");
+    const configured = policy.accountPolicies[customerId];
+    if (declaration.phase === "policy" && (configured?.revision !== declaration.policyRevision || configured.expectedEffectivePolicySha256 !== declaration.effectivePolicyHash)) throw new Error("Pilot declaration policy revision/hash does not match the enabled database policy.");
+    options.pilot = { pilotId: declaration.pilotId, phase: declaration.phase, approver: declaration.approver, policyRevision: declaration.policyRevision };
+  }
 
   logger.info({
     scope: options.allOrganizations
@@ -45,8 +60,9 @@ async function main(
   if (result.status === "FAILED") process.exitCode = 1;
 }
 
-function parseArguments(argumentsList: string[], rootDirectory: string): SweepOptions {
-  const options: SweepOptions = {
+interface CliSweepOptions extends SweepOptions { pilotDeclarationPath: string | null; }
+function parseArguments(argumentsList: string[], rootDirectory: string): CliSweepOptions {
+  const options: CliSweepOptions = {
     rootDirectory,
     date: null,
     customerId: null,
@@ -57,7 +73,10 @@ function parseArguments(argumentsList: string[], rootDirectory: string): SweepOp
     thirtyDayMode: false,
     allPending: false,
     ignoreThirtyDayCheck: false,
-    accountPolicies: {}
+    accountPolicies: {},
+    policyMode: "effective",
+    pilot: null,
+    pilotDeclarationPath: null
   };
   for (let index = 0; index < argumentsList.length; index += 1) {
     const argument = argumentsList[index];
@@ -79,6 +98,8 @@ function parseArguments(argumentsList: string[], rootDirectory: string): SweepOp
       || argument === "--customer"
       || argument === "--organization-limit"
       || argument === "--candidate-limit-per-organization"
+      || argument === "--policy-mode"
+      || argument === "--pilot-declaration"
     ) {
       const value = argumentsList[index + 1];
       if (!value) throw new Error(`${argument} requires a value.`);
@@ -93,12 +114,17 @@ function parseArguments(argumentsList: string[], rootDirectory: string): SweepOp
         const limit = Number(value);
         if (!Number.isSafeInteger(limit) || limit < 1) throw new Error("--organization-limit must be positive.");
         options.organizationLimit = limit;
-      } else {
+      } else if (argument === "--candidate-limit-per-organization") {
         const limit = Number(value);
         if (!Number.isSafeInteger(limit) || limit < 1) {
           throw new Error("--candidate-limit-per-organization must be positive.");
         }
         options.candidateLimitPerOrganization = limit;
+      } else if (argument === "--policy-mode") {
+        if (value !== "base-only" && value !== "effective") throw new Error("--policy-mode must be base-only or effective.");
+        options.policyMode = value;
+      } else {
+        options.pilotDeclarationPath = value;
       }
       continue;
     }
@@ -107,6 +133,7 @@ function parseArguments(argumentsList: string[], rootDirectory: string): SweepOp
   if (options.customerId && options.allOrganizations) {
     throw new Error("Use either --customer or --all-organizations, not both.");
   }
+  if (options.policyMode === "base-only" && options.pilotDeclarationPath === null) throw new Error("Base-only mode is restricted to a reviewed --pilot-declaration.");
   return options;
 }
 

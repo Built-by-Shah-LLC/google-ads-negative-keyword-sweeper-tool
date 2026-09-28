@@ -101,7 +101,20 @@ decision rather than replacing or updating that evidence.
 Paused or other-campaign exact matches remain visible audit context; phrase and
 broad expansion matches do not protect a different full search query.
 
-The system uses one agency-wide collision-repair intent policy. Account-specific profiles may be added later if real-world evaluation shows they materially improve precision.
+The system combines one agency-wide collision-repair intent policy with exactly
+one enabled, immutable database-authored account revision. Runtime projections
+must all reference that revision and their compiled effective hash must match the
+dashboard-owned value; otherwise the account fails before provider spend.
+
+## Controlled account-policy pilot
+
+Base-versus-policy evaluation is an explicit CLI workflow, never a scheduled or
+browser action. `--policy-mode base-only` is accepted only with a reviewed pilot
+declaration whose customer, requested date, candidate bound, phase, and disabled
+mutation mode exactly match the command. The effective-policy pass uses the same
+declaration constraints. Both runs retain rules, protections, manifest, database
+evidence, and decisions. The offline reviewer rejects account/date/bound drift and
+requires every changed decision to be classified before an Owner go/no-go.
 
 ## Legacy implementation
 

@@ -41,6 +41,9 @@ Cloud SQL, not the ephemeral filesystem, is the durable run record.
    its private migration Job. The database administrator must first create the
    non-bypass-RLS login `bam_dev_negative_keyword_sweeper`; that migration Job
    creates/grants `bam_negative_keyword_sweeper_runtime`.
+   The dashboard-owned policy/runtime and pilot schema introduced by
+   `0021_negative_keyword_policy_and_pilot_completion.sql` must also be present;
+   do not infer migration order across branches from the filename alone.
 5. Secret Manager values `bam-dev-sweeper-database-url` and
    `bam-dev-organization-id`, readable only by `sweeper-runner`. The database
    URL must target private `bam-dev-postgres/built_ads_manager` and must not

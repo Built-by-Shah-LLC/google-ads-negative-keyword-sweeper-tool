@@ -28,6 +28,10 @@ export interface PhraseProtectionRow {
   customer_ids: string[];
   rule_id: string;
   excused_evidence: string;
+  account_id?: string | null;
+  policy_key?: string | null;
+  revision?: string | null;
+  policy_revision_id?: string | null;
 }
 
 export interface AccountRuleRow {
@@ -37,6 +41,19 @@ export interface AccountRuleRow {
   rule_id: string;
   title: string;
   instruction: string;
+  policy_revision_id?: string | null;
+}
+
+export interface RuntimePolicyRow {
+  account_id: string;
+  customer_id: string;
+  policy_revision_id: string;
+  policy_key: string;
+  revision: string;
+  approved_services: string[];
+  competitor_aliases: string[];
+  can_appear_as_competitor: boolean;
+  effective_sha256: string;
 }
 
 /**
@@ -73,24 +90,38 @@ export async function loadPolicyFromDatabase(
       const rules = ruleSetFromStaticRow(staticRow);
 
       const protectionsResult = await client.query<PhraseProtectionRow>(`
-        SELECT entry_id, phrase, customer_ids, rule_id, excused_evidence
+        SELECT entry_id, phrase, customer_ids, rule_id, excused_evidence,
+          account_id::text, policy_key, revision, policy_revision_id::text
         FROM negative_keyword_phrase_protections
         WHERE organization_id = $1 AND active
         ORDER BY entry_id
       `, [config.organizationId]);
       const protectionRows = protectionsResult.rows;
-      const baseProtectionRows = protectionRows.filter((row) => row.customer_ids.length === 0);
-      const accountProtectionRows = protectionRows.filter((row) => row.customer_ids.length > 0);
+      const baseProtectionRows = protectionRows.filter((row) => row.account_id == null && row.customer_ids.length === 0);
+      const accountProtectionRows = protectionRows.filter((row) => row.account_id != null);
       rules.phraseProtections = validatePhraseProtectionEntries(
         baseProtectionRows.map(mapPhraseProtectionRow),
         rules.ruleIds
       );
 
       const accountRulesResult = await client.query<AccountRuleRow>(`
-        SELECT customer_id, policy_key, revision, rule_id, title, instruction
-        FROM negative_keyword_account_rules
-        WHERE organization_id = $1 AND active
+        SELECT rule.customer_id, rule.policy_key, rule.revision, rule.rule_id,
+          rule.title, rule.instruction, rule.policy_revision_id::text
+        FROM negative_keyword_account_rules rule
+        JOIN negative_keyword_account_policy_runtime runtime
+          ON runtime.organization_id = rule.organization_id
+          AND runtime.policy_revision_id = rule.policy_revision_id
+          AND runtime.customer_id = rule.customer_id
+        WHERE rule.organization_id = $1 AND rule.active AND runtime.active
         ORDER BY customer_id, rule_id
+      `, [config.organizationId]);
+      const runtimeResult = await client.query<RuntimePolicyRow>(`
+        SELECT account_id::text, customer_id, policy_revision_id::text,
+          policy_key, revision, approved_services, competitor_aliases,
+          can_appear_as_competitor, effective_sha256
+        FROM negative_keyword_account_policy_runtime
+        WHERE organization_id = $1 AND active
+        ORDER BY customer_id
       `, [config.organizationId]);
 
       return {
@@ -98,7 +129,8 @@ export async function loadPolicyFromDatabase(
         accountPolicies: buildAccountPolicies(
           accountRulesResult.rows,
           accountProtectionRows,
-          rules.ruleIds
+          rules.ruleIds,
+          runtimeResult.rows
         )
       };
     });
@@ -135,9 +167,27 @@ export function mapPhraseProtectionRow(row: PhraseProtectionRow): PhraseProtecti
 export function buildAccountPolicies(
   ruleRows: AccountRuleRow[],
   accountProtectionRows: PhraseProtectionRow[],
-  baseRuleIds: string[]
+  baseRuleIds: string[],
+  runtimeRows: RuntimePolicyRow[] = []
 ): Record<string, AccountPolicyConfig> {
   const policies: Record<string, AccountPolicyConfig> = {};
+  const runtimeByCustomer = new Map(runtimeRows.map((row) => [row.customer_id, row]));
+
+  // Preserve enabled revisions even when they intentionally compile to only
+  // the shared base policy (for example, an opt-in-only source account).
+  // Otherwise the manifest would silently lose the dashboard revision/hash.
+  for (const runtime of runtimeRows) {
+    policies[runtime.customer_id] = {
+      policyKey: runtime.policy_key,
+      revision: runtime.revision,
+      customRules: [],
+      phraseProtections: [],
+      approvedServices: runtime.approved_services,
+      competitorAliases: runtime.competitor_aliases,
+      canAppearAsCompetitor: runtime.can_appear_as_competitor,
+      expectedEffectivePolicySha256: runtime.effective_sha256
+    };
+  }
 
   const rulesByCustomer = new Map<string, AccountRuleRow[]>();
   for (const row of ruleRows) {
@@ -159,18 +209,30 @@ export function buildAccountPolicies(
       title: row.title,
       instruction: row.instruction
     }));
+    const runtime = runtimeByCustomer.get(customerId);
+    if (runtimeRows.length > 0 && (runtime === undefined || rows.some((row) => row.policy_revision_id !== runtime.policy_revision_id))) {
+      throw new Error(`Active account rules for customer ${customerId} do not belong to its enabled runtime revision.`);
+    }
     policies[customerId] = {
       policyKey: rows[0]!.policy_key,
       revision: rows[0]!.revision,
       customRules,
-      phraseProtections: []
+      phraseProtections: [],
+      approvedServices: runtime?.approved_services ?? [],
+      competitorAliases: runtime?.competitor_aliases ?? [],
+      canAppearAsCompetitor: runtime?.can_appear_as_competitor ?? false,
+      ...(runtime === undefined ? {} : { expectedEffectivePolicySha256: runtime.effective_sha256 })
     };
   }
 
   const protectionsByCustomer = new Map<string, PhraseProtection[]>();
   for (const row of accountProtectionRows) {
+    const runtime = row.account_id ? [...runtimeByCustomer.values()].find((candidate) => candidate.account_id === row.account_id) : undefined;
+    if (runtimeRows.length > 0 && (runtime === undefined || row.policy_revision_id !== runtime.policy_revision_id || row.policy_key !== runtime.policy_key || row.revision !== runtime.revision)) {
+      throw new Error(`Active phrase protection '${row.entry_id}' does not belong to one enabled runtime policy revision.`);
+    }
     const entry = mapPhraseProtectionRow(row);
-    for (const customerId of entry.customerIds) {
+    for (const customerId of runtime ? [runtime.customer_id] : entry.customerIds) {
       const entries = protectionsByCustomer.get(customerId) ?? [];
       entries.push({ ...entry, customerIds: [...entry.customerIds] });
       protectionsByCustomer.set(customerId, entries);

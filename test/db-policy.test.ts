@@ -116,6 +116,30 @@ test("creates a protection-only policy for accounts without dynamic rules", () =
   assert.equal(policy.phraseProtections.length, 1);
 });
 
+test("preserves an enabled runtime revision that intentionally has no projections", () => {
+  const policies = buildAccountPolicies([], [], ["POL-COLLISION-KEEP"], [{
+    account_id: "00000000-0000-4000-8000-000000000001",
+    customer_id: "1234567890",
+    policy_revision_id: "00000000-0000-4000-8000-000000000002",
+    policy_key: "source-only",
+    revision: "4",
+    approved_services: [],
+    competitor_aliases: ["Source Collision"],
+    can_appear_as_competitor: true,
+    effective_sha256: "a".repeat(64),
+  }]);
+  assert.deepEqual(policies["1234567890"], {
+    policyKey: "source-only",
+    revision: "4",
+    customRules: [],
+    phraseProtections: [],
+    approvedServices: [],
+    competitorAliases: ["Source Collision"],
+    canAppearAsCompetitor: true,
+    expectedEffectivePolicySha256: "a".repeat(64),
+  });
+});
+
 test("fails closed when one account mixes policy revisions", () => {
   assert.throws(() => buildAccountPolicies(
     [ruleRow, { ...ruleRow, rule_id: "POL-Y-GLASS-NEGATIVE", revision: "other" }],

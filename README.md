@@ -10,7 +10,11 @@ The target system separates responsibilities:
 - The AI service decides whether each complete search term should be kept, reviewed, or added as a full-query exact campaign negative.
 - Deterministic safeguards validate identity, response structure, exact-text integrity, and idempotency. They do not overrule the AI on business intent.
 - Existing shared-list, phrase, or broad-negative coverage does not prevent adding an AI-approved exact negative directly to the campaign.
-- The initial version uses automatically available Google Ads context and one agency-wide collision-repair policy; it does not require manually maintained per-account business profiles.
+- The runtime uses automatically available Google Ads context plus one
+  database-owned, immutable account-policy revision. The dashboard authors
+  approved services, aliases, directional relationships, custom rules, and
+  phrase protections; the Sweeper fails closed when their revision or hash is
+  inconsistent.
 
 See [Architecture decisions](docs/ARCHITECTURE_DECISIONS.md) for the controlling product decisions.
 
@@ -34,7 +38,7 @@ The new application under `src/` is isolated from `legacy-reference/`. It curren
 1. Discover enabled leaf organizations under the configured MCC.
 2. Fetch Search and Performance Max reported search terms for the single calendar day 48 hours before execution in `RUN_TIME_ZONE` (a September 3 run processes September 1 for every organization).
 3. Aggregate organization- and campaign-scoped candidates.
-4. Send bounded organization-specific batches and the authoritative policy loaded from the database (agency-wide static rules from `negative_keyword_static_rule_sets`, per-account dynamic rules from `negative_keyword_account_rules`, phrase protections from `negative_keyword_phrase_protections`, and the account's freshly fetched Google Ads positive keyword inventory with descriptions) to the selected LLM provider. Moonshot/Kimi is primary; OpenAI, Gemini, and the prior Kimi coding endpoint remain available through `LLM_PROVIDER`. The repository Markdown/TS policy files are seed content only — `npm run policy:seed` imports them into the database (migration `0024` in `built-ads-manager`), and runtime sweeps fail closed when no active static rule set exists.
+4. Send bounded organization-specific batches and the authoritative policy loaded from the database (agency-wide static rules from `negative_keyword_static_rule_sets`, revision-linked per-account dynamic rules and phrase protections, and the account's freshly fetched Google Ads positive keyword inventory with descriptions) to the selected LLM provider. Moonshot/Kimi is primary; OpenAI, Gemini, and the prior Kimi coding endpoint remain available through `LLM_PROVIDER`. The repository Markdown/TS policy files are seed content only — `npm run policy:seed` imports them into the database (policy completion migration `0021` in `built-ads-manager`), and runtime sweeps fail closed when no active static rule set, enabled account revision, or matching effective hash exists.
 5. Strictly validate the structured result and persist the complete run to the
    shared Built Ads Manager PostgreSQL database. Ignored files under `runs/`
    remain a diagnostic mirror; they are not the durable source of truth.

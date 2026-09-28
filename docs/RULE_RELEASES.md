@@ -186,3 +186,11 @@ Do not use mutable `latest` as a rollback identifier. The existing deployment
 script still uses `latest`; record the built image digest from the deployment and
 retain that artifact before rollout. This change did not deploy, alter cloud IAM,
 configure branch protection, run business evaluations, or apply Google Ads changes.
+
+## Database-authored revision release gate
+
+An account policy is now released only when its immutable dashboard revision,
+compiled rules/protections, release metadata, and effective hash agree with the
+Sweeper's runtime projection. Enable/disable and rollback create new revisions;
+they never edit old evidence. Before cohort expansion, use the controlled pilot
+workflow in `POLICY_PILOT.md`, classify every delta, and record Owner go/no-go.
