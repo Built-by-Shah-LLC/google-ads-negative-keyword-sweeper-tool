@@ -6,7 +6,7 @@ import {
   type EmailAlertConfig,
   type RunReportEmailConfig
 } from "./config/env.js";
-import { loadRuleSet } from "./config/rule-set.js";
+import { loadPolicyFromDatabase } from "./config/db-policy.js";
 import { EmailAlertService } from "./notifications/email-alerts.js";
 import { RunReportEmailService } from "./notifications/run-report-email.js";
 import { runSweeper, type SweepOptions } from "./pipeline/run-sweeper.js";
@@ -39,7 +39,9 @@ async function main(
       `30-day sweeps require the sweep accounts master file (expected at ${config.sweepAccounts.filePath}).`
     );
   }
-  const rules = await loadRuleSet(rootDirectory);
+  const policy = await loadPolicyFromDatabase(config.persistence);
+  const rules = policy.rules;
+  options.accountPolicies = policy.accountPolicies;
 
   logger.info({
     scope: options.customerId
@@ -68,7 +70,8 @@ function parseArguments(argumentsList: string[], rootDirectory: string): SweepOp
     productionMutationAuthorized: false,
     thirtyDayMode: true,
     allPending: false,
-    ignoreThirtyDayCheck: false
+    ignoreThirtyDayCheck: false,
+    accountPolicies: {}
   };
   for (let index = 0; index < argumentsList.length; index += 1) {
     const argument = argumentsList[index];

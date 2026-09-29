@@ -15,7 +15,9 @@ test("loads the authoritative Markdown rule set with unique rule IDs", async () 
   assert.ok(rules.ruleIds.includes("POL-INFORMATIONAL-NEGATIVE"));
   assert.ok(rules.ruleIds.includes("POL-NO-SERVICE-SIGNAL-NEGATIVE"));
   assert.ok(rules.ruleIds.includes("POL-CUSTOM-FABRICATION-NEGATIVE"));
-  assert.ok(rules.ruleIds.includes("POL-COSMETIC-ONLY-NEGATIVE"));
+  assert.equal(rules.ruleIds.includes("POL-COSMETIC-ONLY-NEGATIVE"), false);
+  assert.equal(rules.ruleIds.includes("POL-PARTS-ONLY-NEGATIVE"), false);
+  assert.equal(rules.ruleIds.includes("POL-GLASS-TINT-NEGATIVE"), false);
   assert.ok(rules.ruleIds.includes("POL-PAINT-COLOR-NEGATIVE"));
   assert.ok(rules.ruleIds.includes("POL-REVIEWS-NEGATIVE"));
   assert.ok(rules.ruleIds.includes("POL-HOURS-247-NEGATIVE"));
@@ -30,7 +32,6 @@ test("loads the authoritative Markdown rule set with unique rule IDs", async () 
   assert.ok(rules.ruleIds.includes("POL-FULL-QUERY-EXACT"));
   assert.match(rules.markdown, /tow truck after accident/iu);
   assert.match(rules.markdown, /choque cerca de mi/iu);
-  assert.match(rules.markdown, /car upholstery repair near me/iu);
   assert.match(rules.markdown, /free quote collision repair/iu);
   assert.match(rules.markdown, /what is collision repair/iu);
   assert.match(rules.markdown, /tesla collision center cincinnati/iu);
@@ -66,7 +67,6 @@ test("loads the authoritative Markdown rule set with unique rule IDs", async () 
   assert.match(rules.markdown, /`POL-CAREERS-NEGATIVE`, and/u);
   assert.match(rules.markdown, /mobile body shop/iu);
   assert.match(rules.markdown, /does tesla do body work/iu);
-  assert.match(rules.markdown, /fill holes in car body/iu);
   assert.match(rules.markdown, /aluminum certified body shop/iu);
   assert.match(rules.markdown, /post collision repair inspection near me/iu);
   assert.equal(new Set(rules.ruleIds).size, rules.ruleIds.length);

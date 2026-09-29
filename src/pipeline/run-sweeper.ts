@@ -10,6 +10,12 @@ import {
   recordSweep30DayCompletion
 } from "../config/sweep-30day-state.js";
 import type { RuleSet } from "../types.js";
+import {
+  compileAccountPolicy,
+  effectivePolicyHash,
+  type AccountPolicyConfig,
+  type EffectiveAccountPolicy
+} from "../config/account-policy-compiler.js";
 import { GoogleAdsClient } from "../google-ads/client.js";
 import { CAMPAIGN_SWEEP_FILTER } from "../google-ads/campaign-filter.js";
 import { DevelopmentNegativeKeywordWriter } from "../google-ads/negative-keyword-writer.dev.js";
@@ -58,6 +64,18 @@ export interface SweepOptions {
   allPending: boolean;
   /** Standard runs only: bypass the 30-day completion gate. Defaults to enforced. */
   ignoreThirtyDayCheck: boolean;
+  /**
+   * Manual bounded sweeps only (manual-sweep.ts): an explicit inclusive
+   * processing date range (YYYY-MM-DD). Mutually exclusive with thirtyDayMode.
+   * Existing daily and 30-day entry points never set it, so their behavior is
+   * unchanged.
+   */
+  dateRange?: { startDate: string; endDate: string } | null;
+  /** Dynamic per-account policy loaded from the database by the entrypoint. */
+  accountPolicies: Record<string, AccountPolicyConfig>;
+  /** Controlled-pilot baseline deliberately compiles base-only for comparison. */
+  policyMode?: "base-only" | "effective";
+  pilot?: { readonly pilotId: string; readonly phase: "baseline" | "policy"; readonly approver: string; readonly policyRevision: string } | null;
 }
 
 export interface SweepServices {
@@ -106,6 +124,7 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
   const thirtyDayDateRange = options.thirtyDayMode
     ? lookbackDateRangeEndingAt(processingDate, 30)
     : null;
+  const activeDateRange = resolveActiveDateRange(options, thirtyDayDateRange);
   const manifestBase = {
     runId: artifacts.runId,
     startedAt,
@@ -130,6 +149,7 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
       thirtyDayMode: options.thirtyDayMode,
       ignoreThirtyDayCheck: options.ignoreThirtyDayCheck
     },
+    ...(activeDateRange === null ? {} : { requestedDateRange: activeDateRange }),
     limits: {
       googleFetchConcurrency: config.googleFetchConcurrency,
       llmConcurrency: config.llm.concurrency,
@@ -148,7 +168,8 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
       ruleVersion: rules.version,
       promptVersion: rules.promptVersion,
       thirtyDayMode: options.thirtyDayMode,
-      ...(thirtyDayDateRange === null ? {} : { thirtyDayDateRange })
+      ...(thirtyDayDateRange === null ? {} : { thirtyDayDateRange }),
+      ...(options.dateRange == null ? {} : { requestedDateRange: options.dateRange })
     }, "Sweep run started");
     await persistence.startRun({
       runId: artifacts.runId,
@@ -215,6 +236,45 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
     selectedCount = selected.length;
     await persistence.recordDiscovery(discoveredCount, eligible.length, selectedCount);
     await artifacts.write("organizations.json", { discovered, eligible, selected });
+
+    // Compile the effective policy bundle for every selected account before any
+    // LLM spend. Misconfigured account policy fails the run closed here.
+    const accountPolicies = new Map<string, EffectiveAccountPolicy>();
+    for (const organization of selected) {
+      const accountPolicy = await compileAccountPolicy(rules, organization.customerId, options.policyMode === "base-only" ? {} : options.accountPolicies);
+      accountPolicies.set(organization.customerId, accountPolicy);
+      const organizationBasePath = `organizations/${organization.customerId}`;
+      await artifacts.write(`${organizationBasePath}/policy-manifest.json`, {
+        runId: artifacts.runId,
+        generatedAt: new Date().toISOString(),
+        policyMode: options.policyMode ?? "effective",
+        pilot: options.pilot ?? null,
+        ...(accountPolicy.manifest ?? {
+          customerId: organization.customerId,
+          policyKey: null,
+          revision: null,
+          baseRuleVersion: rules.version,
+          basePromptVersion: rules.promptVersion,
+          baseReleaseId: rules.releaseId ?? null,
+          dynamicRuleIds: [],
+          accountPhraseProtectionCount: 0,
+          phraseProtectionsSourcePath: null,
+          effectivePolicySha256: effectivePolicyHash(accountPolicy.rules.markdown, accountPolicy.rules.phraseProtections ?? [])
+        })
+      });
+      await artifacts.writeText(`${organizationBasePath}/rules.md`, accountPolicy.rules.markdown);
+      await artifacts.write(`${organizationBasePath}/phrase-protections.json`, accountPolicy.rules.phraseProtections ?? []);
+      await artifacts.writeText(`${organizationBasePath}/phrase-protections.md`, renderPhraseProtections(accountPolicy.rules.phraseProtections ?? []));
+      logger.info({
+        progressEvent: "account_policy_compiled",
+        customerId: organization.customerId,
+        policyKey: accountPolicy.manifest?.policyKey ?? null,
+        accountPolicyRevision: accountPolicy.manifest?.revision ?? null,
+        dynamicRuleCount: accountPolicy.manifest?.dynamicRuleIds.length ?? 0,
+        accountPhraseProtectionCount: accountPolicy.manifest?.accountPhraseProtectionCount ?? 0,
+        effectivePolicySha256: accountPolicy.manifest?.effectivePolicySha256 ?? null
+      }, "Effective account policy compiled");
+    }
     logger.info({
       progressEvent: "organization_selection_completed",
       organizationsDiscovered: discoveredCount,
@@ -242,7 +302,7 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
           classifier,
           artifacts,
           telemetry,
-          rules,
+          rules: accountPolicies.get(organization.customerId)?.rules ?? rules,
           batchSize: config.llm.batchSize,
           candidateLimit: options.candidateLimitPerOrganization,
           campaignNameContains: config.campaignNameContains,
@@ -251,7 +311,7 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
           persistence,
           ...(negativeKeywordWriter === undefined ? {} : { negativeKeywordWriter }),
           mutationChunkSize: config.googleAdsMutation.chunkSize,
-          ...(thirtyDayDateRange === null ? {} : { dateRange: thirtyDayDateRange })
+          ...(activeDateRange === null ? {} : { dateRange: activeDateRange })
         }
       );
       organizationsCompleted += 1;
@@ -320,6 +380,11 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
   }
 }
 
+function renderPhraseProtections(entries: readonly { id: string; phrase: string; customerIds: string[]; ruleId: string; excusedEvidence: string }[]): string {
+  if (entries.length === 0) return "# Phrase protections\n\nNo phrase protections apply.\n";
+  return ["# Phrase protections", "", ...entries.flatMap((entry) => [`## ${entry.id}`, "", `- Phrase: \`${entry.phrase}\``, `- Rule: \`${entry.ruleId}\``, `- Customer IDs: ${entry.customerIds.length === 0 ? "all accounts" : entry.customerIds.join(", ")}`, `- Excused evidence: ${entry.excusedEvidence}`, ""])].join("\n");
+}
+
 export function assertProductionMutationAuthorized(
   config: Pick<AppConfig, "googleAdsMutation">,
   options: Pick<SweepOptions, "productionMutationAuthorized">
@@ -329,6 +394,46 @@ export function assertProductionMutationAuthorized(
       "Production Google Ads mutation mode also requires the --execute-production-google-ads-mutations command flag."
     );
   }
+}
+
+/**
+ * Validates an explicit inclusive date range (YYYY-MM-DD, real calendar dates,
+ * start not after end). Used by manual bounded sweeps; existing entry points
+ * pass no explicit range and are unaffected.
+ */
+export function assertValidDateRange(dateRange: { startDate: string; endDate: string }): void {
+  for (const [label, value] of [["start", dateRange.startDate], ["end", dateRange.endDate]] as const) {
+    if (!/^\d{4}-\d{2}-\d{2}$/u.test(value)) {
+      throw new Error(`Date range ${label} date must use YYYY-MM-DD.`);
+    }
+    const parsed = new Date(`${value}T00:00:00Z`);
+    if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) {
+      throw new Error(`Date range ${label} date '${value}' is not a real calendar date.`);
+    }
+  }
+  if (dateRange.startDate > dateRange.endDate) {
+    throw new Error("Date range start date must not be after the end date.");
+  }
+}
+
+/**
+ * Resolves the processing date range for a run: the 30-day lookback in 30-day
+ * mode, otherwise the explicit manual range (validated), otherwise null (the
+ * single processing date). Explicit ranges cannot combine with 30-day mode.
+ */
+export function resolveActiveDateRange(
+  options: Pick<SweepOptions, "thirtyDayMode" | "dateRange">,
+  thirtyDayDateRange: { startDate: string; endDate: string } | null
+): { startDate: string; endDate: string } | null {
+  const explicitDateRange = options.dateRange ?? null;
+  if (explicitDateRange !== null && options.thirtyDayMode) {
+    throw new Error("An explicit date range cannot be combined with 30-day mode.");
+  }
+  if (explicitDateRange !== null) {
+    assertValidDateRange(explicitDateRange);
+    return explicitDateRange;
+  }
+  return thirtyDayDateRange;
 }
 
 async function finalizeRun(
@@ -511,6 +616,9 @@ async function finalizeRun(
       candidateCount: item.candidateCount,
       decisionCount: item.decisionCount,
       failedBatchCount: item.failedBatchCount,
+      positiveKeywordsFetched: item.positiveKeywords.fetchedCount,
+      activePositiveKeywords: item.positiveKeywords.activeCount,
+      candidatesProtectedByActivePositiveKeyword: item.positiveKeywords.candidatesProtectedInCampaign,
       keepCount: item.decisions.KEEP ?? 0,
       negativeExactCount: item.decisions.NEGATIVE_EXACT ?? 0,
       errorCount: item.errorCount,

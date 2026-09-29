@@ -61,6 +61,14 @@ decision-order preamble parenthetical are not yet refreshed. The redundant
 `rust hole` clause in `POL-COSMETIC-ONLY-NEGATIVE` is unchanged; both rules
 are negative.
 
+Combined release `2026-09-16.1` resolves the independent `dynamic-rules` and
+`main` release histories without discarding either policy. It retains the
+account-specific dynamic-rule and phrase-protection architecture plus the
+`2026-09-15.2` base-policy cleanup from `dynamic-rules`, and incorporates the
+always-win rust/restoration behavior from `main`'s `2026-09-15.1` release.
+Prompt version `collision-classifier-v7` and phrase-protection bytes remain
+unchanged. The new release ID and rules hash identify the exact combined bundle.
+
 Emergency release `2026-09-19.1` adds three owner-approved, deterministic
 `forceKeep` phrase protections for Capital Collision only (customer
 `1130534333`): `capital collision`, `riverside collision center`, and
@@ -69,6 +77,13 @@ are never sent to an LLM prompt, and turn a matching full search term into KEEP
 after the provider result has passed normal validation. This is a temporary
 exception while the account-specific dynamic-rule work is completed; it is not a
 global competitor-policy change and does not apply to any other account.
+
+Combined release `2026-09-30.1` merges `dynamic-rules` back into `main`
+without discarding either policy bundle. The rule Markdown is byte-identical to
+release `2026-09-16.1` (rule version `2026-09-16.1`, prompt version
+`collision-classifier-v7`); the phrase-protection Markdown is byte-identical to
+emergency release `2026-09-19.1`, retaining the three Capital Collision
+`forceKeep` entries. Only the release ID and manifest hash pairing are new.
 
 ## Enforced locally
 
@@ -198,3 +213,11 @@ Do not use mutable `latest` as a rollback identifier. The existing deployment
 script still uses `latest`; record the built image digest from the deployment and
 retain that artifact before rollout. This change did not deploy, alter cloud IAM,
 configure branch protection, run business evaluations, or apply Google Ads changes.
+
+## Database-authored revision release gate
+
+An account policy is now released only when its immutable dashboard revision,
+compiled rules/protections, release metadata, and effective hash agree with the
+Sweeper's runtime projection. Enable/disable and rollback create new revisions;
+they never edit old evidence. Before cohort expansion, use the controlled pilot
+workflow in `POLICY_PILOT.md`, classify every delta, and record Owner go/no-go.

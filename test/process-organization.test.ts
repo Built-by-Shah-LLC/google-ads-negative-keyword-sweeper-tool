@@ -115,6 +115,9 @@ test("writes reconciled organization telemetry and token artifacts", async (cont
       persistenceCalls.push(`success:${batchKey}:${result.validated.decisions.length}`);
     },
     async recordBatchFailure() { persistenceCalls.push("failure"); },
+    async recordEffectiveDecisions(_customerId, decisions) {
+      persistenceCalls.push(`effective:${decisions.map((decision) => decision.effectiveOutcome).join(",")}`);
+    },
     async finishAccount(summary) { persistenceCalls.push(`finish:${summary.status}:${summary.decisionCount}`); },
     async finishRun() {},
     async close() {},
@@ -131,6 +134,18 @@ test("writes reconciled organization telemetry and token artifacts", async (cont
     async searchStream(_customerId: string, query: string): Promise<Record<string, unknown>[]> {
       queries.push(query);
       if (query.includes("campaign_search_term_view")) return [];
+      if (query.includes("FROM campaign") && query.includes("campaign.primary_status")) {
+        return [{
+          campaign: {
+            id: "456",
+            name: "Collision campaign",
+            status: "ENABLED",
+            primaryStatus: "ELIGIBLE",
+            primaryStatusReasons: []
+          }
+        }];
+      }
+      if (query.includes("FROM ad_group_criterion")) return [];
       return [{
         campaign: {
           id: "456",
@@ -253,11 +268,18 @@ test("writes reconciled organization telemetry and token artifacts", async (cont
   assert.equal(usage.reconciliation.batchTotals.totalTokens, 240);
   const errors = JSON.parse(await readFile(join(artifacts.runDirectory, "organizations/123/errors.json"), "utf8"));
   assert.deepEqual(errors.errors, []);
-  assert.equal(queries.length, 3);
-  assert.match(queries[0] ?? "", /FROM campaign\s/u);
-  assert.ok(queries.slice(1).every((query) =>
-    query.includes("segments.date BETWEEN '2026-08-25' AND '2026-08-25'")
-  ));
+  const decisions = JSON.parse(await readFile(join(artifacts.runDirectory, "organizations/123/decisions.json"), "utf8"));
+  assert.equal(decisions.effectiveOutcomeContractVersion, "positive-keyword-guard-v1");
+  assert.equal(decisions.decisions[0].decision, "KEEP");
+  assert.equal(decisions.effectiveDecisions[0].effectiveOutcome, "KEEP");
+  // One campaign-metadata prefilter for search terms plus one for the
+  // positive-keyword inventory, two search-term queries, one positive read.
+  assert.equal(queries.length, 5);
+  assert.equal(queries.filter((query) => /FROM campaign\s/u.test(query)).length, 2);
+  const searchTermQueries = queries.filter((query) => query.includes("segments.date BETWEEN"));
+  assert.equal(searchTermQueries.length, 2);
+  assert.ok(searchTermQueries.every((query) => query.includes("segments.date BETWEEN '2026-08-25' AND '2026-08-25'")));
+  assert.equal(queries.filter((query) => query.includes("FROM ad_group_criterion")).length, 1);
   const events = progressLogs.map((entry) => entry.fields.progressEvent);
   assert.equal(events.filter((event) => event === "organization_batch_queued").length, 2);
   assert.equal(events.filter((event) => event === "organization_batch_started").length, 2);
@@ -269,6 +291,7 @@ test("writes reconciled organization telemetry and token artifacts", async (cont
   assert.ok(persistenceCalls.includes("prepare:2:2"));
   assert.equal(persistenceCalls.filter((entry) => entry.startsWith("running:")).length, 2);
   assert.equal(persistenceCalls.filter((entry) => entry.startsWith("success:")).length, 2);
+  assert.equal(persistenceCalls.filter((entry) => entry === "effective:KEEP,KEEP").length, 1);
   assert.ok(persistenceCalls.includes("finish:SUCCEEDED:2"));
 });
 

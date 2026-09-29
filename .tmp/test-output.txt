@@ -1,0 +1,401 @@
+﻿
+> google-ads-negative-keyword-sweeper-tool@0.1.0 test
+> node --import tsx --test test/**/*.test.ts
+
+Γ£ö allowlist matches customer IDs with or without dashes (4.4465ms)
+Γ£ö allowlist matches account name fragments case-insensitively (1.8265ms)
+Γ£ö empty allowlist keeps every organization (0.5982ms)
+Γ£ö campaign name filter keeps only 'Built by Shah' campaigns (2.4974ms)
+Γ£ö campaign name filter is disabled by null, undefined, or blank (0.5956ms)
+Γ£û base-only account returns the unchanged base bundle (60.8361ms)
+Γ£û 3J policy compiles dynamic rules and account phrase protections (20.2715ms)
+Γ£û all fourteen additional completed companies compile an explicit dynamic policy (28.1948ms)
+Γ£û rejects a malformed customer ID (61.7148ms)
+Γ£û rejects a dynamic rule colliding with a base rule ID (56.0879ms)
+Γ£û rejects a dynamic rule ID without a decision suffix (33.3257ms)
+Γ£û rejects an account protection referencing an unknown rule (5.2059ms)
+Γ£û rejects an account protection scoped to a different account (6.967ms)
+Γ£û account protections may reference dynamic negative rules of the same account (26.2508ms)
+Γ£û rust/restoration always-win check conforms on negative terms and ignores blocklist tokens (524.7374ms)
+Γ£ö uses the single organization-local calendar day 48 hours back (59.3806ms)
+Γ£ö treats an explicit date as the exact processing date (0.8284ms)
+Γ£ö maps an active static rule set row into a validated rule set (4.2664ms)
+Γ£ö rejects a static row whose columns disagree with its markdown (1.3309ms)
+Γ£ö maps phrase protection rows into runtime entries (6.3105ms)
+Γ£ö groups dynamic rules and account protections by customer (5.8886ms)
+Γ£ö creates a protection-only policy for accounts without dynamic rules (0.6097ms)
+Γ£ö preserves an enabled runtime revision that intentionally has no projections (0.4995ms)
+Γ£ö fails closed when one account mixes policy revisions (0.3929ms)
+Γ£ö fails closed when an account protection references an unknown rule (0.3687ms)
+Γ£ö creates one spreadsheet-safe CSV row with validated context (2.7305ms)
+Γ£ö effective outcome mirrors the LLM decision (protection is classification-time policy) (1.0492ms)
+Γ£ö effective outcomes pass the LLM decision through unchanged (protection is classification-time policy) (3.2412ms)
+Γ£ö positive-keyword snapshot context no longer rewrites read-only outcomes (0.3984ms)
+Γ£ö KEEP decisions pass through unchanged (0.3309ms)
+Γ£ö emails every unhandled error and only selected handled errors (11.537ms)
+Γ£ö loads the OpenAI key override and economical model defaults (97.0122ms)
+Γ£ö uses Moonshot as primary while retaining provider-specific model settings (14.004ms)
+Γ£ö loads enabled SMTP alerts and handled-error selectors (84.8759ms)
+Γ£ö rejects incomplete enabled email configuration (75.4552ms)
+Γ£ö loads run-scope filters with 'Built by Shah' as the default campaign filter (61.432ms)
+Γ£ö parses campaign filter override and account allowlist (70.3837ms)
+Γ£ö blank campaign filter disables campaign filtering (62.5258ms)
+Γ£ö keeps Google Ads mutation disabled by default and loads the network-free development mode (112.2ms)
+Γ£ö production Google Ads mutation mode fails closed without the exact confirmation (46.1799ms)
+Γ£ö focused Google Ads smoke configuration does not require LLM or database settings (44.4504ms)
+Γ£ö isolated test-account configuration never falls back to production .env credentials (77.7084ms)
+Γ£ö loads required shared-database persistence settings (72.2017ms)
+Γ£ö fails closed when database persistence is enabled without its identity (75.9787ms)
+Γ£ö loads Resend run-report email configuration (67.4191ms)
+Γ£ö allows only the Google Ads searchStream endpoint (2.6704ms)
+Γ£ö allows only SELECT queries (1.5169ms)
+Γ£ö manual sweep parses a customer with a bounded date range (6.2894ms)
+Γ£ö manual sweep requires an explicit scope (2.7042ms)
+Γ£ö manual sweep rejects a customer without both date bounds (0.9819ms)
+Γ£ö manual sweep rejects combining --customer with --all-organizations (0.6298ms)
+Γ£ö manual sweep rejects --date in customer range mode (0.7088ms)
+Γ£ö manual sweep rejects malformed and impossible dates (0.82ms)
+Γ£ö manual sweep rejects an inverted date range (0.498ms)
+Γ£ö manual sweep enforces the maximum bounded range (1.1735ms)
+Γ£ö manual sweep rejects a future end date (1.264ms)
+Γ£ö manual sweep never accepts the production execution flag (0.8185ms)
+Γ£ö manual sweep rejects unknown arguments (0.705ms)
+Γ£ö manual sweep validates the candidate limit (0.6816ms)
+Γ£ö all-organizations mode uses a single date and forbids explicit ranges (0.5533ms)
+Γ£ö all-organizations mode defaults to the automatic 48-hours-back date (0.3272ms)
+Γ£ö manual sweeps refuse every mutation mode except disabled (1.0672ms)
+Γ£ö explicit date ranges are validated and win over no range (0.7784ms)
+Γ£ö explicit date range validation rejects bad bounds (1.1333ms)
+Γ£ö 30-day mode still resolves its lookback range when no explicit range is set (0.383ms)
+Γ£ö Moonshot adapter uses structured output and normalizes per-request tokens (16.4395ms)
+Γ£ö Moonshot adapter falls back to a local estimate when the tokenizers endpoint is missing (2.0178ms)
+Γ£ö Moonshot adapter accepts a fenced bare JSON array from thinking models (3.7279ms)
+Γ£ö Moonshot adapter records an exhausted timeout against the failed request (4.3937ms)
+Γ£ö campaign create request builds campaignCriteria:mutate create operations (3.7634ms)
+Γ£ö campaign remove request only accepts campaignCriteria resource names for the customer (2.8273ms)
+Γ£ö account create request omits campaign and rejects non-EXACT/PHRASE match types (0.6295ms)
+Γ£ö account remove request uses customerNegativeCriteria resource names (0.6656ms)
+Γ£ö GAQL lookup queries target the right resources with digit-only IDs (0.827ms)
+Γ£ö BROAD is rejected at account level and anywhere else (0.6387ms)
+Γ£ö manager validates then applies a campaign add in live mode (4.7686ms)
+Γ£ö dry-run stops after validation and reports VALIDATED (0.8125ms)
+Γ£ö remove by text looks up the campaign criterion via GAQL and removes its resource name (8.6153ms)
+Γ£ö remove of an unknown account-level text fails clearly without any mutation request (1.232ms)
+Γ£ö validation partial failures are surfaced per operation and only valid ops are applied (19.0172ms)
+Γ£ö mutation-time unmapped partial failure fails the whole batch clearly (1.9336ms)
+Γ£ö HTTP failure during validation throws a pipeline-style error (2.366ms)
+Γ£ö conflicting add/remove of the same text is rejected before any API call (0.6078ms)
+Γ£ö campaign scope requires a campaign id (0.4718ms)
+Γ£ö development writer records deterministic mock writes without any HTTP dependency (8.8097ms)
+Γ£ö validation writer sends one validateOnly request and has no mutation follow-up (2.9565ms)
+Γ£ö validation orchestration reports validated without a post-mutation read (2.5206ms)
+Γ£ö mutation preparation deduplicates normalized campaign terms and skips existing exact negatives (45.0414ms)
+Γ£ö production writer validates first, submits only valid operations, and uses exact campaign criteria (3.3048ms)
+Γ£ö production writer cannot run unless explicitly armed (3.1268ms)
+Γ£ö production mode also requires an explicit per-invocation command authorization (0.9781ms)
+Γ£ö production orchestration verifies applied writes through a read before reporting success (1.3791ms)
+Γ£ö an ambiguous production write is read back once and never blindly retried (1.878ms)
+Γ£ö a same-campaign exact positive keyword no longer blocks a negative (LLM prompt is the protection layer) (9.984ms)
+Γ£ö a longer competitor query matched by a positive phrase remains mutation eligible (1.8057ms)
+Γ£ö OpenAI adapter requests structured output, sends only allowlisted columns, and validates it (77.7218ms)
+Γ£ö counts tokens from an invalid generation before a successful validation retry (3.2331ms)
+Γ£ö counts the fixed prompt with the OpenAI input-token endpoint (2.3685ms)
+Γ£ö omits reasoning-only request controls for GPT-4 models (5.5515ms)
+Γ£ö accepts the production object envelope (4.8493ms)
+Γ£ö wraps a bare JSON array as decisions (0.4838ms)
+Γ£ö strips markdown fences around a bare array (1.7821ms)
+Γ£ö strips an unclosed markdown fence (1.6399ms)
+Γ£ö drops unexpected decision fields before validation (1.0002ms)
+Γ£ö extracts JSON buried in prose (2.2017ms)
+Γ£ö promotes a singular ruleId string into ruleIds (0.7694ms)
+Γ£û phrase selection covers locations and boundaries; it does not assert model decisions (21.0302ms)
+Γ£ö account scope limits phrase selection (16.4402ms)
+Γ£ö malformed, duplicate, broad-rule, legacy and unknown-rule entries fail closed (2.3348ms)
+Γ£û policy and protection edits fail integrity verification, stable snapshot stays original (26.0664ms)
+Γû╢ policy pilot review
+  Γ£ö requires review for every changed decision and stops on cross-account leakage (4.2531ms)
+Γ£ö policy pilot review (6.9383ms)
+Γ£ö fetches positive keywords only from campaign-name and main-branch eligible campaigns (61.4206ms)
+Γ£ö does not fetch keyword criteria when no campaign passes the positive-keyword campaign filter (2.2725ms)
+Γ£ö annotates exact positive matches without treating broad expansions as exact conflicts (1.8182ms)
+∩╣ú persists a complete sweep with tenant isolation and exact metrics (3.3041ms) # SKIP
+Γ£ö redacts credentials recursively before database storage (50.3419ms)
+Γ£ö bounds oversized payloads and scrubs database URLs from errors (1.9704ms)
+Γ£ö writes reconciled organization telemetry and token artifacts (682.5264ms)
+Γ£ö logs an explicit failed outcome for every failed organization batch (270.3899ms)
+Γ£ö all phrase matches reach the LLM; no manufactured KEEP (provider failure: false) (448.4298ms)
+Γ£ö all phrase matches reach the LLM; no manufactured KEEP (provider failure: true) (238.7176ms)
+Γ£ö system instruction is the operational guardrails only (4.8529ms)
+Γ£ö classifier prompt sends guardrails as instructions and rules plus data as input (1.0051ms)
+Γ£ö positive keyword inventory is embedded with descriptions and protection policy (2.4311ms)
+Γ£ö prompt without positive keywords embeds an empty inventory (0.5019ms)
+Γ£ö fixed-input definition names the shared instruction so cost attribution stays accurate (0.5384ms)
+Γ£û trusted per-item phrase map excuses evidence without removing any query or rule (96.8425ms)
+Γ£û release gate rejects bulk phrase protections, stable edits, and multi-section policy changes (2478.3058ms)
+Γ£û release gate requires a rule version bump for a single-section policy change (1210.4302ms)
+Γ£û loads the authoritative Markdown rule set with unique rule IDs (29.0836ms)
+Γ£ö rejects duplicate Markdown rule IDs (8.3719ms)
+Γ£ö sends the run workbook through Resend with an idempotency key (76.3125ms)
+Γ£ö creates one organization worksheet with decisions, batch tokens, rules, and timeouts (307.8938ms)
+Γ£ö aggregates equivalent terms within the same campaign and ad group (8.6831ms)
+Γ£ö aggregates the same term across both dates in the 48-hour window (1.3762ms)
+Γ£ö keeps the same term in different campaigns as separate candidates (42.8429ms)
+Γ£ö retains exact Google metric strings beyond JavaScript safe integers (3.7184ms)
+Γ£ö the 30-day window ends on the requested date and starts 29 days earlier (2.9771ms)
+Γ£ö standard runs keep only companies with a recorded 30-day completion (24.6477ms)
+Γ£ö a missing state file gates out every account instead of sweeping all (5.1892ms)
+Γ£ö --ignore-30day-check bypasses the completion gate (5.5305ms)
+Γ£ö 30-day mode selects pending companies unless a customer is explicit (13.7033ms)
+Γ£ö the gate is inactive when the env allowlist fallback is in use (3.0926ms)
+Γ£ö the seeded repository state admits the server-confirmed completed companies (3.0775ms)
+Γ£ö the committed master list holds 45 unique ten-digit companies (34.0737ms)
+Γ£ö master list validation rejects invalid shapes (2.1002ms)
+Γ£ö customer IDs match with or without dashes (3.1839ms)
+Γ£ö selection falls back to the env allowlist only when the master file is missing (140.5657ms)
+Γ£ö a present but invalid master file fails fast instead of falling back (100.9625ms)
+Γ£ö the seeded state file records all fifteen server-confirmed companies (7.7982ms)
+Γ£ö a missing state file reads as no completions (14.3288ms)
+Γ£ö state validation rejects malformed content (1.7989ms)
+Γ£ö recording a completion round-trips atomically (253.7129ms)
+Γ£ö eligibility is the master list intersected with the 30-day state (71.738ms)
+Γ£ö records stage failures with organization context and typed error metadata (5.9582ms)
+Γ£ö aggregates actual LLM usage separately from fixed organization input (1.2181ms)
+Γ£ö reconciles run token totals from organization and batch records (0.6526ms)
+Γ£ö test-account smoke refuses a production account before calling the writer (7.0585ms)
+Γ£ö test-account smoke applies and verifies exactly one negative after the live test flag check (4.9151ms)
+Γ£ö test-account smoke requires its dedicated confirmation (0.6447ms)
+Γ£ö validates and orders one exact-negative decision (14.7259ms)
+Γ£ö clamps an over-long reason instead of discarding the batch (0.6975ms)
+Γ£ö rejects rewritten negative text (1.2689ms)
+Γ£ö rejects an omitted decision (0.5314ms)
+Γ£ö rejects the removed human-review decision (0.6511ms)
+Γ£ö rejects unexpected output fields even if a provider ignores the schema (0.6005ms)
+Γ£ö rejects a negative decision that cites a KEEP rule (1.1135ms)
+Γ£ö rejects a KEEP decision that cites a NEGATIVE or meta rule (0.6371ms)
+Γ£ö rejects a negative decision justified only by the exact-text meta rule (0.7963ms)
+Γä╣ tests 169
+Γä╣ suites 1
+Γä╣ pass 152
+Γä╣ fail 16
+Γä╣ cancelled 0
+Γä╣ skipped 1
+Γä╣ todo 0
+Γä╣ duration_ms 7154.5668
+
+Γ£û failing tests:
+
+test at test\account-policy-compiler.test.ts:1:1412
+Γ£û base-only account returns the unchanged base bundle (60.8361ms)
+  Error: Rule release integrity check failed. Review and approve the policy release before running.
+      at loadRuleSet (C:\Users\DELL\Documents\All projects\ads-manager\google-ads-negative-keyword-sweeper-tool\src\config\rule-set.ts:22:11)
+      at async TestContext.<anonymous> (C:\Users\DELL\Documents\All projects\ads-manager\google-ads-negative-keyword-sweeper-tool\test\account-policy-compiler.test.ts:48:16)
+      at async Test.run (node:internal/test_runner/test:1125:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:358:3)
+
+test at test\account-policy-compiler.test.ts:1:1707
+Γ£û 3J policy compiles dynamic rules and account phrase protections (20.2715ms)
+  Error: Rule release integrity check failed. Review and approve the policy release before running.
+      at loadRuleSet (C:\Users\DELL\Documents\All projects\ads-manager\google-ads-negative-keyword-sweeper-tool\src\config\rule-set.ts:22:11)
+      at async TestContext.<anonymous> (C:\Users\DELL\Documents\All projects\ads-manager\google-ads-negative-keyword-sweeper-tool\test\account-policy-compiler.test.ts:56:16)
+      at async Test.run (node:internal/test_runner/test:1125:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:787:7)
+
+test at test\account-policy-compiler.test.ts:1:3430
+Γ£û all fourteen additional completed companies compile an explicit dynamic policy (28.1948ms)
+  Error: Rule release integrity check failed. Review and approve the policy release before running.
+      at loadRuleSet (C:\Users\DELL\Documents\All projects\ads-manager\google-ads-negative-keyword-sweeper-tool\src\config\rule-set.ts:22:11)
+      at async TestContext.<anonymous> (C:\Users\DELL\Documents\All projects\ads-manager\google-ads-negative-keyword-sweeper-tool\test\account-policy-compiler.test.ts:98:16)
+      at async Test.run (node:internal/test_runner/test:1125:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:787:7)
+
+test at test\account-policy-compiler.test.ts:1:4642
+Γ£û rejects a malformed customer ID (61.7148ms)
+  Error: Rule release integrity check failed. Review and approve the policy release before running.
+      at loadRuleSet (C:\Users\DELL\Documents\All projects\ads-manager\google-ads-negative-keyword-sweeper-tool\src\config\rule-set.ts:22:11)
+      at async TestContext.<anonymous> (C:\Users\DELL\Documents\All projects\ads-manager\google-ads-negative-keyword-sweeper-tool\test\account-policy-compiler.test.ts:129:16)
+      at async Test.run (node:internal/test_runner/test:1125:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:787:7)
+
+test at test\account-policy-compiler.test.ts:1:4821
+Γ£û rejects a dynamic rule colliding with a base rule ID (56.0879ms)
+  Error: Rule release integrity check failed. Review and approve the policy release before running.
+      at loadRuleSet (C:\Users\DELL\Documents\All projects\ads-manager\google-ads-negative-keyword-sweeper-tool\src\config\rule-set.ts:22:11)
+      at async TestContext.<anonymous> (C:\Users\DELL\Documents\All projects\ads-manager\google-ads-negative-keyword-sweeper-tool\test\account-policy-compiler.test.ts:134:16)
+      at async Test.run (node:internal/test_runner/test:1125:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:787:7)
+
+test at test\account-policy-compiler.test.ts:1:5183
+Γ£û rejects a dynamic rule ID without a decision suffix (33.3257ms)
+  Error: Rule release integrity check failed. Review and approve the policy release before running.
+      at loadRuleSet (C:\Users\DELL\Documents\All projects\ads-manager\google-ads-negative-keyword-sweeper-tool\src\config\rule-set.ts:22:11)
+      at async TestContext.<anonymous> (C:\Users\DELL\Documents\All projects\ads-manager\google-ads-negative-keyword-sweeper-tool\test\account-policy-compiler.test.ts:147:16)
+      at async Test.run (node:internal/test_runner/test:1125:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:787:7)
+
+test at test\account-policy-compiler.test.ts:1:5540
+Γ£û rejects an account protection referencing an unknown rule (5.2059ms)
+  Error: Rule release integrity check failed. Review and approve the policy release before running.
+      at loadRuleSet (C:\Users\DELL\Documents\All projects\ads-manager\google-ads-negative-keyword-sweeper-tool\src\config\rule-set.ts:22:11)
+      at async TestContext.<anonymous> (C:\Users\DELL\Documents\All projects\ads-manager\google-ads-negative-keyword-sweeper-tool\test\account-policy-compiler.test.ts:160:16)
+      at async Test.run (node:internal/test_runner/test:1125:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:787:7)
+
+test at test\account-policy-compiler.test.ts:1:5898
+Γ£û rejects an account protection scoped to a different account (6.967ms)
+  Error: Rule release integrity check failed. Review and approve the policy release before running.
+      at loadRuleSet (C:\Users\DELL\Documents\All projects\ads-manager\google-ads-negative-keyword-sweeper-tool\src\config\rule-set.ts:22:11)
+      at async TestContext.<anonymous> (C:\Users\DELL\Documents\All projects\ads-manager\google-ads-negative-keyword-sweeper-tool\test\account-policy-compiler.test.ts:173:16)
+      at async Test.run (node:internal/test_runner/test:1125:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:787:7)
+
+test at test\account-policy-compiler.test.ts:1:6280
+Γ£û account protections may reference dynamic negative rules of the same account (26.2508ms)
+  Error: Rule release integrity check failed. Review and approve the policy release before running.
+      at loadRuleSet (C:\Users\DELL\Documents\All projects\ads-manager\google-ads-negative-keyword-sweeper-tool\src\config\rule-set.ts:22:11)
+      at async TestContext.<anonymous> (C:\Users\DELL\Documents\All projects\ads-manager\google-ads-negative-keyword-sweeper-tool\test\account-policy-compiler.test.ts:186:16)
+      at async Test.run (node:internal/test_runner/test:1125:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:787:7)
+
+test at test\audit-rule-conformance.test.ts:1:1067
+Γ£û rust/restoration always-win check conforms on negative terms and ignores blocklist tokens (524.7374ms)
+  Error: Command failed: C:\Program Files\nodejs\node.exe --import file:///C:/Users/DELL/Documents/All%20projects/ads-manager/google-ads-negative-keyword-sweeper-tool/node_modules/tsx/dist/loader.mjs C:\Users\DELL\Documents\All projects\ads-manager\google-ads-negative-keyword-sweeper-tool\scripts\audit-rule-conformance.ts --account fixture:1234567890:runs/.tmp-audit-rust-restoration --out C:\Users\DELL\Documents\All projects\ads-manager\google-ads-negative-keyword-sweeper-tool\runs\.tmp-audit-rust-restoration\report.md
+  Error: Rule release integrity check failed. Review and approve the policy release before running.
+      at loadRuleSet (C:\Users\DELL\Documents\All projects\ads-manager\google-ads-negative-keyword-sweeper-tool\src\config\rule-set.ts:22:11)
+      at async main (C:\Users\DELL\Documents\All projects\ads-manager\google-ads-negative-keyword-sweeper-tool\scripts\audit-rule-conformance.ts:288:17)
+  
+      at genericNodeError (node:internal/errors:985:15)
+      at wrappedFn (node:internal/errors:539:14)
+      at checkExecSyncError (node:child_process:925:11)
+      at execFileSync (node:child_process:961:15)
+      at TestContext.<anonymous> (C:\Users\DELL\Documents\All projects\ads-manager\google-ads-negative-keyword-sweeper-tool\test\audit-rule-conformance.test.ts:98:3)
+      at async Test.run (node:internal/test_runner/test:1125:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:358:3) {
+    status: 1,
+    signal: null,
+    output: [ null, <Buffer >, <Buffer 45 72 72 6f 72 3a 20 52 75 6c 65 20 72 65 6c 65 61 73 65 20 69 6e 74 65 67 72 69 74 79 20 63 68 65 63 6b 20 66 61 69 6c 65 64 2e 20 52 65 76 69 65 77 ... 339 more bytes> ],
+    pid: 39244,
+    stdout: <Buffer >,
+    stderr: <Buffer 45 72 72 6f 72 3a 20 52 75 6c 65 20 72 65 6c 65 61 73 65 20 69 6e 74 65 67 72 69 74 79 20 63 68 65 63 6b 20 66 61 69 6c 65 64 2e 20 52 65 76 69 65 77 ... 339 more bytes>
+  }
+
+test at test\phrase-protections.test.ts:1:651
+Γ£û phrase selection covers locations and boundaries; it does not assert model decisions (21.0302ms)
+  Error: Rule release integrity check failed. Review and approve the policy release before running.
+      at loadRuleSet (C:\Users\DELL\Documents\All projects\ads-manager\google-ads-negative-keyword-sweeper-tool\src\config\rule-set.ts:22:11)
+      at async TestContext.<anonymous> (C:\Users\DELL\Documents\All projects\ads-manager\google-ads-negative-keyword-sweeper-tool\test\phrase-protections.test.ts:12:17)
+      at async Test.run (node:internal/test_runner/test:1125:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:358:3)
+
+test at test\phrase-protections.test.ts:1:2485
+Γ£û policy and protection edits fail integrity verification, stable snapshot stays original (26.0664ms)
+  Error: Rule release integrity check failed. Review and approve the policy release before running.
+      at loadRuleSet (C:\Users\DELL\Documents\All projects\ads-manager\google-ads-negative-keyword-sweeper-tool\src\config\rule-set.ts:22:11)
+      at async TestContext.<anonymous> (C:\Users\DELL\Documents\All projects\ads-manager\google-ads-negative-keyword-sweeper-tool\test\phrase-protections.test.ts:37:17)
+      at async Test.run (node:internal/test_runner/test:1125:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:787:7)
+
+test at test\prompt.test.ts:1:3700
+Γ£û trusted per-item phrase map excuses evidence without removing any query or rule (96.8425ms)
+  Error: Rule release integrity check failed. Review and approve the policy release before running.
+      at loadRuleSet (C:\Users\DELL\Documents\All projects\ads-manager\google-ads-negative-keyword-sweeper-tool\src\config\rule-set.ts:22:11)
+      at async TestContext.<anonymous> (C:\Users\DELL\Documents\All projects\ads-manager\google-ads-negative-keyword-sweeper-tool\test\prompt.test.ts:111:18)
+      at async Test.run (node:internal/test_runner/test:1125:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:787:7)
+
+test at test\rule-release.test.ts:1:396
+Γ£û release gate rejects bulk phrase protections, stable edits, and multi-section policy changes (2478.3058ms)
+  AssertionError [ERR_ASSERTION]: Got unwanted exception.
+  Actual message: "Command failed: C:\Program Files\nodejs\node.exe --import file:///C:/Users/DELL/Documents/All%20projects/ads-manager/google-ads-negative-keyword-sweeper-tool/node_modules/tsx/dist/loader.mjs C:\Users\DELL\Documents\All projects\ads-manager\google-ads-negative-keyword-sweeper-tool\scripts\check-rule-release.ts HEAD
+  C:\Users\DELL\Documents\All projects\ads-manager\google-ads-negative-keyword-sweeper-tool\src\config\rule-set.ts:22
+      throw new Error("Rule release integrity check failed. Review and approve the policy release before running.");
+            ^
+  
+  Error: Rule release integrity check failed. Review and approve the policy release before running.
+      at loadRuleSet (C:\Users\DELL\Documents\All projects\ads-manager\google-ads-negative-keyword-sweeper-tool\src\config\rule-set.ts:22:11)
+      at async <anonymous> (C:\Users\DELL\Documents\All projects\ads-manager\google-ads-negative-keyword-sweeper-tool\scripts\check-rule-release.ts:7:15)
+  
+  Node.js v24.14.1
+  "
+      at TestContext.<anonymous> (C:\Users\DELL\Documents\All projects\ads-manager\google-ads-negative-keyword-sweeper-tool\test\rule-release.test.ts:27:10)
+      at async Test.run (node:internal/test_runner/test:1125:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:358:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: Error: Command failed: C:\Program Files\nodejs\node.exe --import file:///C:/Users/DELL/Documents/All%20projects/ads-manager/google-ads-negative-keyword-sweeper-tool/node_modules/tsx/dist/loader.mjs C:\Users\DELL\Documents\All projects\ads-manager\google-ads-negative-keyword-sweeper-tool\scripts\check-rule-release.ts HEAD
+    C:\Users\DELL\Documents\All projects\ads-manager\google-ads-negative-keyword-sweeper-tool\src\config\rule-set.ts:22
+        throw new Error("Rule release integrity check failed. Review and approve the policy release before running.");
+              ^
+    
+    Error: Rule release integrity check failed. Review and approve the policy release before running.
+        at loadRuleSet (C:\Users\DELL\Documents\All projects\ads-manager\google-ads-negative-keyword-sweeper-tool\src\config\rule-set.ts:22:11)
+        at async <anonymous> (C:\Users\DELL\Documents\All projects\ads-manager\google-ads-negative-keyword-sweeper-tool\scripts\check-rule-release.ts:7:15)
+    
+    Node.js v24.14.1
+    
+        at genericNodeError (node:internal/errors:985:15)
+        at wrappedFn (node:internal/errors:539:14)
+        at checkExecSyncError (node:child_process:925:11)
+        at execFileSync (node:child_process:961:15)
+        at run (C:\Users\DELL\Documents\All projects\ads-manager\google-ads-negative-keyword-sweeper-tool\test\rule-release.test.ts:18:21)
+        at getActual (node:assert:611:5)
+        at strict.doesNotThrow (node:assert:779:32)
+        at TestContext.<anonymous> (C:\Users\DELL\Documents\All projects\ads-manager\google-ads-negative-keyword-sweeper-tool\test\rule-release.test.ts:27:10)
+        at async Test.run (node:internal/test_runner/test:1125:7)
+        at async startSubtestAfterBootstrap (node:internal/test_runner/harness:358:3),
+    expected: undefined,
+    operator: 'doesNotThrow',
+    diff: 'simple'
+  }
+
+test at test\rule-release.test.ts:1:2907
+Γ£û release gate requires a rule version bump for a single-section policy change (1210.4302ms)
+  AssertionError [ERR_ASSERTION]: Got unwanted exception.
+  Actual message: "Command failed: C:\Program Files\nodejs\node.exe --import file:///C:/Users/DELL/Documents/All%20projects/ads-manager/google-ads-negative-keyword-sweeper-tool/node_modules/tsx/dist/loader.mjs C:\Users\DELL\Documents\All projects\ads-manager\google-ads-negative-keyword-sweeper-tool\scripts\check-rule-release.ts HEAD
+  C:\Users\DELL\Documents\All projects\ads-manager\google-ads-negative-keyword-sweeper-tool\src\config\rule-set.ts:22
+      throw new Error("Rule release integrity check failed. Review and approve the policy release before running.");
+            ^
+  
+  Error: Rule release integrity check failed. Review and approve the policy release before running.
+      at loadRuleSet (C:\Users\DELL\Documents\All projects\ads-manager\google-ads-negative-keyword-sweeper-tool\src\config\rule-set.ts:22:11)
+      at async <anonymous> (C:\Users\DELL\Documents\All projects\ads-manager\google-ads-negative-keyword-sweeper-tool\scripts\check-rule-release.ts:7:15)
+  
+  Node.js v24.14.1
+  "
+      at TestContext.<anonymous> (C:\Users\DELL\Documents\All projects\ads-manager\google-ads-negative-keyword-sweeper-tool\test\rule-release.test.ts:64:10)
+      at async Test.run (node:internal/test_runner/test:1125:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:787:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: Error: Command failed: C:\Program Files\nodejs\node.exe --import file:///C:/Users/DELL/Documents/All%20projects/ads-manager/google-ads-negative-keyword-sweeper-tool/node_modules/tsx/dist/loader.mjs C:\Users\DELL\Documents\All projects\ads-manager\google-ads-negative-keyword-sweeper-tool\scripts\check-rule-release.ts HEAD
+    C:\Users\DELL\Documents\All projects\ads-manager\google-ads-negative-keyword-sweeper-tool\src\config\rule-set.ts:22
+        throw new Error("Rule release integrity check failed. Review and approve the policy release before running.");
+              ^
+    
+    Error: Rule release integrity check failed. Review and approve the policy release before running.
+        at loadRuleSet (C:\Users\DELL\Documents\All projects\ads-manager\google-ads-negative-keyword-sweeper-tool\src\config\rule-set.ts:22:11)
+        at async <anonymous> (C:\Users\DELL\Documents\All projects\ads-manager\google-ads-negative-keyword-sweeper-tool\scripts\check-rule-release.ts:7:15)
+    
+    Node.js v24.14.1
+    
+        at genericNodeError (node:internal/errors:985:15)
+        at wrappedFn (node:internal/errors:539:14)
+        at checkExecSyncError (node:child_process:925:11)
+        at execFileSync (node:child_process:961:15)
+        at run (C:\Users\DELL\Documents\All projects\ads-manager\google-ads-negative-keyword-sweeper-tool\test\rule-release.test.ts:53:21)
+        at getActual (node:assert:611:5)
+        at strict.doesNotThrow (node:assert:779:32)
+        at TestContext.<anonymous> (C:\Users\DELL\Documents\All projects\ads-manager\google-ads-negative-keyword-sweeper-tool\test\rule-release.test.ts:64:10)
+        at async Test.run (node:internal/test_runner/test:1125:7)
+        at async Test.processPendingSubtests (node:internal/test_runner/test:787:7),
+    expected: undefined,
+    operator: 'doesNotThrow',
+    diff: 'simple'
+  }
+
+test at test\rule-set.test.ts:1:132
+Γ£û loads the authoritative Markdown rule set with unique rule IDs (29.0836ms)
+  Error: Rule release integrity check failed. Review and approve the policy release before running.
+      at loadRuleSet (C:\Users\DELL\Documents\All projects\ads-manager\google-ads-negative-keyword-sweeper-tool\src\config\rule-set.ts:22:11)
+      at async TestContext.<anonymous> (C:\Users\DELL\Documents\All projects\ads-manager\google-ads-negative-keyword-sweeper-tool\test\rule-set.test.ts:6:17)
+      at async Test.run (node:internal/test_runner/test:1125:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:358:3)

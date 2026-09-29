@@ -6,6 +6,7 @@ import {
   loadOrganizationClassificationArtifacts,
   type OrganizationClassificationArtifacts
 } from "./classification-artifacts.js";
+import { createEffectiveDecisions } from "./effective-decisions.js";
 
 export interface RunWorkbookInput {
   runId: string;
@@ -21,6 +22,7 @@ export interface RunWorkbookInput {
 
 // Light red highlight for rows whose candidate was classified as a negative keyword.
 const LIGHT_RED_ARGB = "FFF4CCCC";
+const LIGHT_YELLOW_ARGB = "FFFFF2CC";
 
 export async function createRunWorkbook(input: RunWorkbookInput): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
@@ -62,7 +64,7 @@ function addOrganizationSheet(
   summary: OrganizationSummary,
   artifacts: OrganizationClassificationArtifacts
 ): void {
-  const widths = [24, 28, 32, 18, 40, 32, 28, 30, 26, 12, 14, 12, 16, 14, 18, 18, 18, 28, 22, 13, 13, 16, 16, 16, 23, 18, 22];
+  const widths = [24, 28, 32, 18, 22, 40, 32, 28, 30, 26, 12, 28, 24, 22, 14, 12, 16, 14, 18, 18, 18, 28, 22, 13, 13, 16, 16, 16, 23, 18, 22];
   sheet.columns = widths.map((width, index) => ({ key: `column-${index + 1}`, width }));
 
   const organizationArithmetic = tokenArithmetic(summary.tokenUsage);
@@ -187,14 +189,20 @@ function addOrganizationSheet(
   }
 
   addTitle(sheet, "KEEP and negative-keyword decisions");
+  const effectiveDecisions = createEffectiveDecisions(artifacts.candidates, artifacts.decisions, summary.mutation);
+  const protectedDecisionCount = effectiveDecisions.filter((decision) =>
+    decision.effectiveOutcome === "PROTECTED_BY_POSITIVE_KEYWORD").length;
+  sheet.addRow(["Effective outcomes protected by positive keywords", protectedDecisionCount]);
   const decisionHeader = sheet.addRow([
-    "Classification status", "Organization", "Search term", "Decision", "Reason", "Campaign", "Ad group",
-    "Negative keyword", "Rule IDs", "Confidence", "Impressions", "Clicks", "Cost micros", "Conversions",
+    "Classification status", "Organization", "Search term", "Decision", "Effective outcome", "Reason",
+    "Campaign", "Ad group", "Negative keyword", "Rule IDs", "Confidence",
+    "Positive-keyword protection source", "Positive criterion IDs", "Positive match types",
+    "Impressions", "Clicks", "Cost micros", "Conversions",
     "Conversion value", "Channel", "Targeting status", "Matched keyword", "Matched keyword match type",
     "Start date", "End date", "Customer ID", "Campaign ID", "Ad group ID", "Item ID", "Provider", "Model"
   ]);
   styleHeader(decisionHeader);
-  const decisionsById = new Map(artifacts.decisions.map((decision) => [decision.itemId, decision]));
+  const decisionsById = new Map(effectiveDecisions.map((decision) => [decision.itemId, decision]));
   for (const candidate of [...artifacts.candidates].sort(compareCandidatesBySearchTerm)) {
     const decision = decisionsById.get(candidate.itemId);
     const decisionRow = sheet.addRow([
@@ -202,12 +210,16 @@ function addOrganizationSheet(
       safeCell(summary.descriptiveName),
       safeCell(candidate.searchTerm),
       decision?.decision ?? "",
+      decision?.effectiveOutcome ?? "",
       safeCell(decision?.reason ?? null),
       safeCell(candidate.campaignName),
       safeCell(candidate.adGroupName),
       safeCell(decision?.negativeText ?? null),
       safeCell(decision?.ruleIds.join("; ") ?? null),
       decision?.confidence ?? "",
+      decision?.positiveKeywordProtectionSource ?? "",
+      safeCell(decision?.positiveCriterionIds.join("; ") ?? null),
+      safeCell(decision?.positiveMatchTypes.join("; ") ?? null),
       candidate.impressions,
       candidate.clicks,
       candidate.costMicros,
@@ -226,7 +238,9 @@ function addOrganizationSheet(
       input.provider,
       input.model
     ]);
-    if (decision?.decision === "NEGATIVE_EXACT") {
+    if (decision?.effectiveOutcome === "PROTECTED_BY_POSITIVE_KEYWORD") {
+      decisionRow.fill = { type: "pattern", pattern: "solid", fgColor: { argb: LIGHT_YELLOW_ARGB } };
+    } else if (decision?.decision === "NEGATIVE_EXACT") {
       decisionRow.fill = { type: "pattern", pattern: "solid", fgColor: { argb: LIGHT_RED_ARGB } };
     }
   }
@@ -261,7 +275,7 @@ function addOrganizationSheet(
 
   sheet.autoFilter = {
     from: { row: decisionHeader.number, column: 1 },
-    to: { row: Math.max(decisionHeader.number, decisionHeader.number + artifacts.candidates.length), column: 27 }
+    to: { row: Math.max(decisionHeader.number, decisionHeader.number + artifacts.candidates.length), column: 31 }
   };
   sheet.eachRow((row) => {
     row.eachCell((cell) => {

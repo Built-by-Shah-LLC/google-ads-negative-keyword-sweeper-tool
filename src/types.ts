@@ -43,8 +43,33 @@ export interface DateRange {
   endDate: string;
 }
 
+export interface PositiveKeywordCriterion {
+  campaignId: string;
+  campaignName: string;
+  campaignStatus: string;
+  adGroupId: string;
+  adGroupName: string;
+  adGroupStatus: string;
+  criterionId: string;
+  criterionStatus: string;
+  keywordText: string;
+  normalizedKeywordText: string;
+  matchType: string;
+  active: boolean;
+}
+
+export interface PositiveKeywordContext {
+  exactTextMatchCount: number;
+  activeSameCampaignExactMatch: boolean;
+  pausedSameCampaignExactMatch: boolean;
+  activeOtherCampaignExactMatch: boolean;
+  activeSameCampaignMatchTypes: string[];
+}
+
 export interface ClassificationCandidate extends Omit<SearchTermRow, "date">, DateRange {
   itemId: string;
+  /** Informational Google Ads configuration context (reporting stats only; protection is LLM policy now). */
+  positiveKeywordContext?: PositiveKeywordContext;
 }
 
 export interface ClassificationDecision {

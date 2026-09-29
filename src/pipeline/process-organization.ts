@@ -5,6 +5,7 @@ import type {
   FixedInputTokenCount,
   LlmTokenUsage,
   Organization,
+  PositiveKeywordCriterion,
   RuleSet,
   SearchTermRow
 } from "../types.js";
@@ -22,12 +23,14 @@ import {
   assertCampaignsPassSweepFilter,
   campaignSweepFilterContextFromRow
 } from "../google-ads/campaign-filter.js";
+import { attachPositiveKeywordContext, fetchPositiveKeywords } from "../google-ads/positive-keywords.js";
 import { ClassificationFailure, type KeywordClassifier, type LlmGenerationAttempt } from "../llm/classifier.js";
 import { PipelineError, serializeError } from "../observability/errors.js";
 import { addTokenUsage, emptyTokenUsage, type RunTelemetry } from "../observability/run-telemetry.js";
 import type { RunArtifacts } from "../storage/run-artifacts.js";
 import { sweepAccountMutationRecord, type SweepPersistence } from "../storage/persistence.js";
 import { createDecisionCsv } from "../storage/decision-csv.js";
+import { createEffectiveDecisions } from "../storage/effective-decisions.js";
 import { chunksOf, type Limit } from "../util/concurrency.js";
 
 export interface OrganizationTokenUsage extends LlmTokenUsage {
@@ -53,12 +56,20 @@ export interface OrganizationSummary {
   candidateCount: number;
   decisionCount: number;
   failedBatchCount: number;
+  positiveKeywords: PositiveKeywordSummary;
   decisions: Record<string, number>;
   tokenUsage: OrganizationTokenUsage;
   batchTokenUsage: BatchTokenUsage[];
   mutation: NegativeKeywordMutationSummary;
   errorCount: number;
   error?: string;
+}
+
+export interface PositiveKeywordSummary {
+  fetchedCount: number;
+  activeCount: number;
+  candidatesWithAnyExactMatch: number;
+  candidatesProtectedInCampaign: number;
 }
 
 export interface ProgressLogger {
@@ -104,6 +115,8 @@ export async function processOrganization(
   let rawRowCount = 0;
   let candidateCount = 0;
   let failedBatchCount = 0;
+  let positiveKeywords: PositiveKeywordCriterion[] = [];
+  let positiveKeywordSummary = emptyPositiveKeywordSummary();
   let organizationUsage = emptyOrganizationUsage();
   const batchTokenUsage: BatchTokenUsage[] = [];
   let fixedInput: FixedInputTokenCount | null = null;
@@ -126,9 +139,17 @@ export async function processOrganization(
       startDate: dateRange.startDate,
       endDate: dateRange.endDate
     }, "Fetching organization search terms from Google Ads");
-    const rows = await dependencies.telemetry.track("GOOGLE_SEARCH_TERM_FETCH", errorContext, () =>
-      fetchSearchTermsForDateRange(dependencies.googleAds, organization.customerId, dateRange)
-    );
+    const [rows, fetchedPositiveKeywords] = await Promise.all([
+      dependencies.telemetry.track("GOOGLE_SEARCH_TERM_FETCH", errorContext, () =>
+        fetchSearchTermsForDateRange(dependencies.googleAds, organization.customerId, dateRange)
+      ),
+      dependencies.telemetry.track("GOOGLE_POSITIVE_KEYWORD_FETCH", errorContext, () =>
+        fetchPositiveKeywords(dependencies.googleAds, organization.customerId, {
+          campaignNameContains: dependencies.campaignNameContains
+        })
+      )
+    ]);
+    positiveKeywords = fetchedPositiveKeywords;
     rawRowCount = rows.length;
     dependencies.logger?.info({
       progressEvent: "organization_search_terms_fetch_completed",
@@ -142,24 +163,37 @@ export async function processOrganization(
       fetchedAt,
       rows
     });
+    await dependencies.artifacts.write(`${basePath}/positive-keywords.json`, {
+      organization: {
+        customerId: organization.customerId,
+        descriptiveName: organization.descriptiveName
+      },
+      fetchedAt,
+      fetchedCount: positiveKeywords.length,
+      activeCount: positiveKeywords.filter((criterion) => criterion.active).length,
+      criteria: positiveKeywords
+    });
 
     const scopedRows = filterRowsByCampaignName(rows, dependencies.campaignNameContains);
     assertCampaignsPassSweepFilter(
       scopedRows.map(campaignSweepFilterContextFromRow),
       "classification"
     );
-    const availableCandidates = aggregateCandidates(scopedRows);
+    const availableCandidates = attachPositiveKeywordContext(aggregateCandidates(scopedRows), positiveKeywords);
     const candidates = dependencies.candidateLimit === null || dependencies.candidateLimit === undefined
       ? availableCandidates
       : availableCandidates.slice(0, dependencies.candidateLimit);
     candidateCount = candidates.length;
+    positiveKeywordSummary = summarizePositiveKeywords(positiveKeywords, candidates);
     dependencies.logger?.info({
       progressEvent: "organization_candidates_prepared",
       rawRowCount: rows.length,
       scopedRowCount: scopedRows.length,
       availableCandidateCount: availableCandidates.length,
       candidateCount,
-      candidateLimit: dependencies.candidateLimit ?? null
+      candidateLimit: dependencies.candidateLimit ?? null,
+      positiveKeywordsFetched: positiveKeywordSummary.fetchedCount,
+      candidatesProtectedByActivePositiveKeyword: positiveKeywordSummary.candidatesProtectedInCampaign
     }, "Organization candidates prepared");
     await dependencies.artifacts.write(`${basePath}/candidates.json`, {
       organization,
@@ -188,7 +222,8 @@ export async function processOrganization(
       }, () => dependencies.classifier.countFixedInputTokens({
         account: organizationContext(organization),
         dateRange,
-        rules: dependencies.rules
+        rules: dependencies.rules,
+        positiveKeywords
       }));
       organizationUsage.fixedInputTokens = fixedInput.totalTokens;
       organizationUsage.fixedInputDefinition = fixedInput.definition;
@@ -229,7 +264,9 @@ export async function processOrganization(
       rules: dependencies.rules,
       provider: dependencies.classifier.provider,
       model: dependencies.classifier.model,
-      fixedInput
+      fixedInput,
+      positiveKeywords,
+      positiveKeywordsFetchedAt: fetchedAt
     });
     persistencePrepared = true;
 
@@ -244,10 +281,16 @@ export async function processOrganization(
         organizationUsage,
         batchTokenUsage,
         false,
-        dependencies.telemetry.errorsForOrganization(organization.customerId).length
+        dependencies.telemetry.errorsForOrganization(organization.customerId).length,
+        positiveKeywordSummary
       );
       mutation = await runMutationStage(dependencies, organization, candidates, [], summary);
       summary.mutation = mutation;
+      await dependencies.persistence?.recordEffectiveDecisions(
+        organization.customerId,
+        createEffectiveDecisions(candidates, [], mutation),
+        new Date().toISOString()
+      );
       await dependencies.persistence?.finishAccount(summaryRecord(summary));
       await writeOrganizationResults(dependencies, basePath, organization, dateRange, candidates, [], summary);
       logOrganizationCompleted(dependencies.logger, summary, organizationStarted);
@@ -301,7 +344,8 @@ export async function processOrganization(
         account: organizationContext(organization),
         dateRange,
         rules: dependencies.rules,
-        searchTerms: batch
+        searchTerms: batch,
+        positiveKeywords
       };
       try {
         await dependencies.persistence?.markBatchRunning(
@@ -472,12 +516,18 @@ export async function processOrganization(
       organizationUsage,
       batchTokenUsage,
       fixedInputFailed,
-      dependencies.telemetry.errorsForOrganization(organization.customerId).length
+      dependencies.telemetry.errorsForOrganization(organization.customerId).length,
+      positiveKeywordSummary
     );
     mutation = await runMutationStage(dependencies, organization, candidates, decisions, summary);
     summary.mutation = mutation;
     summary.errorCount = dependencies.telemetry.errorsForOrganization(organization.customerId).length;
     if (mutation.status === "FAILED" || mutation.status === "PARTIAL") summary.status = "PARTIAL";
+    await dependencies.persistence?.recordEffectiveDecisions(
+      organization.customerId,
+      createEffectiveDecisions(candidates, decisions, mutation),
+      new Date().toISOString()
+    );
     await dependencies.persistence?.finishAccount(summaryRecord(summary));
     await writeOrganizationResults(dependencies, basePath, organization, dateRange, candidates, decisions, summary);
     logOrganizationCompleted(dependencies.logger, summary, organizationStarted);
@@ -495,6 +545,7 @@ export async function processOrganization(
       candidateCount,
       decisionCount: 0,
       failedBatchCount,
+      positiveKeywords: positiveKeywordSummary,
       decisions: { KEEP: 0, NEGATIVE_EXACT: 0 },
       tokenUsage: organizationUsage,
       batchTokenUsage: [...batchTokenUsage].sort(compareBatchUsage),
@@ -538,6 +589,9 @@ function summaryRecord(summary: OrganizationSummary): import("../storage/persist
     candidateCount: summary.candidateCount,
     decisionCount: summary.decisionCount,
     failedBatchCount: summary.failedBatchCount,
+    positiveKeywordsFetched: summary.positiveKeywords.fetchedCount,
+    activePositiveKeywords: summary.positiveKeywords.activeCount,
+    candidatesProtectedByActivePositiveKeyword: summary.positiveKeywords.candidatesProtectedInCampaign,
     keepCount: summary.decisions.KEEP ?? 0,
     negativeExactCount: summary.decisions.NEGATIVE_EXACT ?? 0,
     errorCount: summary.errorCount,
@@ -588,7 +642,8 @@ function logOrganizationCompleted(
     validatedNegativeCount: summary.mutation.validatedCount,
     appliedNegativeCount: summary.mutation.appliedCount,
     failedMutationCount: summary.mutation.failedCount,
-    unknownMutationCount: summary.mutation.unknownCount
+    unknownMutationCount: summary.mutation.unknownCount,
+    positiveKeywordConflictCount: summary.mutation.positiveKeywordConflictCount
   }, "Organization processing completed");
 }
 
@@ -613,8 +668,10 @@ async function writeOrganizationResults(
   decisions: Parameters<typeof createDecisionCsv>[3],
   summary: OrganizationSummary
 ): Promise<void> {
+  const effectiveDecisions = createEffectiveDecisions(candidates, decisions, summary.mutation);
   await dependencies.artifacts.write(`${basePath}/decisions.json`, {
     contractVersion: "classification-output-v2",
+    effectiveOutcomeContractVersion: "positive-keyword-guard-v1",
     releaseId: dependencies.rules.releaseId ?? null,
     readOnly: !summary.mutation.googleAdsMutationPerformed,
     googleAdsMutationPerformed: summary.mutation.googleAdsMutationPerformed,
@@ -623,7 +680,8 @@ async function writeOrganizationResults(
     provider: dependencies.classifier.provider,
     model: dependencies.classifier.model,
     tokenUsage: summary.tokenUsage,
-    decisions
+    decisions,
+    effectiveDecisions
   });
   await dependencies.artifacts.write(`${basePath}/mutations/summary.json`, summary.mutation);
   await dependencies.artifacts.writeText(
@@ -634,7 +692,8 @@ async function writeOrganizationResults(
       candidates,
       decisions,
       dependencies.classifier.model,
-      dependencies.rules.version
+      dependencies.rules.version,
+      summary.mutation
     )
   );
   await dependencies.artifacts.write(`${basePath}/errors.json`, {
@@ -658,7 +717,8 @@ function createSummary(
   tokenUsage: OrganizationTokenUsage,
   batchTokenUsage: BatchTokenUsage[],
   fixedInputFailed: boolean,
-  errorCount: number
+  errorCount: number,
+  positiveKeywords: PositiveKeywordSummary
 ): OrganizationSummary {
   const counts: Record<string, number> = { KEEP: 0, NEGATIVE_EXACT: 0 };
   for (const decision of decisions) counts[decision.decision] = (counts[decision.decision] || 0) + 1;
@@ -675,6 +735,7 @@ function createSummary(
     candidateCount,
     decisionCount: decisions.length,
     failedBatchCount,
+    positiveKeywords,
     decisions: counts,
     tokenUsage,
     batchTokenUsage: [...batchTokenUsage].sort(compareBatchUsage),
@@ -713,6 +774,29 @@ function applyForcedKeepPhraseProtections(
   });
 }
 
+function emptyPositiveKeywordSummary(): PositiveKeywordSummary {
+  return {
+    fetchedCount: 0,
+    activeCount: 0,
+    candidatesWithAnyExactMatch: 0,
+    candidatesProtectedInCampaign: 0
+  };
+}
+
+function summarizePositiveKeywords(
+  criteria: PositiveKeywordCriterion[],
+  candidates: Array<{ positiveKeywordContext?: import("../types.js").PositiveKeywordContext }>
+): PositiveKeywordSummary {
+  return {
+    fetchedCount: criteria.length,
+    activeCount: criteria.filter((criterion) => criterion.active).length,
+    candidatesWithAnyExactMatch: candidates.filter((candidate) =>
+      (candidate.positiveKeywordContext?.exactTextMatchCount ?? 0) > 0).length,
+    candidatesProtectedInCampaign: candidates.filter((candidate) =>
+      candidate.positiveKeywordContext?.activeSameCampaignExactMatch === true).length
+  };
+}
+
 async function runMutationStage(
   dependencies: ProcessOrganizationDependencies,
   organization: Organization,
@@ -748,6 +832,7 @@ async function runMutationStage(
       mode: writer.mode,
       mutationStatus: result.status,
       proposedCount: result.proposedCount,
+      positiveKeywordConflictCount: result.positiveKeywordConflictCount,
       existingCount: result.existingCount,
       attemptedCount: result.attemptedCount,
       mockedCount: result.mockedCount,

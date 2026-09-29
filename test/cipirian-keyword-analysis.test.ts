@@ -81,6 +81,7 @@ test("creates one all-account analysis worksheet and one table from classified c
     candidateCount: 2,
     decisionCount: 1,
     failedBatchCount: 1,
+    positiveKeywords: { fetchedCount: 0, activeCount: 0, candidatesWithAnyExactMatch: 0, candidatesProtectedInCampaign: 0 },
     decisions: { KEEP: 0, NEGATIVE_EXACT: 1 },
     tokenUsage: {
       inputTokens: 100,

@@ -32,7 +32,14 @@ test("creates one organization worksheet with decisions, batch tokens, rules, an
     clicks: 2,
     costMicros: 1000,
     conversions: 0,
-    conversionValue: 0
+    conversionValue: 0,
+    positiveKeywordContext: {
+      exactTextMatchCount: 1,
+      activeSameCampaignExactMatch: true,
+      pausedSameCampaignExactMatch: false,
+      activeOtherCampaignExactMatch: false,
+      activeSameCampaignMatchTypes: ["PHRASE"]
+    }
   };
   await run.write("organizations/123/candidates.json", { candidates: [candidate] });
   await run.write("organizations/123/decisions.json", { decisions: [{
@@ -63,6 +70,7 @@ test("creates one organization worksheet with decisions, batch tokens, rules, an
     candidateCount: 1,
     decisionCount: 1,
     failedBatchCount: 1,
+    positiveKeywords: { fetchedCount: 2, activeCount: 1, candidatesWithAnyExactMatch: 1, candidatesProtectedInCampaign: 1 },
     decisions: { KEEP: 0, NEGATIVE_EXACT: 1 },
     tokenUsage: {
       inputTokens: 100,
@@ -119,17 +127,25 @@ test("creates one organization worksheet with decisions, batch tokens, rules, an
   assert.match(values, /BATCH SUM \| RECONCILED/u);
   assert.match(values, /Fixed shared-input baseline .* \| 300/u);
   assert.match(values, /NEGATIVE_EXACT/u);
+  // Protection is classification-time LLM policy now; no guard-rewritten
+  // outcomes appear in the workbook.
+  assert.ok(!values.includes("PROTECTED_BY_POSITIVE_KEYWORD"));
+  assert.ok(!values.includes("INITIAL_ACCOUNT_SNAPSHOT"));
   assert.match(values, /Free-item intent/u);
   assert.match(values, /timed out after 600000ms/u);
   assert.match(values, /POL-FREE-NEGATIVE/u);
 
-  // Rows classified as negative keywords must be highlighted light red (FFF4CCCC).
+  // The effective outcome column mirrors the LLM decision.
   const sheet = workbook.worksheets[0]!;
+  let sawEffectiveOutcome = false;
   let negativeRowFill: string | undefined;
   sheet.eachRow((row) => {
     if (row.getCell(4).value === "NEGATIVE_EXACT") {
+      assert.equal(row.getCell(5).value, "NEGATIVE_EXACT");
       negativeRowFill = (row.getCell(4).fill as ExcelJS.FillPattern)?.fgColor?.argb;
+      sawEffectiveOutcome = true;
     }
   });
+  assert.equal(sawEffectiveOutcome, true);
   assert.equal(negativeRowFill, "FFF4CCCC");
 });

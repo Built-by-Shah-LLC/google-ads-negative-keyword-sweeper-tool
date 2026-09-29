@@ -10,7 +10,11 @@ The target system separates responsibilities:
 - The AI service decides whether each complete search term should be kept, reviewed, or added as a full-query exact campaign negative.
 - Deterministic safeguards validate identity, response structure, exact-text integrity, and idempotency. They do not overrule the AI on business intent.
 - Existing shared-list, phrase, or broad-negative coverage does not prevent adding an AI-approved exact negative directly to the campaign.
-- The initial version uses automatically available Google Ads context and one agency-wide collision-repair policy; it does not require manually maintained per-account business profiles.
+- The runtime uses automatically available Google Ads context plus one
+  database-owned, immutable account-policy revision. The dashboard authors
+  approved services, aliases, directional relationships, custom rules, and
+  phrase protections; the Sweeper fails closed when their revision or hash is
+  inconsistent.
 
 See [Architecture decisions](docs/ARCHITECTURE_DECISIONS.md) for the controlling product decisions.
 
@@ -34,7 +38,7 @@ The new application under `src/` is isolated from `legacy-reference/`. It curren
 1. Discover enabled leaf organizations under the configured MCC.
 2. Fetch Search and Performance Max reported search terms for the single calendar day 48 hours before execution in `RUN_TIME_ZONE` (a September 3 run processes September 1 for every organization).
 3. Aggregate organization- and campaign-scoped candidates.
-4. Send bounded organization-specific batches and the authoritative Markdown policy at `src/config/negative-keyword-rules.md` to the selected LLM provider. Moonshot/Kimi is primary; OpenAI, Gemini, and the prior Kimi coding endpoint remain available through `LLM_PROVIDER`.
+4. Send bounded organization-specific batches and the authoritative policy loaded from the database (agency-wide static rules from `negative_keyword_static_rule_sets`, revision-linked per-account dynamic rules and phrase protections, and the account's freshly fetched Google Ads positive keyword inventory with descriptions) to the selected LLM provider. Moonshot/Kimi is primary; OpenAI, Gemini, and the prior Kimi coding endpoint remain available through `LLM_PROVIDER`. The repository Markdown/TS policy files are seed content only — `npm run policy:seed` imports them into the database (policy completion migration `0021` in `built-ads-manager`), and runtime sweeps fail closed when no active static rule set, enabled account revision, or matching effective hash exists.
 5. Strictly validate the structured result and persist the complete run to the
    shared Built Ads Manager PostgreSQL database. Ignored files under `runs/`
    remain a diagnostic mirror; they are not the durable source of truth.
@@ -218,12 +222,9 @@ npm run sweep:30day -- --customer 8402372674   # one company
 npm run sweep:30day -- --all-pending           # every master-list company without a record
 ```
 
-Known cross-check note (static, verify against the database before relying on it): the
-master-list companies 8820051592 (CARSTAR - Santa Maria), 8724978591 (Chris Auto Body),
-9879723872 (G&S / Bella's Collision), 5166711284 (Streamline Collision Inc), 3522557954
-(Sunrise Auto Body), 4007102747 (TRI STATE AUTO BODY), and 2356287166 (US Auto
-Connection) have no `client_accounts` mapping yet, so their runs fail closed at
-persistence until a row exists. That fail-closed behavior is intentional and unchanged.
+The completed set must also have active `client_accounts` mappings. The sweeper still
+fails closed at persistence when any selected customer is missing or archived; never
+infer or auto-create an account mapping from the completion file.
 
 Cloud Run caveat: the state file is container-local. The image ships the seeded copy, but
 completions recorded inside a job do not persist across executions. A minimal durable
@@ -248,6 +249,22 @@ primary status is either `ELIGIBLE`, or `LIMITED` with a nonempty reason list co
 `BUDGET_CONSTRAINED`, `BIDDING_STRATEGY_LIMITED`, `BIDDING_STRATEGY_CONSTRAINED`, and/or
 `SEARCH_VOLUME_LIMITED`. Missing, unknown, or mixed allowed/disallowed LIMITED reasons fail
 closed. The same policy is checked again immediately before Google Ads mutation.
+
+### DEV-9 bounded manual sweeper (separate, read-only)
+
+A second, strictly read-only instance of this pipeline exists for internal
+manual sweeps of one company over an explicit bounded date range (≤ 31 days):
+
+```powershell
+npm run sweep:manual -- --customer 8402372674 --start-date 2026-09-01 --end-date 2026-09-15
+```
+
+It is a separate entry point (`src/manual-sweep.ts`) and a separate Cloud Run
+job (`negative-keyword-sweeper-manual`, image tag `sweeper:manual-latest`) that
+refuses any mutation mode other than `disabled`, never accepts the production
+execution flag, and has no scheduler. The daily sweeper job above is unchanged.
+See [docs/MANUAL_SWEEPER.md](docs/MANUAL_SWEEPER.md) for the safety model,
+deployment, and the designed-but-inactive future daily scheduling mode.
 
 ## Provider selection, run reports, and error email
 

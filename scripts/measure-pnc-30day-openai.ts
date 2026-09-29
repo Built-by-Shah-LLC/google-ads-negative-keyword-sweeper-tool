@@ -187,6 +187,12 @@ async function main(): Promise<void> {
     candidateCount: candidates.length,
     decisionCount: decisions.length,
     failedBatchCount,
+    positiveKeywords: {
+      fetchedCount: 0,
+      activeCount: 0,
+      candidatesWithAnyExactMatch: 0,
+      candidatesProtectedInCampaign: 0
+    },
     decisions: decisionCounts,
     tokenUsage: {
       ...organizationUsage,

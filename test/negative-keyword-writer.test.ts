@@ -516,3 +516,85 @@ test("an ambiguous production write is read back once and never blindly retried"
   assert.equal(summary.verifiedCount, 1);
   assert.equal(summary.outcomeAmbiguous, false);
 });
+
+test("a same-campaign exact positive keyword no longer blocks a negative (LLM prompt is the protection layer)", async () => {
+  const item = candidate({ searchTerm: "caliber collision" });
+  let writes = 0;
+  const writer: NegativeKeywordWriter = {
+    mode: "development",
+    async writeChunk(_customerId, operations) {
+      writes += 1;
+      return {
+        requestId: null,
+        results: operations.map((operation) => ({
+          ...operation,
+          status: "MOCKED" as const,
+          resourceName: `mock://${operation.operationId}`,
+          error: null
+        }))
+      };
+    }
+  };
+  const summary = await applyNegativeExactDecisions({
+    googleAds: {
+      async searchStream(_customerId: string, query: string) {
+        if (/FROM campaign\b/u.test(query)) return [currentlyEligibleCampaign(item)];
+        return [];
+      }
+    },
+    writer,
+    customerId: item.customerId,
+    candidates: [item],
+    decisions: [negative(item)],
+    chunkSize: 500
+  });
+
+  // No post-LLM exact-match guard: the writer is called and conflict
+  // reporting stays empty. The classifier saw the positive inventory and
+  // chose this decision; the pipeline honors it.
+  assert.equal(writes, 1);
+  assert.equal(summary.status, "MOCKED");
+  assert.equal(summary.proposedCount, 1);
+  assert.equal(summary.positiveKeywordConflictCount, 0);
+  assert.deepEqual(summary.positiveKeywordConflicts, []);
+  assert.equal(summary.attemptedCount, 1);
+  assert.equal(summary.googleAdsMutationPerformed, false);
+});
+
+test("a longer competitor query matched by a positive phrase remains mutation eligible", async () => {
+  const item = candidate({ searchTerm: "caliber collision reviews" });
+  let writes = 0;
+  const writer: NegativeKeywordWriter = {
+    mode: "development",
+    async writeChunk(_customerId, operations) {
+      writes += 1;
+      return {
+        requestId: null,
+        results: operations.map((operation) => ({
+          ...operation,
+          status: "MOCKED" as const,
+          resourceName: `mock://${operation.operationId}`,
+          error: null
+        }))
+      };
+    }
+  };
+  const summary = await applyNegativeExactDecisions({
+    googleAds: {
+      async searchStream(_customerId: string, query: string) {
+        if (/FROM campaign\b/u.test(query)) return [currentlyEligibleCampaign(item)];
+        return [];
+      }
+    },
+    writer,
+    customerId: item.customerId,
+    candidates: [item],
+    decisions: [negative(item)],
+    chunkSize: 500
+  });
+
+  assert.equal(writes, 1);
+  assert.equal(summary.positiveKeywordConflictCount, 0);
+  assert.equal(summary.attemptedCount, 1);
+  assert.equal(summary.status, "MOCKED");
+});

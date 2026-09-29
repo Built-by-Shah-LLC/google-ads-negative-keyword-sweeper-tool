@@ -44,6 +44,7 @@ function optionsWith(overrides: Partial<SweepOptions>): SweepOptions {
     thirtyDayMode: false,
     allPending: false,
     ignoreThirtyDayCheck: false,
+    accountPolicies: {},
     ...overrides
   };
 }

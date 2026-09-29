@@ -1,6 +1,6 @@
 # Account-specific rules and phrase-protection plan
 
-Status: Proposed
+Status: Implemented in source; controlled pilot evidence pending
 
 ## Goal
 
@@ -30,15 +30,12 @@ This design supports:
 
 ## Current behavior
 
-The current application loads one global Markdown rule set and one global phrase-
-protection file before account discovery. A phrase-protection entry can already be
-limited by `customerIds`, and the prompt filters those entries for the current
-account. The rest of the rule set, its run artifact, its database snapshot, and the
-workbook rule section are global for the entire run.
-
-The proposed compiler moves account scoping earlier. It creates one complete,
-validated effective policy bundle before fixed-token counting and classification
-for each account.
+The application loads the active global rule set and the one enabled,
+database-authored account revision after account selection. It verifies that all
+dynamic rules and protections point to that revision, compiles one complete
+effective bundle before fixed-token counting, and rejects an effective-hash
+mismatch before classification. Every account receives exact rules and protection
+artifacts, including base-only pilot runs.
 
 ## Terminology and identity
 

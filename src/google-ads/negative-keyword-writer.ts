@@ -7,6 +7,7 @@ import {
   assertCampaignsPassSweepFilter,
   campaignSweepFilterContextFromRow
 } from "./campaign-filter.js";
+import { normalizeKeywordText } from "./positive-keywords.js";
 
 export type NegativeKeywordWriterMode = "development" | "validation" | "production";
 
@@ -48,6 +49,15 @@ export interface NegativeKeywordMutationSummary {
   status: "DISABLED" | "NO_CHANGES" | "SKIPPED" | "MOCKED" | "VALIDATED" | "APPLIED" | "PARTIAL" | "FAILED";
   proposedCount: number;
   duplicateDecisionCount: number;
+  positiveKeywordConflictCount: number;
+  positiveKeywordConflicts: Array<{
+    operationId: string;
+    campaignId: string;
+    negativeText: string;
+    sourceItemIds: string[];
+    positiveCriterionIds: string[];
+    positiveMatchTypes: string[];
+  }>;
   existingCount: number;
   attemptedCount: number;
   mockedCount: number;
@@ -74,6 +84,8 @@ export function disabledMutationSummary(): NegativeKeywordMutationSummary {
     status: "DISABLED",
     proposedCount: 0,
     duplicateDecisionCount: 0,
+    positiveKeywordConflictCount: 0,
+    positiveKeywordConflicts: [],
     existingCount: 0,
     attemptedCount: 0,
     mockedCount: 0,
@@ -137,6 +149,11 @@ export async function applyNegativeExactDecisions(input: {
     customerId,
     operations.map((operation) => operation.campaignId)
   );
+  // Positive-keyword protection is classification-time policy: the LLM sees
+  // the account's positive keyword inventory in its prompt and is instructed
+  // never to negative an exact active positive. No post-LLM exact-match guard
+  // runs here, so conflict reporting stays empty.
+  const positiveKeywordConflicts: NegativeKeywordMutationSummary["positiveKeywordConflicts"] = [];
   const existingBefore = await fetchExistingCampaignExactNegatives(input.googleAds, customerId);
   const pending = operations.filter((operation) => !existingBefore.has(operationKey(operation)));
   const existingCount = operations.length - pending.length;
@@ -234,6 +251,8 @@ export async function applyNegativeExactDecisions(input: {
     status,
     proposedCount: operations.length,
     duplicateDecisionCount,
+    positiveKeywordConflictCount: positiveKeywordConflicts.length,
+    positiveKeywordConflicts,
     existingCount,
     attemptedCount: pending.length,
     mockedCount,
@@ -342,10 +361,6 @@ function assertChunkResult(
 
 function operationKey(value: { campaignId: string; negativeText: string }): string {
   return `${value.campaignId}\u0000${normalizeKeywordText(value.negativeText)}`;
-}
-
-function normalizeKeywordText(value: string): string {
-  return value.trim().replace(/\s+/gu, " ").toLocaleLowerCase("en-US");
 }
 
 function sanitizeId(value: string, label: string): string {

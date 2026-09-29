@@ -40,15 +40,19 @@ export function validateDecisions(
     if (typeof decision !== "string" || !DECISIONS.has(decision as Decision)) {
       throw new Error(`LLM returned an invalid decision for '${itemId}'.`);
     }
-    const negativeText = decisionObject.negativeText;
-    if (negativeText !== null && typeof negativeText !== "string") {
+    const rawNegativeText = decisionObject.negativeText;
+    if (rawNegativeText !== null && typeof rawNegativeText !== "string") {
       throw new Error(`negativeText for '${itemId}' must be a string or null.`);
     }
+    let negativeText: string | null = rawNegativeText;
     if (decision === "NEGATIVE_EXACT" && negativeText !== candidate.searchTerm) {
       throw new Error(`NEGATIVE_EXACT for '${itemId}' did not preserve the complete search term.`);
     }
+    // Moonshot sometimes fills negativeText on KEEP decisions. The field is
+    // only meaningful for NEGATIVE_EXACT, so discard the stray value instead
+    // of discarding the whole batch.
     if (decision !== "NEGATIVE_EXACT" && negativeText !== null) {
-      throw new Error(`${decision} for '${itemId}' must have null negativeText.`);
+      negativeText = null;
     }
 
     if (!Array.isArray(decisionObject.ruleIds) || decisionObject.ruleIds.length < 1) {
@@ -68,9 +72,11 @@ export function validateDecisions(
     if (typeof confidence !== "number" || !Number.isFinite(confidence) || confidence < 0 || confidence > 1) {
       throw new Error(`confidence for '${itemId}' must be between 0 and 1.`);
     }
-    const reason = requiredString(decisionObject.reason, `reason for '${itemId}'`);
-    if (reason !== reason.trim()) throw new Error(`reason for '${itemId}' must not have surrounding whitespace.`);
-    if (reason.length > 240) throw new Error(`reason for '${itemId}' exceeds 240 characters.`);
+    const rawReason = requiredString(decisionObject.reason, `reason for '${itemId}'`);
+    if (rawReason !== rawReason.trim()) throw new Error(`reason for '${itemId}' must not have surrounding whitespace.`);
+    // Moonshot sometimes overruns the prompt's reason budget on large batches.
+    // Clamp to the persisted bound instead of discarding the whole batch.
+    const reason = rawReason.length > 240 ? rawReason.slice(0, 240).trimEnd() : rawReason;
 
     decisionsById.set(itemId, {
       itemId,

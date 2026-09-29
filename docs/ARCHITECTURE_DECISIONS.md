@@ -27,6 +27,7 @@ The application layer may reject or skip a proposed mutation only when:
 - The AI response is malformed or incomplete.
 - Returned account or campaign identifiers do not match the submitted item.
 - The proposed exact-negative text is not the submitted full search term after approved normalization.
+- The normalized exact-negative text is an active positive keyword in the same campaign at the final pre-mutation read.
 - The identical exact negative already exists directly on the same campaign.
 - The same decision was already successfully applied under the same idempotency key.
 - Google rejects the mutation.
@@ -37,7 +38,8 @@ These are integrity and duplication controls, not a competing intent classifier.
 The application layer must not veto an AI negative decision merely because:
 
 - The term has conversions.
-- The term is an existing positive keyword.
+- A phrase or broad positive keyword merely matched the search term, without an exact text match.
+- The exact positive keyword exists only in another campaign or is paused.
 - Google reports an added or targeted status.
 - A shared negative list already covers it.
 - An existing phrase or broad negative appears to cover it.
@@ -71,11 +73,48 @@ but do not send it to the LLM by default:
 - Landing-page context when reliably available
 - Campaign geographic targets when practical
 - Relevant prior reviewed decisions
+- The account's non-removed Google Ads positive-keyword inventory and exact-match context
 
 Adding a retained field to the LLM payload requires a measured quality benefit; this
 keeps input tokens and customer-data exposure bounded.
 
-The system uses one agency-wide collision-repair intent policy. Account-specific profiles may be added later if real-world evaluation shows they materially improve precision.
+## Positive-keyword mutation guard
+
+Google Ads is authoritative. Each account run fetches all non-removed positive
+keyword criteria from `ad_group_criterion`, writes the immutable inventory to
+the account artifact and durable account-run snapshot, and annotates candidates
+with exact-match context. Immediately before any enabled mutation, the writer
+fetches the inventory again. An exact normalized text match blocks the negative
+only when the positive criterion, ad group, and campaign are all enabled and
+the campaign ID is the same.
+
+The classifier decision is retained unchanged as evidence. The mutation summary
+records the protected conflict and the writer receives no operation for it.
+JSON, CSV, and Excel reports expose the separate effective outcome
+`PROTECTED_BY_POSITIVE_KEYWORD`, its evidence source, and any final criterion IDs
+and match types. Final pre-mutation conflicts take precedence; when mutation is
+disabled or skipped, reports may derive the same outcome from the immutable
+account snapshot and label that source explicitly.
+The same derived result is inserted into the tenant-scoped, immutable
+`negative_keyword_decision_outcomes` table. It is linked to the original LLM
+decision rather than replacing or updating that evidence.
+Paused or other-campaign exact matches remain visible audit context; phrase and
+broad expansion matches do not protect a different full search query.
+
+The system combines one agency-wide collision-repair intent policy with exactly
+one enabled, immutable database-authored account revision. Runtime projections
+must all reference that revision and their compiled effective hash must match the
+dashboard-owned value; otherwise the account fails before provider spend.
+
+## Controlled account-policy pilot
+
+Base-versus-policy evaluation is an explicit CLI workflow, never a scheduled or
+browser action. `--policy-mode base-only` is accepted only with a reviewed pilot
+declaration whose customer, requested date, candidate bound, phase, and disabled
+mutation mode exactly match the command. The effective-policy pass uses the same
+declaration constraints. Both runs retain rules, protections, manifest, database
+evidence, and decisions. The offline reviewer rejects account/date/bound drift and
+requires every changed decision to be classified before an Owner go/no-go.
 
 ## Legacy implementation
 
