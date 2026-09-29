@@ -10,6 +10,7 @@
     "test": "node --import tsx --test test/**/*.test.ts",
     "sweep": "tsx src/index.ts",
     "sweep:30day": "tsx src/sweep-30day.ts",
+    "sweep:manual": "tsx src/manual-sweep.ts",
     "mutation:validate": "tsx scripts/validate-google-ads-mutation.ts",
     "mutation:test-account": "tsx scripts/smoke-test-google-ads-mutation.ts",
     "positive-keywords:validate-read-only": "tsx scripts/validate-positive-keyword-guard-read-only.ts",

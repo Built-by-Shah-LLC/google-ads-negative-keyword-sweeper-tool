@@ -242,6 +242,22 @@ Scheduler trigger and runs with `--all-organizations` (still restricted to eligi
 master-list companies by the 30-day gate above). See `docs/DEPLOYMENT.md`; only one
 production scheduler should be enabled to avoid duplicate daily runs.
 
+### DEV-9 bounded manual sweeper (separate, read-only)
+
+A second, strictly read-only instance of this pipeline exists for internal
+manual sweeps of one company over an explicit bounded date range (≤ 31 days):
+
+```powershell
+npm run sweep:manual -- --customer 8402372674 --start-date 2026-09-01 --end-date 2026-09-15
+```
+
+It is a separate entry point (`src/manual-sweep.ts`) and a separate Cloud Run
+job (`negative-keyword-sweeper-manual`, image tag `sweeper:manual-latest`) that
+refuses any mutation mode other than `disabled`, never accepts the production
+execution flag, and has no scheduler. The daily sweeper job above is unchanged.
+See [docs/MANUAL_SWEEPER.md](docs/MANUAL_SWEEPER.md) for the safety model,
+deployment, and the designed-but-inactive future daily scheduling mode.
+
 ## Provider selection, run reports, and error email
 
 `LLM_PROVIDER=moonshot` is the default and uses `MOONSHOT_API_KEY`,

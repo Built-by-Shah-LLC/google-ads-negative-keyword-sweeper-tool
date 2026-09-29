@@ -45,6 +45,38 @@ test("validates and orders one exact-negative decision", () => {
   assert.equal(result[0]?.decision, "NEGATIVE_EXACT");
 });
 
+test("clamps an over-long reason instead of discarding the batch", () => {
+  const longReason = `Education intent ${"x".repeat(300)}`;
+  const result = validateDecisions({
+    decisions: [{
+      itemId: "item-1",
+      decision: "NEGATIVE_EXACT",
+      negativeText: "free collision repair course",
+      ruleIds: ["POL-CAREERS-NEGATIVE", "POL-FULL-QUERY-EXACT"],
+      reason: longReason,
+      confidence: 0.9
+    }]
+  }, [candidate], rules);
+  assert.equal(result[0]?.decision, "NEGATIVE_EXACT");
+  assert.equal(result[0]?.reason.length, 240);
+  assert.equal(result[0]?.reason, longReason.slice(0, 240).trimEnd());
+});
+
+test("ignores a stray negativeText on a KEEP decision instead of discarding the batch", () => {
+  const result = validateDecisions({
+    decisions: [{
+      itemId: "item-1",
+      decision: "KEEP",
+      negativeText: "free collision repair course",
+      ruleIds: ["POL-COLLISION-KEEP"],
+      reason: "Core service intent",
+      confidence: 0.9
+    }]
+  }, [candidate], rules);
+  assert.equal(result[0]?.decision, "KEEP");
+  assert.equal(result[0]?.negativeText, null);
+});
+
 test("rejects rewritten negative text", () => {
   assert.throws(() => validateDecisions({
     decisions: [{

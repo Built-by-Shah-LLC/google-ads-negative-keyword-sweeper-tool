@@ -59,6 +59,13 @@ export interface SweepOptions {
   allPending: boolean;
   /** Standard runs only: bypass the 30-day completion gate. Defaults to enforced. */
   ignoreThirtyDayCheck: boolean;
+  /**
+   * Manual bounded sweeps only (manual-sweep.ts): an explicit inclusive
+   * processing date range (YYYY-MM-DD). Mutually exclusive with thirtyDayMode.
+   * Existing daily and 30-day entry points never set it, so their behavior is
+   * unchanged.
+   */
+  dateRange?: { startDate: string; endDate: string } | null;
   /** Dynamic per-account policy loaded from the database by the entrypoint. */
   accountPolicies: Record<string, AccountPolicyConfig>;
   /** Controlled-pilot baseline deliberately compiles base-only for comparison. */
@@ -112,6 +119,7 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
   const thirtyDayDateRange = options.thirtyDayMode
     ? lookbackDateRangeEndingAt(processingDate, 30)
     : null;
+  const activeDateRange = resolveActiveDateRange(options, thirtyDayDateRange);
   const manifestBase = {
     runId: artifacts.runId,
     startedAt,
@@ -135,6 +143,7 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
       thirtyDayMode: options.thirtyDayMode,
       ignoreThirtyDayCheck: options.ignoreThirtyDayCheck
     },
+    ...(activeDateRange === null ? {} : { requestedDateRange: activeDateRange }),
     limits: {
       googleFetchConcurrency: config.googleFetchConcurrency,
       llmConcurrency: config.llm.concurrency,
@@ -153,7 +162,8 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
       ruleVersion: rules.version,
       promptVersion: rules.promptVersion,
       thirtyDayMode: options.thirtyDayMode,
-      ...(thirtyDayDateRange === null ? {} : { thirtyDayDateRange })
+      ...(thirtyDayDateRange === null ? {} : { thirtyDayDateRange }),
+      ...(options.dateRange == null ? {} : { requestedDateRange: options.dateRange })
     }, "Sweep run started");
     await persistence.startRun({
       runId: artifacts.runId,
@@ -295,7 +305,7 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
           persistence,
           ...(negativeKeywordWriter === undefined ? {} : { negativeKeywordWriter }),
           mutationChunkSize: config.googleAdsMutation.chunkSize,
-          ...(thirtyDayDateRange === null ? {} : { dateRange: thirtyDayDateRange })
+          ...(activeDateRange === null ? {} : { dateRange: activeDateRange })
         }
       );
       organizationsCompleted += 1;
@@ -378,6 +388,46 @@ export function assertProductionMutationAuthorized(
       "Production Google Ads mutation mode also requires the --execute-production-google-ads-mutations command flag."
     );
   }
+}
+
+/**
+ * Validates an explicit inclusive date range (YYYY-MM-DD, real calendar dates,
+ * start not after end). Used by manual bounded sweeps; existing entry points
+ * pass no explicit range and are unaffected.
+ */
+export function assertValidDateRange(dateRange: { startDate: string; endDate: string }): void {
+  for (const [label, value] of [["start", dateRange.startDate], ["end", dateRange.endDate]] as const) {
+    if (!/^\d{4}-\d{2}-\d{2}$/u.test(value)) {
+      throw new Error(`Date range ${label} date must use YYYY-MM-DD.`);
+    }
+    const parsed = new Date(`${value}T00:00:00Z`);
+    if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) {
+      throw new Error(`Date range ${label} date '${value}' is not a real calendar date.`);
+    }
+  }
+  if (dateRange.startDate > dateRange.endDate) {
+    throw new Error("Date range start date must not be after the end date.");
+  }
+}
+
+/**
+ * Resolves the processing date range for a run: the 30-day lookback in 30-day
+ * mode, otherwise the explicit manual range (validated), otherwise null (the
+ * single processing date). Explicit ranges cannot combine with 30-day mode.
+ */
+export function resolveActiveDateRange(
+  options: Pick<SweepOptions, "thirtyDayMode" | "dateRange">,
+  thirtyDayDateRange: { startDate: string; endDate: string } | null
+): { startDate: string; endDate: string } | null {
+  const explicitDateRange = options.dateRange ?? null;
+  if (explicitDateRange !== null && options.thirtyDayMode) {
+    throw new Error("An explicit date range cannot be combined with 30-day mode.");
+  }
+  if (explicitDateRange !== null) {
+    assertValidDateRange(explicitDateRange);
+    return explicitDateRange;
+  }
+  return thirtyDayDateRange;
 }
 
 async function finalizeRun(
