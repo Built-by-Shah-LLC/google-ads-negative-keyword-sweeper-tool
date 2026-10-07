@@ -26,7 +26,7 @@ export function validatePhraseProtectionEntries(entries: unknown, ruleIds: strin
       : "customerIds,excusedEvidence,id,phrase,ruleId";
     if (!entry || typeof entry !== "object" || Array.isArray(entry)
       || Object.keys(values).sort().join() !== expectedKeys
-      || typeof values.id !== "string" || !/^[a-z0-9-]{1,64}$/u.test(values.id) || ids.has(values.id)
+      || typeof values.id !== "string" || !/^[A-Za-z0-9-]{1,64}$/u.test(values.id) || ids.has(values.id)
       || typeof values.phrase !== "string" || !normalizeTerm(values.phrase) || values.phrase.length > 200
       || typeof values.ruleId !== "string" || !ruleIds.includes(values.ruleId)
       || typeof values.excusedEvidence !== "string" || !values.excusedEvidence.trim() || values.excusedEvidence.length > 500

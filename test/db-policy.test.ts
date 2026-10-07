@@ -77,7 +77,7 @@ test("groups dynamic rules and account protections by customer", () => {
   const policies = buildAccountPolicies(
     [ruleRow],
     [{
-      entry_id: "moped-protection",
+      entry_id: "MOPED-PROTECTION",
       phrase: "moped frame repair",
       customer_ids: ["1234567890"],
       rule_id: "POL-X-MOTORCYCLE-NEGATIVE",
@@ -95,7 +95,7 @@ test("groups dynamic rules and account protections by customer", () => {
     instruction: "Negative motorcycle demand."
   }]);
   assert.equal(policy.phraseProtections.length, 1);
-  assert.equal(policy.phraseProtections[0]?.id, "moped-protection");
+  assert.equal(policy.phraseProtections[0]?.id, "MOPED-PROTECTION");
 });
 
 test("creates a protection-only policy for accounts without dynamic rules", () => {

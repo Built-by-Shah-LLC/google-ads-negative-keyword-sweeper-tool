@@ -43,9 +43,12 @@ The job is deployed with `node dist/src/manual-sweep.js` and **no sweep
 arguments**, so a bare `gcloud run jobs execute` fails closed with a usage
 error instead of sweeping anything by accident.
 
-Only identities with `roles/run.invoker` (or broader Cloud Run administration)
-on the job can execute it; that IAM grant is the owner-controlled execution
-authority for DEV-9 manual runs.
+Direct operators require `roles/run.invoker` (or broader Cloud Run
+administration) on the job. The Built Ads Manager web runtime uses the
+job-scoped custom role `builtAdsManualSweeperInvoker`, containing only
+`run.jobs.run` and `run.jobs.runWithOverrides`, because every browser request
+passes the validated customer and bounded date arguments as execution
+overrides. Neither role grants Google Ads write access.
 
 ### Locally
 

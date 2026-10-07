@@ -44,6 +44,7 @@ param(
   [string]$RepoName = "negative-keyword-sweeper",
   [string]$ImageTag = "manual-latest",
   [string]$ServiceAccountName = "sweeper-runner",
+  [string]$WebServiceAccountName = "bam-dev-web",
   [string]$DatabaseSecretName = "bam-dev-sweeper-database-url",
   [string]$OrganizationSecretName = "bam-dev-organization-id",
   [string]$Network = "default",
@@ -61,6 +62,9 @@ try {
 } finally { Pop-Location }
 $Image = "$Region-docker.pkg.dev/$ProjectId/$RepoName/sweeper:$ImageTag"
 $ServiceAccountEmail = "$ServiceAccountName@$ProjectId.iam.gserviceaccount.com"
+$WebServiceAccountEmail = "$WebServiceAccountName@$ProjectId.iam.gserviceaccount.com"
+$WebInvokerRoleId = "builtAdsManualSweeperInvoker"
+$WebInvokerRole = "projects/$ProjectId/roles/$WebInvokerRoleId"
 
 # Fall back to the project-local Cloud SDK when gcloud is not on PATH.
 $localGcloudBin = Join-Path $ProjectRoot "tools\sdk\google-cloud-sdk\bin"
@@ -263,6 +267,31 @@ Invoke-Gcloud @("run", "jobs", "add-iam-policy-binding", $JobName,
   "--region", $Region, "--project", $ProjectId,
   "--member", "serviceAccount:$ServiceAccountEmail",
   "--role", "roles/run.invoker") "Failed to grant run.invoker on the job."
+
+# Browser-started requests always use bounded container-argument overrides.
+# roles/run.invoker contains run.jobs.run but not run.jobs.runWithOverrides, so
+# give the web runtime a purpose-built role with only those two permissions.
+Write-Host "==> Granting the web runtime bounded run-with-overrides permission"
+$roleArgs = @(
+  "iam", "roles", "create", $WebInvokerRoleId,
+  "--project", $ProjectId,
+  "--title", "Built Ads manual sweeper invoker",
+  "--description", "Runs the fixed manual sweeper job with bounded container argument overrides.",
+  "--permissions", "run.jobs.run,run.jobs.runWithOverrides",
+  "--stage", "GA"
+)
+if (Test-GcloudResource @("iam", "roles", "describe", $WebInvokerRoleId, "--project", $ProjectId)) {
+  $roleArgs[2] = "update"
+}
+Invoke-Gcloud $roleArgs "Failed to create or update the bounded web invoker role."
+Invoke-Gcloud @("run", "jobs", "add-iam-policy-binding", $JobName,
+  "--region", $Region, "--project", $ProjectId,
+  "--member", "serviceAccount:$WebServiceAccountEmail",
+  "--role", $WebInvokerRole) "Failed to grant bounded run-with-overrides permission to the web runtime."
+Invoke-Gcloud @("iam", "service-accounts", "add-iam-policy-binding", $ServiceAccountEmail,
+  "--project", $ProjectId,
+  "--member", "serviceAccount:$WebServiceAccountEmail",
+  "--role", "roles/iam.serviceAccountUser") "Failed to grant the web runtime actAs permission on the sweeper runner."
 
 Write-Host ""
 Write-Host "Deployment complete. NO Cloud Scheduler trigger was created (daily cadence intentionally inactive)."
