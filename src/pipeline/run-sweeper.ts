@@ -71,6 +71,10 @@ export interface SweepOptions {
    * unchanged.
    */
   dateRange?: { startDate: string; endDate: string } | null;
+  /** Semantic run origin. Kept separate from Cloud Run execution identity/idempotency. */
+  triggerKind?: "scheduled" | "manual";
+  /** Explicit source of the requested processing date when an entrypoint knows it. */
+  requestedDateSource?: "COMMAND_LINE" | "AUTOMATIC_48_HOURS_BACK" | "BUILT_ADS_MANAGER_UI";
   /** Dynamic per-account policy loaded from the database by the entrypoint. */
   accountPolicies: Record<string, AccountPolicyConfig>;
   /** Controlled-pilot baseline deliberately compiles base-only for comparison. */
@@ -121,6 +125,10 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
   const startedAt = new Date().toISOString();
   const processingDate = options.date
     ?? date48HoursBackInTimeZone(config.processingTimeZone, new Date(startedAt)).startDate;
+  const triggerKind = options.triggerKind
+    ?? (config.persistence.enabled && config.persistence.executionKey !== null ? "scheduled" : "manual");
+  const requestedDateSource = options.requestedDateSource
+    ?? (options.date ? "COMMAND_LINE" : "AUTOMATIC_48_HOURS_BACK");
   const thirtyDayDateRange = options.thirtyDayMode
     ? lookbackDateRangeEndingAt(processingDate, 30)
     : null;
@@ -129,7 +137,8 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
     runId: artifacts.runId,
     startedAt,
     requestedDate: processingDate,
-    requestedDateSource: options.date ? "COMMAND_LINE" : "AUTOMATIC_48_HOURS_BACK",
+    triggerKind,
+    requestedDateSource,
     processingTimeZone: config.processingTimeZone,
     readOnly: mutationMode !== "production",
     googleAdsMutationMode: mutationMode,
@@ -174,9 +183,10 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
     await persistence.startRun({
       runId: artifacts.runId,
       executionKey: config.persistence.enabled ? config.persistence.executionKey : null,
+      triggerKind,
       startedAt,
       requestedDate: processingDate,
-      requestedDateSource: options.date ? "COMMAND_LINE" : "AUTOMATIC_48_HOURS_BACK",
+      requestedDateSource,
       processingTimeZone: config.processingTimeZone,
       rules,
       provider: classifier.provider,

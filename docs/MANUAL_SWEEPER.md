@@ -6,8 +6,8 @@ It exists for internal, operator-invoked sweeps of **one authorized company
 over an explicit bounded date range**, and it is **read-only with respect to
 Google Ads** by construction.
 
-Controlling product decision: Built Ads Manager `docs/product/decisions.md`
-entry **D-060** (Jira **DEV-9**). The daily sweeper job
+Controlling product decisions: Built Ads Manager `docs/product/decisions.md`
+entries **D-060** (Jira **DEV-9**) and **D-061** (browser-started wiring). The daily sweeper job
 (`negative-keyword-sweeper`) and its scheduler are unchanged.
 
 ## Safety properties
@@ -23,7 +23,7 @@ entry **D-060** (Jira **DEV-9**). The daily sweeper job
 | Bounded input | `--start-date`/`--end-date` are required, real calendar dates, start ≤ end, span ≤ **31 days**, and the end date may not be in the future (`RUN_TIME_ZONE`). |
 | Campaign filter | Unchanged: `CAMPAIGN_NAME_CONTAINS` (default `Built by Shah`), applied to fetched search-term rows and to the positive-keyword inventory query. |
 | Policy | Unchanged: the database-owned effective policy (static rule set + account revision + phrase protections) with `effective_sha256` fail-closed parity is compiled per account before any LLM spend. |
-| Idempotency/audit | Unchanged: runs persist with `run_key`/`execution_key` idempotency, `read_only=true`, `google_ads_mutation_performed=false`, `account_selection_mode=customer`, per-account `start_date`/`end_date`, candidates, decisions, batches, token usage, events, and sanitized errors. The requestor is attributable through Google Cloud audit logs (the principal calling `run.jobs.run`) correlated by execution name. |
+| Idempotency/audit | Runs persist with `run_key`/`execution_key` idempotency while semantic origin is recorded independently: bounded single-company runs are `trigger_kind=manual`; Built Ads Manager requests use `requested_date_source=built_ads_manager_ui`; direct operator runs use `command_line`. Evidence also retains `read_only=true`, `google_ads_mutation_performed=false`, `account_selection_mode=customer`, per-account `start_date`/`end_date`, candidates, decisions, batches, token usage, events, and sanitized errors. The requestor is attributable through Google Cloud audit logs (the principal calling `run.jobs.run`) correlated by execution name. |
 | Scheduling | **No Cloud Scheduler trigger exists for this job.** The daily cadence is intentionally inactive. |
 
 ## Invocation
@@ -56,6 +56,11 @@ npm run sweep:manual -- --customer 8402372674 --start-date 2026-09-01 --end-date
 Local runs use the repo `.env` and require the same guards:
 `PERSIST_RUNS_TO_DATABASE=true`, the sweep-accounts master file, and mutation
 mode disabled.
+
+The Built Ads Manager gateway appends the reserved
+`--request-source built-ads-manager-ui` argument. This affects retained origin
+metadata only; it does not broaden scope or enable a writer. Operators should
+omit the flag for direct terminal runs.
 
 ### Inspecting results
 
@@ -111,7 +116,9 @@ It creates no scheduler. The job environment is Moonshot-only for LLM calls
 
 - No Google Ads mutation of any kind (no negative criteria, shared lists,
   budgets, bids, statuses, ads, or assets).
-- No browser trigger, API route, queue, or scheduler.
+- No public or client-side Cloud Run credential, queue, or scheduler. D-061
+  permits the authenticated Built Ads Manager server to invoke this one
+  bounded job through the Cloud Run Admin API.
 - No automatic retry of ambiguous outcomes (the mutation stage does not exist
   here; Cloud Run task retries are idempotent through `execution_key`).
 - No rollback/removal workflow. Any future apply or removal workflow requires

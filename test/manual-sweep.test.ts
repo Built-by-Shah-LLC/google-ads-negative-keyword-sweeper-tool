@@ -36,6 +36,20 @@ test("manual sweep parses a customer with a bounded date range", () => {
   assert.equal(options.thirtyDayMode, false);
   assert.equal(options.productionMutationAuthorized, false);
   assert.equal(options.ignoreThirtyDayCheck, true);
+  assert.equal(options.triggerKind, "manual");
+  assert.equal(options.requestedDateSource, "COMMAND_LINE");
+});
+
+test("browser-started manual sweeps retain their semantic origin", () => {
+  const cli = parseManualSweepCliArguments([
+    "--customer", "8402372674",
+    "--start-date", "2026-09-01",
+    "--end-date", "2026-09-15",
+    "--request-source", "built-ads-manager-ui"
+  ]);
+  const options = buildManualSweepOptions(cli, ".", TIME_ZONE, NOW);
+  assert.equal(options.triggerKind, "manual");
+  assert.equal(options.requestedDateSource, "BUILT_ADS_MANAGER_UI");
 });
 
 test("manual sweep requires an explicit scope", () => {
@@ -115,6 +129,15 @@ test("manual sweep rejects unknown arguments", () => {
   assert.throws(() => parseManualSweepCliArguments(["--ignore-30day-check"]), /Unknown argument/);
 });
 
+test("manual sweep rejects invalid or scheduled use of the UI request source", () => {
+  assert.throws(
+    () => parseManualSweepCliArguments(["--request-source", "browser"]),
+    /must be built-ads-manager-ui/
+  );
+  const cli = parseManualSweepCliArguments(["--all-organizations", "--request-source", "built-ads-manager-ui"]);
+  assert.throws(() => buildManualSweepOptions(cli, ".", TIME_ZONE, NOW), /requires --customer/);
+});
+
 test("manual sweep validates the candidate limit", () => {
   assert.throws(
     () => parseManualSweepCliArguments(["--candidate-limit-per-organization", "0"]),
@@ -136,6 +159,8 @@ test("all-organizations mode uses a single date and forbids explicit ranges", ()
   assert.equal(options.date, "2026-09-27");
   assert.equal(options.dateRange ?? null, null);
   assert.equal(options.customerId, null);
+  assert.equal(options.triggerKind, "scheduled");
+  assert.equal(options.requestedDateSource, "COMMAND_LINE");
 
   const withRange = parseManualSweepCliArguments(["--all-organizations", "--start-date", "2026-09-01"]);
   assert.throws(() => buildManualSweepOptions(withRange, ".", TIME_ZONE, NOW), /require --customer/);
@@ -145,6 +170,8 @@ test("all-organizations mode defaults to the automatic 48-hours-back date", () =
   const options = buildManualSweepOptions(parseManualSweepCliArguments(["--all-organizations"]), ".", TIME_ZONE, NOW);
   assert.equal(options.allOrganizations, true);
   assert.equal(options.date, null);
+  assert.equal(options.triggerKind, "scheduled");
+  assert.equal(options.requestedDateSource, "AUTOMATIC_48_HOURS_BACK");
 });
 
 test("manual sweeps refuse every mutation mode except disabled", () => {

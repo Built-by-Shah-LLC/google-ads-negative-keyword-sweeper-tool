@@ -94,9 +94,10 @@ test("persists a complete sweep with tenant isolation and exact metrics", { skip
     await persistence.startRun({
       runId: "integration-run-1",
       executionKey: "integration-execution-1",
+      triggerKind: "manual",
       startedAt: now,
       requestedDate: "2026-09-07",
-      requestedDateSource: "COMMAND_LINE",
+      requestedDateSource: "BUILT_ADS_MANAGER_UI",
       processingTimeZone: "UTC",
       rules,
       provider: "test-provider",
@@ -278,6 +279,18 @@ test("persists a complete sweep with tenant isolation and exact metrics", { skip
     assert.equal(stored.rows[0]?.cost_micros, "9007199254740995");
     assert.equal(stored.rows[0]?.provider_request_payload.authorization, "[REDACTED]");
     assert.equal(stored.rows[0]?.response_payload.apiKey, "[REDACTED]");
+    const storedRunOrigin = await owner.query<{
+      trigger_kind: string;
+      requested_date_source: string;
+    }>(`
+      SELECT trigger_kind, requested_date_source
+      FROM negative_keyword_sweep_runs
+      WHERE organization_id = $1 AND run_key = 'integration-run-1'
+    `, [organizationId]);
+    assert.deepEqual(storedRunOrigin.rows[0], {
+      trigger_kind: "manual",
+      requested_date_source: "built_ads_manager_ui",
+    });
     const storedOutcome = await owner.query<{
       llm_decision: string;
       effective_outcome: string;

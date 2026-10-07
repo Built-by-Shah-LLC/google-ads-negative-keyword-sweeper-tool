@@ -23,6 +23,7 @@ export interface ManualSweepCliOptions {
   endDate: string | null;
   date: string | null;
   candidateLimitPerOrganization: number | null;
+  requestSource: "command_line" | "built_ads_manager_ui";
 }
 
 export function parseManualSweepCliArguments(argumentsList: string[]): ManualSweepCliOptions {
@@ -32,7 +33,8 @@ export function parseManualSweepCliArguments(argumentsList: string[]): ManualSwe
     startDate: null,
     endDate: null,
     date: null,
-    candidateLimitPerOrganization: null
+    candidateLimitPerOrganization: null,
+    requestSource: "command_line"
   };
   for (let index = 0; index < argumentsList.length; index += 1) {
     const argument = argumentsList[index];
@@ -51,6 +53,7 @@ export function parseManualSweepCliArguments(argumentsList: string[]): ManualSwe
       || argument === "--end-date"
       || argument === "--date"
       || argument === "--candidate-limit-per-organization"
+      || argument === "--request-source"
     ) {
       const value = argumentsList[index + 1];
       if (!value) throw new Error(`${argument} requires a value.`);
@@ -64,12 +67,17 @@ export function parseManualSweepCliArguments(argumentsList: string[]): ManualSwe
         options.endDate = assertIsoDate(value, "--end-date");
       } else if (argument === "--date") {
         options.date = assertIsoDate(value, "--date");
-      } else {
+      } else if (argument === "--candidate-limit-per-organization") {
         const limit = Number(value);
         if (!Number.isSafeInteger(limit) || limit < 1) {
           throw new Error("--candidate-limit-per-organization must be positive.");
         }
         options.candidateLimitPerOrganization = limit;
+      } else {
+        if (value !== "built-ads-manager-ui") {
+          throw new Error("--request-source must be built-ads-manager-ui when provided.");
+        }
+        options.requestSource = "built_ads_manager_ui";
       }
       continue;
     }
@@ -182,6 +190,10 @@ export function buildManualSweepOptions(
     // company. The 30-day baseline gate governs the daily mutating sweeper,
     // not this read-only instance.
     ignoreThirtyDayCheck: true,
+    triggerKind: cli.customerId ? "manual" : "scheduled",
+    requestedDateSource: cli.requestSource === "built_ads_manager_ui"
+      ? "BUILT_ADS_MANAGER_UI"
+      : (cli.date === null && cli.allOrganizations ? "AUTOMATIC_48_HOURS_BACK" : "COMMAND_LINE"),
     accountPolicies: {}
   };
   if (cli.customerId) {
@@ -202,6 +214,9 @@ export function buildManualSweepOptions(
     throw new Error(
       "--all-organizations processes one date per run (future scheduled mode); --start-date/--end-date require --customer."
     );
+  }
+  if (cli.requestSource === "built_ads_manager_ui") {
+    throw new Error("--request-source built-ads-manager-ui requires --customer bounded-range mode.");
   }
   return { ...base, allOrganizations: true, date: cli.date };
 }

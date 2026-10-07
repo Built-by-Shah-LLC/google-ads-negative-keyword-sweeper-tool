@@ -16,9 +16,10 @@ import type { EffectiveDecision } from "./effective-decisions.js";
 export interface SweepRunStart {
   runId: string;
   executionKey: string | null;
+  triggerKind: "scheduled" | "manual";
   startedAt: string;
   requestedDate: string;
-  requestedDateSource: "COMMAND_LINE" | "AUTOMATIC_48_HOURS_BACK";
+  requestedDateSource: "COMMAND_LINE" | "AUTOMATIC_48_HOURS_BACK" | "BUILT_ADS_MANAGER_UI";
   processingTimeZone: string;
   rules: RuleSet;
   provider: string;
