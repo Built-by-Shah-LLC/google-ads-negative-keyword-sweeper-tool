@@ -74,6 +74,17 @@ visible in the existing Built Ads Manager keyword-sweep evidence surfaces.
 The run workbook/CSV is produced exactly as for daily runs, including every
 KEEP and NEGATIVE_EXACT candidate with rule IDs and reasons.
 
+Dev verification on 2026-10-08 used the Built Ads Manager UI to request a
+single-day run for 3J Collision Center (`2026-10-06`). Cloud Run execution
+`negative-keyword-sweeper-manual-kvr6q` completed successfully and persisted
+parent run `43d62f52-b518-4487-992e-37eae18888a6` plus account run
+`c0002996-c3b9-49e3-8bf5-f1842edeba3a`: 23 rows/candidates, 23 decisions,
+14 KEEP, 9 NEGATIVE_EXACT, and 0 errors. Built Ads Manager displays the
+requested-date source as `Built Ads Manager UI` and the retained safety
+evidence as `Yes · no Google Ads mutation`. Runtime logs independently report
+`mutationMode=disabled`, `mutationStatus=DISABLED`,
+`mutationWriterConstructed=false`, and `appliedNegativeCount=0`.
+
 ## Future daily scheduling (designed, inactive)
 
 The all-companies mode is the designed scheduled form:
