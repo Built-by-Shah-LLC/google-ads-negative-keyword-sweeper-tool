@@ -62,19 +62,25 @@ export function recoveryScore(input: {
   clicks: string | null;
   cost: string | null;
   targetCpa: string | null;
+  conversionValue?: string | null;
+  targetRoas?: string | null;
+  valueBased?: boolean;
   recent: boolean;
   completedConversionWeeks: number;
 }): RecoveryScore {
   const unavailable: string[] = [];
-  const quality = input.qualityEvents === null ? {
+  const roas = input.conversionValue != null && input.cost !== null ? divide(fraction(input.conversionValue), fraction(input.cost)) : null;
+  const valueRatio = roas && input.targetRoas != null && fraction(input.targetRoas).n > 0n ? divide(roas, fraction(input.targetRoas)) : null;
+  const cappedValue = valueRatio && valueRatio.n > valueRatio.d ? fraction("1") : valueRatio;
+  const quality = input.valueBased ? multiply(fraction("40"), cappedValue ?? fraction("0")) : input.qualityEvents === null ? {
     n: 0n,
     d: 1n
   } : multiply(fraction("40"), ratio(input.qualityEvents, "4"));
-  if (input.qualityEvents === null) unavailable.push("quality");
+  if (input.valueBased ? !cappedValue : input.qualityEvents === null) unavailable.push("quality");
   const cpa = input.cost !== null && input.conversions !== null ? divide(fraction(input.cost), fraction(input.conversions)) : null;
-  const efficiencyRatio = cpa && cpa.n > 0n && input.targetCpa !== null ? divide(fraction(input.targetCpa), cpa) : null;
+  const efficiencyRatio = input.valueBased ? cappedValue : cpa && cpa.n > 0n && input.targetCpa !== null && fraction(input.targetCpa).n > 0n ? divide(fraction(input.targetCpa), cpa) : null;
   const efficiency = efficiencyRatio ? multiply(fraction("25"), efficiencyRatio.n > efficiencyRatio.d ? fraction("1") : efficiencyRatio) : fraction("0");
-  if (!cpa || cpa.n === 0n || input.targetCpa === null) unavailable.push("efficiency");
+  if (!efficiencyRatio) unavailable.push("efficiency");
   const proof = input.conversions === null || input.clicks === null ? {
     n: 0n,
     d: 1n

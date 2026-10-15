@@ -1,5 +1,7 @@
 # Volume Recovery implementation plan
 
+Latest source handoff: [iteration two](#19-source-completion-handoff--15-october-2026-iteration-two).
+
 **Status:** Approved for local implementation on 15 October 2026
 
 **Prepared:** 15 October 2026
@@ -583,3 +585,179 @@ Under [the local QA run](/private/tmp/bbs-volume-recovery-ads-manager.H5N9LJ/qa/
 Artifacts are synthetic local evidence and do not prove database, roles or
 cloud behavior. Keep the worktrees/evidence until review; no cleanup or
 production rollback has been performed.
+
+## 19 Source-completion handoff — 15 October 2026, iteration two
+
+### Review findings first
+
+Independent review found four edge cases: flat default purchase values could
+earn monetary points; a minimum phrase/broad witness could overstate no-history
+coverage; parser-valid detail could exceed the database byte limit; and count/
+byte caps could hide the selected action or omit other actions silently.
+All were fixed with regression checks. The selected action is first and is
+preserved, flat/unit/default monetary evidence is unconfirmed, no-history
+non-exact coverage is incomplete, and capped findings are visibly partial and
+review-only. Independent source and screenshot review has no remaining
+actionable finding. Desktop visual review also replaced a crowded target
+toolbar with the canonical responsive form grid.
+
+### Outcome and operating boundaries
+
+The three remaining source areas are implemented: campaign context collection,
+full bounded source/list/attachment/blocker details, and exact value/ROAS/
+Class B ranking. Both existing feature branches are continued; no package,
+service, queue, endpoint, table or migration was added. Ponytail kept this in
+the existing worker, typed JSON report, PostgreSQL and portal modules.
+
+DEV-52 and DEV-53 remain **Work in progress**. The Jira records were inspected,
+not transitioned or edited in this iteration. The prior local commits were
+`f37ac84` (Sweeper) and `15c641d` (Ads Manager); final chat identifies the new
+local commits. Remote read-only checks found neither feature branch published.
+No push, merge, deployment, database migration/repair/grant, credential/IAM
+change, Cloud Run execution, Google Ads request/mutation, or LLM call occurred.
+Original dirty checkouts remain untouched. The temporary feature worktrees
+remain available for review; there is no production action to roll back.
+
+### Behavior and limitations
+
+- Context retains current budget/sharing, serving/primary/bid state, standard
+  or portfolio targets, resolved account/campaign/custom goals and comparable
+  recent/preceding 30-day campaign totals. These are not query-level qualified
+  outcomes or proof that negatives caused a decline. Shared budgets are not
+  represented as a per-campaign allocation.
+- Change Event uses a 29-account-local-day window ending before today, a
+  10,000-row query limit and at most 20 relevant summaries/campaign. No actor
+  email, old/new payload, inferred author or negative-creation date is stored.
+  Capped/failed context is explicit; it does not become a complete 90-day
+  history. Source queries are otherwise bounded at 20,000 rows.
+- Source detail includes list and attachment resources, affected campaign
+  identities (including relevant campaigns outside Search/PMax ranking),
+  brand members and known/possible other blockers with scope, match, group,
+  list and witness samples. Candidate-text witnesses without history are
+  labelled hypothetical, never assigned traffic. Brand/spelling/symbol and
+  unobserved broader-query semantics remain conservative limitations.
+- Classes A/B/C/D/E and the approved 40/25/15/10/10 weights are retained.
+  Confirmed action-specific value targets can establish Class B; compatible
+  purchase metadata can use a sole-action Google goal ROAS target automatically.
+  Generic forms, unit/default values and mixed-goal targets cannot gain
+  automatic monetary points. Sale-event evidence alone does not establish
+  monetary value or revenue-pilot readiness. Qualified events remain distinct
+  from confirmed value and raw events; funnel actions are not summed as people.
+- Cost, fractional conversions, CPA, ROAS and score ratios use exact arithmetic.
+  Zero/missing denominators are unavailable; missing components are not
+  renormalized. Components and total round half-up for display; the total is
+  calculated from exact components, not by adding displayed rounded numbers.
+  Ranking inputs/selected action/target source and score version are retained.
+- Blocker matching has a two-million-comparison budget. Detail caps are 200
+  blockers/attachments, 100 brand members/actions, and 64 KiB compact JSON per
+  new item (with extra headroom for PostgreSQL's 128 KiB JSONB constraint).
+  Original metrics/counts and the selected action survive caps; omitted detail
+  becomes partial/low-confidence/review-only. Old v1 reports without extended
+  fields retain the original 128 KiB read bound and are not silently upgraded.
+- UI/CSV read the same immutable snapshot. CSV includes observed context and
+  blocker paths, not agency targets, scores, raw intent explanations or provider
+  payloads. A score is an ordering aid, not a probability, volume forecast or
+  authority to remove anything. No historic Sweeper run is assumed.
+
+### Verification actually run
+
+- Sweeper: typecheck/build passed; full suite **208 passed, one existing
+  PostgreSQL integration test skipped** (209 total), including **25** focused
+  recovery/evidence tests. Synthetic collectors exercise account-local dates,
+  goals/portfolio context, source failures/caps, exact attachment paths, brand
+  members, Search/PMax separation, default/mixed-goal rejection, Class B/ROAS,
+  zero division, Unicode size caps and legacy compatibility. No live GAQL ran.
+- Ads Manager: all five workspace typechecks and **963 tests passed** (web 466,
+  worker 91, API 238, DB 68, domain 100). **12 API** and **3 panel** focused
+  cases include pinned value policy, safe CSV, native evidence text and existing
+  auth/idempotency behavior. These use mocks, not PostgreSQL/RLS execution.
+- Full optimized Ads Manager workspace build passed under fixture-only
+  `APP_ENV=local` / `LOCAL_TEST_MODE=preview`; it proves compilation, not live
+  deployment configuration. Docs check, four-case QA specification validation,
+  mirrored-contract comparison and whitespace checks passed. No rule release
+  or account-policy compilation changed, so rules:check was not needed.
+- Agent-e2e observed the exact local preview origin with fictional data and
+  disabled save/run/value controls. Desktop/laptop/tablet/390px/320px layouts,
+  blockers/context/value disclosures, trusted Enter/focus and filter empty/
+  restore passed; independent reviewer inspected current screenshots. Network
+  capture after navigation saw only local assets and the existing Google Fonts
+  stylesheet, no recovery command or Ads/LLM/Cloud Run request. The console
+  collector found no subsequent errors; initial startup before injection is not
+  covered. No credentials/durable data were created; emulation was cleared and
+  the agent-owned server stopped. QA-owned tabs remain for review.
+
+Still unverified and separately gated: real PostgreSQL migration/RLS/grants,
+concurrency/crash recovery, read-only GAQL/manager-owned goal and provider
+compatibility, Cloud Run/IAM and deployed authenticated persistence/poll/CSV.
+Source completion is not release approval. Conservative missing evidence may
+reduce useful candidates; scoring constants still require business calibration.
+
+### Complete file-by-file source change report
+
+Paths below are the isolated worktrees. Every entry describes this iteration,
+not production operations. “Worker checks” means the offline Sweeper
+typecheck/209-test suite/build; “portal checks” means the five typechecks,
+963-test suite and fixture build; “docs checks” means link/context validation
+plus diff review. These checks do not imply live integration proof.
+
+#### Keyword Sweeper — feature/dev-52-volume-recovery
+
+- [analysis.ts](/private/tmp/bbs-volume-recovery-sweeper.Ze9zSR/src/volume-recovery/analysis.ts) — Joins full blocker/context detail and selects one action's meaningful value/target for Class B or revenue ROAS. Adds count/byte caps and partial/manual-review downgrade to prevent unearned eligibility. Metrics are preserved, not forecast. Risk: conservative inference, legacy origin and uncalibrated score weights. Verified: worker checks, monetary/default/no-history/selected-last/cap regressions and independent review.
+- [blockers.ts](/private/tmp/bbs-volume-recovery-sweeper.Ze9zSR/src/volume-recovery/blockers.ts) — New small matcher extracts known/possible scoped paths and cached witness matches, including exact candidate-text overlap without served history. Bounds comparisons and emitted detail. Effect: reviewers see what still blocks a query. Risk: not a Google brand/spelling emulator or exhaustive broader-query demand model. Verified: attachment/group/brand/no-history/budget-bound tests, worker checks and review.
+- [context.ts](/private/tmp/bbs-volume-recovery-sweeper.Ze9zSR/src/volume-recovery/context.ts) — New read-only collector resolves campaign budget/bidding/goals, account-calendar comparisons and sanitized recent changes. Nulls and caps remain explicit; no schema/lifecycle changes. Risk: query/permission compatibility untested live, change history shorter than performance history, present settings not historic causality. Verified: synthetic collector/date/goal/cap/privacy tests, worker checks and public Google documentation inspection.
+- [contract.ts](/private/tmp/bbs-volume-recovery-sweeper.Ze9zSR/src/volume-recovery/contract.ts) — Adds optional typed v1 value targets, ROAS, ranking inputs, context and blocker/source detail; strict safe projections, UTF-8 policy/item bounds and old-report compatibility. Effect: richer immutable JSON without migration. Risk: both repos must ship matching contracts; unsupported/oversized new payloads fail closed. Verified: byte-identical mirror, parser/policy/Unicode/legacy tests and worker/portal checks.
+- [scoring.ts](/private/tmp/bbs-volume-recovery-sweeper.Ze9zSR/src/volume-recovery/scoring.ts) — Extends existing exact fractions with value-to-spend/target ROAS for quality and efficiency; preserves lead scoring and missing-component behavior. Effect: meaningful value can rank without counting raw leads as qualified. Risk: attribution/meaning and targets must be valid; weights not calibrated probabilities. Verified: exact ratios, caps, zero-denominator tests and worker checks.
+- [sources.ts](/private/tmp/bbs-volume-recovery-sweeper.Ze9zSR/src/volume-recovery/sources.ts) — Retains full list/attachment/brand metadata and conversion default/origin/type data, inventories campaign fan-out beyond ranked channels and delegates contextual reads. Replaces the first-iteration placeholder gap. Risk: unread/capped sources still make partial reports; no provider calls executed here. Verified: SELECT-only fake-reader tests, full attachment/brand/fan-out cases and worker checks.
+- [volume-recovery-evidence.test.ts](/private/tmp/bbs-volume-recovery-sweeper.Ze9zSR/test/volume-recovery-evidence.test.ts) — Adds 12 synthetic evidence cases covering the new collectors, ranking, blockers, caps and compatibility so regressions are reproducible without cloud data. Effect: test-only; fixtures assume no prior Sweeper history. Risk: mocks do not validate real GAQL or RLS. Verified: all 12 new/25 focused/209 total cases accounted for and typechecked.
+- [implementation plan](/private/tmp/bbs-volume-recovery-sweeper.Ze9zSR/docs/VOLUME_RECOVERY_IMPLEMENTATION_PLAN.md) — Adds latest-handoff navigation and this outcome, file report, evidence and remaining gates; preserves iteration-one history. Effect: review documentation only. Risk: local source proof is not client results or release approval. Verified: compared against final diffs, actual command results and independent review.
+
+#### Ads Manager — feature/dev-53-volume-recovery
+
+- [domain contract](/private/tmp/bbs-volume-recovery-ads-manager.H5N9LJ/packages/domain/src/volume-recovery.ts) — Mirrors the worker's additive v1 fields and safe bounds for caller/UI compatibility; no provider shape leaks. Operational effect: existing JSON storage suffices. Risk: coordinated source release needed, legacy fields stay optional. Verified: mirror comparison, worker parser cases and portal checks.
+- [API repository/CSV](/private/tmp/bbs-volume-recovery-ads-manager.H5N9LJ/packages/api/src/keyword-sweeps/volume-recovery.ts) — Extends terminal CSV with retained observed ROAS/value meaning, source paths, blockers and sanitized context. Existing save/run/report APIs remain unchanged. Risk: CSV is wider; targets/scores/private payloads intentionally excluded and formulas remain escaped. Verified: 12 focused API cases, projection/column parity/privacy assertions, portal checks and review.
+- [API tests](/private/tmp/bbs-volume-recovery-ads-manager.H5N9LJ/packages/api/test/keyword-sweeps/volume-recovery.test.ts) — Adds pinned-value-policy and complete safe-CSV regressions using mock persistence. Effect: test-only, no schema execution. Risk: does not prove live transaction/RLS or download authorization. Verified: all 12 focused/238 API cases passed and typechecked.
+- [panel](/private/tmp/bbs-volume-recovery-ads-manager.H5N9LJ/apps/web/src/ui/features/negative-keyword-sweeps/volume-recovery-panel.tsx) — Adds draft-only value interpretation/target controls, readable known/possible blocker/source disclosures and campaign context/value evidence. Uses native forms/details, current permissions/revision handling and existing endpoints. Risk: real save/poll/history flows remain integration gates; values are not inferred in the browser. Verified: portal checks, 3 panel tests, fixture browser and independent source/visual review.
+- [fixture](/private/tmp/bbs-volume-recovery-ads-manager.H5N9LJ/apps/web/src/ui/features/negative-keyword-sweeps/volume-recovery-fixture.ts) — Extends fictional legacy example with shared blocker/context and a separate Class B business-value/4x-ROAS finding. Keeps original raw-lead score 48.15 and no prior Sweeper provenance. Effect: preview only, controls cannot persist or execute. Risk: invented demonstration values are not client results. Verified: panel/parser-compatible types, portal checks and actual screenshots.
+- [panel tests](/private/tmp/bbs-volume-recovery-ads-manager.H5N9LJ/apps/web/src/ui/features/negative-keyword-sweeps/volume-recovery-panel.test.tsx) — Adds SSR assertions for complete blocker/context/value text and disabled controls. Effect: test-only. Risk: static rendering does not prove interactive timing; actual disclosures/filtering checked separately. Verified: 3 focused cases and full portal checks.
+- [canonical CSS](/private/tmp/bbs-volume-recovery-ads-manager.H5N9LJ/design-system/components.css) — Adds the single responsive value-form grid to avoid squeezed selected meanings; canonical gaps, two columns when space permits, otherwise stacked. No shared navigation changes. Risk: long control content still needs viewport review. Verified: desktop/laptop/tablet/390px/320px screenshots, geometry and independent review.
+- [component catalog](/private/tmp/bbs-volume-recovery-ads-manager.H5N9LJ/design-system/components.md) — Documents the value-form grid and native bounded evidence pattern so UI changes have a canonical reusable owner. Documentation only; no capability expansion. Risk: keep future equivalents aligned. Verified: docs checks and screenshot/source comparison.
+- [composition catalog](/private/tmp/bbs-volume-recovery-ads-manager.H5N9LJ/design-system/product-compositions.md) — Extends D-114's existing composition with target/grid/context/blocker semantics and no-write boundary. Documentation only; no new page/overlay. Risk: not authority for future Ads actions. Verified: docs checks and UI review.
+- [acceptance matrix](/private/tmp/bbs-volume-recovery-ads-manager.H5N9LJ/docs/acceptance-matrix.md) — Replaces the now-finished source TODO with actual synthetic/visual evidence, preserving every integration release gate. No runtime effect. Risk: offline passes must not be read as staff-use approval. Verified: docs checks and command/result comparison.
+- [API ownership](/private/tmp/bbs-volume-recovery-ads-manager.H5N9LJ/docs/api-ownership.md) — Documents optional policy input and the safe report/CSV additions without new endpoints. No runtime effect. Risk: private target/score exclusions remain binding. Verified: docs checks and API projection tests/source review.
+- [architecture](/private/tmp/bbs-volume-recovery-ads-manager.H5N9LJ/docs/architecture.md) — Records additive JSON storage, per-action target separation, context limitations and deterministic caps under AD-026. No migration/service addition. Risk: deployed coordination still required. Verified: docs checks and worker/domain/API comparison.
+- [operations](/private/tmp/bbs-volume-recovery-ads-manager.H5N9LJ/docs/operations.md) — Removes obsolete source gaps and records concrete query/item/cap/default-inference boundaries, retaining approval gates. No operation was run. Risk: actual GAQL/RLS/IAM remains unproved. Verified: docs checks, bounded-source tests and diff review.
+- [D-114 decision](/private/tmp/bbs-volume-recovery-ads-manager.H5N9LJ/docs/product/decisions.md) — Clarifies evidence quality/defaults/partial caps within the existing admission. No role/write/schema authority expansion. Risk: later scope changes still need approval. Verified: docs checks and comparison with accepted plan/current request.
+- [threat model](/private/tmp/bbs-volume-recovery-ads-manager.H5N9LJ/docs/security/threat-model.md) — Documents sanitized change data, byte/count bounds and deterministic financial/LLM separation. No credential or permission change. Risk: source controls are not live IAM/RLS evidence. Verified: docs checks, projection/privacy tests and independent review.
+- [status](/private/tmp/bbs-volume-recovery-ads-manager.H5N9LJ/docs/status.md) — Leads with completed source areas and actual tests/build/review, preserving first-iteration history and unfinished release gates. Documentation only; Jira unchanged. Risk: status must stay distinct from deployment. Verified: docs checks, command logs and final git review.
+- [UI contracts](/private/tmp/bbs-volume-recovery-ads-manager.H5N9LJ/docs/ui-contracts.md) — Documents optional v1 fields, exact ratio units, immutable target meaning and legacy compatibility. No runtime effect. Risk: both repo mirrors must stay synchronized. Verified: docs checks, byte comparison and parser cases.
+- [integration inventory](/private/tmp/bbs-volume-recovery-ads-manager.H5N9LJ/docs/what-we-use.md) — Records broader observed Ads context through the same unconnected recovery integration; explicitly no new vendor/permission. No provisioning. Risk: public docs and mocks do not prove live compatibility. Verified: docs checks and collector inspection.
+- [QA case](/private/tmp/bbs-volume-recovery-ads-manager.H5N9LJ/qa/agent-e2e/suites/accounts/volume-recovery.case.md) — Adds value/context/blocker/disabled-control assertions to the existing observe-only legacy preview case. Effect: repeatable QA specification, not CI/browser code or write authority. Risk: real persistence remains blocked pending approval. Verified: 4-case validator, actual fixture execution and independent screenshots.
+
+#### Ignored local QA artifacts (not committed or client data)
+
+All are under [the source-completion QA run](/private/tmp/bbs-volume-recovery-ads-manager.H5N9LJ/qa/agent-e2e/runs/volume-recovery-source-20261015/report.md).
+They document only the synthetic local preview; no production behavior changes.
+Each PNG was opened and inspected, then independently reviewed. Build outputs
+and compiler caches are generated verification artifacts, not source changes.
+
+- `report.md`: records run scope, findings, observations, network/console limits and cleanup; checked against executed steps.
+- `desktop-settings.png`: revised two-column form/full meanings; verifies desktop spacing.
+- `desktop-blockers.png`: exact shared-list/resource path and fan-out; verifies readable bounded evidence.
+- `desktop-context.png`: expanded budget/bidding/goal context; verifies separate causal warnings.
+- `laptop-settings.png`: 1280px target form; verifies full selected meaning and gaps.
+- `tablet-settings.png`: 768px stacked target form; verifies constrained-width labels.
+- `tablet-value.png`: Class B/4x-ROAS evidence; verifies business value is not presented as qualification.
+- `mobile-settings.png`: 390px stacked controls; verifies full meaning, disabled state and no overflow.
+- `mobile-blockers.png`: 390px long resource/list paths; verifies wrapping and retained scope.
+- `mobile-context.png`: 390px expanded context; verifies readable warnings and no document overflow.
+- `narrow-keyboard.png`: 320px native disclosure focus; verifies visible unclipped outline after trusted Enter.
+- `mobile-filter-empty.png`: unmatched filter state; verifies honest empty results before restore.
+
+### Technical references checked (public documentation, not account API calls)
+
+- [Change Event limits and omissions](https://developers.google.com/google-ads/api/docs/change-event).
+- [Bid strategy status](https://developers.google.com/google-ads/api/docs/campaigns/bidding/strategy-status).
+- [v25 accessible bidding strategy fields](https://developers.google.com/google-ads/api/fields/v25/accessible_bidding_strategy).
+- [v25 conversion goals](https://developers.google.com/google-ads/api/fields/v25/campaign_conversion_goal), [custom goals](https://developers.google.com/google-ads/api/fields/v25/custom_conversion_goal).
+- [v25 brand member fields](https://developers.google.com/google-ads/api/fields/v25/shared_criterion).
+- [Account-negative inventory applicability](https://support.google.com/google-ads/answer/11396330).

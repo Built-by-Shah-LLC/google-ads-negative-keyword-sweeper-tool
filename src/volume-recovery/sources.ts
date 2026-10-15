@@ -1,4 +1,5 @@
-import type { RecoveryChannel, RecoveryCoverage, RecoveryConversionKind, RecoveryPolicy, RecoveryScope } from "./contract.js";
+import type { RecoveryChannel, RecoveryCoverage, RecoveryConversionKind, RecoveryPolicy, RecoveryScope, RecoveryExclusionDetails, RecoveryCampaignContext, RecoveryAttachment } from "./contract.js";
+import { collectRecoveryContext } from "./context.js";
 import { recoveryDates } from "./scoring.js";
 export interface RecoveryCampaign {
   id: string;
@@ -16,6 +17,7 @@ export interface RecoveryExclusion {
   campaignIds: string[];
   adGroupId: string | null;
   adGroupName: string | null;
+  details?: RecoveryExclusionDetails;
 }
 export interface RecoveryFact {
   key: string;
@@ -40,6 +42,10 @@ export interface RecoveryConversionAction {
   category: string;
   kind: RecoveryConversionKind;
   primary: boolean;
+  origin?: string;
+  type?: string;
+  alwaysUseDefaultValue?: boolean | null;
+  defaultValue?: string | null;
 }
 export interface RecoverySources {
   campaigns: RecoveryCampaign[];
@@ -52,6 +58,9 @@ export interface RecoverySources {
   goalCategories: string[];
   conversionOwner: string;
   campaignGoalLevels?: Record<string, string>;
+  campaignContexts?: Record<string, RecoveryCampaignContext>;
+  campaignGoalActionIds?: Record<string, string[]>;
+  contextTruncatedCampaignIds?: string[];
 }
 export interface RecoveryReader {
   searchStream(customerId: string, query: string): Promise<Record<string, unknown>[]>;
@@ -70,7 +79,7 @@ export function factKey(campaign: string, group: string | null, query: string, d
 }
 export function actionKind(category: string): RecoveryConversionKind {
   if (["QUALIFIED_LEAD", "CONVERTED_LEAD"].includes(category)) return "qualified_lead";
-  if (category === "PURCHASE") return "revenue";
+  if (["PURCHASE", "STORE_SALE"].includes(category)) return "revenue";
   if (["SUBMIT_LEAD_FORM", "PHONE_CALL_LEAD", "CONTACT", "BOOK_APPOINTMENT", "REQUEST_QUOTE"].includes(category)) return "raw_lead";
   return "ignore";
 }
@@ -93,15 +102,14 @@ export async function collectRecoverySources(reader: RecoveryReader, request: {
     goalCategories: [],
     conversionOwner: request.customerId
   };
-  const limit = 20000;
-  async function query(source: string, gaql: string, customer = request.customerId): Promise<Record<string, unknown>[]> {
+  async function query(source: string, gaql: string, customer = request.customerId, limit = 20000): Promise<Record<string, unknown>[]> {
     try {
-      const rows = await reader.searchStream(customer, gaql + " LIMIT " + String(limit + 1));
-      const capped = rows.length > limit;
+      const rows = await reader.searchStream(customer, gaql + " LIMIT " + String(limit === 10000 ? limit : limit + 1));
+      const capped = limit === 10000 ? rows.length >= limit : rows.length > limit;
       result.coverage.push({
         source,
         available: !capped,
-        detail: capped ? "Source exceeded the 20,000-row bound; coverage is partial." : "Google Ads reported rows collected."
+        detail: capped ? "Source reached its " + limit.toLocaleString("en-US") + "-row bound; coverage is partial." : "Google Ads reported rows collected."
       });
       return rows.slice(0, limit);
     } catch {
@@ -121,10 +129,12 @@ export async function collectRecoverySources(reader: RecoveryReader, request: {
     if (!/^customers\/[0-9]+$/.test(owner)) throw new Error("Invalid conversion-owner identity.");
     result.conversionOwner = owner.split("/")[1]!;
   }
-  const campaigns = await query("campaigns", "SELECT campaign.id, campaign.name, campaign.status, campaign.advertising_channel_type, campaign.primary_status_reasons FROM campaign WHERE campaign.status != 'REMOVED' AND campaign.advertising_channel_type IN ('SEARCH','PERFORMANCE_MAX')");
+  const campaigns = await query("campaigns", "SELECT campaign.id, campaign.name, campaign.status, campaign.advertising_channel_type, campaign.primary_status_reasons FROM campaign WHERE campaign.status != 'REMOVED'");
+  const campaignDirectory = new Map<string, RecoveryAttachment>();
   for (const row of campaigns) {
     const campaign = record(row.campaign),
       channel = string(campaign.advertisingChannelType);
+    campaignDirectory.set(string(campaign.id), { campaignId: string(campaign.id), campaignName: string(campaign.name) || null, channel: channel || null, status: string(campaign.status) || null });
     if (!["SEARCH", "PERFORMANCE_MAX"].includes(channel) || !/^\d+$/.test(string(campaign.id))) continue;
     result.campaigns.push({
       id: string(campaign.id),
@@ -172,7 +182,7 @@ export async function collectRecoverySources(reader: RecoveryReader, request: {
     const set = record(row.sharedSet);
     return [string(set.resourceName), string(set.name)];
   }));
-  const attachments = await query("shared_attachments", "SELECT campaign.id, campaign_shared_set.shared_set FROM campaign_shared_set WHERE campaign_shared_set.status = 'ENABLED'");
+  const attachments = await query("shared_attachments", "SELECT campaign.id, campaign_shared_set.resource_name, campaign_shared_set.shared_set FROM campaign_shared_set WHERE campaign_shared_set.status = 'ENABLED' AND campaign.status != 'REMOVED'");
   const bySet = new Map<string, string[]>();
   for (const row of attachments) {
     const key = string(record(row.campaignSharedSet).sharedSet);
@@ -180,6 +190,13 @@ export async function collectRecoverySources(reader: RecoveryReader, request: {
   }
   const accountAttachments = await query("account_negatives", "SELECT customer_negative_criterion.resource_name, customer_negative_criterion.negative_keyword_list.shared_set FROM customer_negative_criterion WHERE customer_negative_criterion.type = 'NEGATIVE_KEYWORD_LIST'");
   const accountSets = new Set(accountAttachments.map(row => string(record(record(row.customerNegativeCriterion).negativeKeywordList).sharedSet)));
+  // Account lists affect Search/Shopping inventory, including other eligible campaign types outside this report's ranking scope.
+  const accountCampaigns = [...campaignDirectory.values()].filter(c => ["SEARCH", "PERFORMANCE_MAX", "SHOPPING", "MULTI_CHANNEL", "SMART", "LOCAL"].includes(c.channel ?? "")).map(c => c.campaignId);
+  function details(resourceId: string, set: string | null, ids: string[]): RecoveryExclusionDetails {
+    const links = set === null ? [] : [...attachments.filter(row => string(record(row.campaignSharedSet).sharedSet) === set).map(row => string(record(row.campaignSharedSet).resourceName)), ...accountAttachments.filter(row => string(record(record(row.customerNegativeCriterion).negativeKeywordList).sharedSet) === set).map(row => string(record(row.customerNegativeCriterion).resourceName))];
+    return { resourceId, listResourceId: set, listName: set ? names.get(set) ?? null : null, attachmentResourceIds: links.slice(0, 200), campaigns: [...new Set(ids)].slice(0, 200).map(id => campaignDirectory.get(id) ?? { campaignId: id, campaignName: null, channel: null, status: null }), detailsComplete: ids.length <= 200 && links.length <= 200 && ids.every(id => campaignDirectory.has(id)) && (set === null || names.has(set)) && result.coverage.filter(c => ["campaigns", "shared_sets", "shared_attachments", "account_negatives"].includes(c.source)).every(c => c.available), brandMembers: [] };
+  }
+  for (const exclusion of result.exclusions) exclusion.details = details(exclusion.resource, null, exclusion.campaignIds);
   const shared = await query("shared_keywords", "SELECT shared_criterion.resource_name, shared_criterion.shared_set, shared_criterion.keyword.text, shared_criterion.keyword.match_type FROM shared_criterion WHERE shared_set.type IN ('NEGATIVE_KEYWORDS','ACCOUNT_LEVEL_NEGATIVE_KEYWORDS') AND shared_set.status != 'REMOVED'");
   for (const row of shared) {
     const criterion = record(row.sharedCriterion),
@@ -193,9 +210,10 @@ export async function collectRecoverySources(reader: RecoveryReader, request: {
       kind: "keyword",
       scope: accountSets.has(set) ? "account" : "shared_list",
       matchType: matchType as "EXACT" | "PHRASE" | "BROAD",
-      campaignIds: accountSets.has(set) ? result.campaigns.map(c => c.id) : [...new Set(bySet.get(set) ?? [])],
+      campaignIds: accountSets.has(set) ? accountCampaigns : [...new Set(bySet.get(set) ?? [])],
       adGroupId: null,
-      adGroupName: null
+      adGroupName: null,
+      details: details(string(criterion.resourceName), set, accountSets.has(set) ? accountCampaigns : [...new Set(bySet.get(set) ?? [])])
     });
   }
   const brands = await query("brand_exclusions", "SELECT campaign.id, campaign_criterion.resource_name, campaign_criterion.brand_list.shared_set FROM campaign_criterion WHERE campaign_criterion.negative = TRUE AND campaign_criterion.type = 'BRAND_LIST' AND campaign_criterion.status != 'REMOVED'");
@@ -210,10 +228,18 @@ export async function collectRecoverySources(reader: RecoveryReader, request: {
       matchType: null,
       campaignIds: [string(record(row.campaign).id)],
       adGroupId: null,
-      adGroupName: null
+      adGroupName: null,
+      details: { ...details(string(criterion.resourceName), set, [string(record(row.campaign).id)]), attachmentResourceIds: [string(criterion.resourceName)] }
     });
   }
-  const actions = await query("conversion_actions", "SELECT conversion_action.resource_name, conversion_action.name, conversion_action.category, conversion_action.type, conversion_action.primary_for_goal FROM conversion_action WHERE conversion_action.status != 'REMOVED'", result.conversionOwner);
+  const members = await query("brand_members", "SELECT shared_criterion.shared_set, shared_criterion.brand.entity_id, shared_criterion.brand.display_name, shared_criterion.brand.status FROM shared_criterion WHERE shared_criterion.type = 'BRAND' AND shared_set.status != 'REMOVED'");
+  for (const exclusion of result.exclusions.filter(e => e.kind === "brand")) {
+    const matching = members.filter(row => string(record(row.sharedCriterion).sharedSet) === exclusion.details?.listResourceId);
+    exclusion.details!.brandMembers = matching.slice(0, 100).map(row => { const brand = record(record(row.sharedCriterion).brand); return { entityId: string(brand.entityId), name: string(brand.displayName), status: string(brand.status) }; });
+    exclusion.details!.detailsComplete &&= matching.length <= 100 && result.coverage.find(c => c.source === "brand_members")?.available === true;
+  }
+  if (result.exclusions.some(exclusion => exclusion.details?.detailsComplete === false)) result.coverage.push({ source: "exclusion_details", available: false, detail: "Some attachment/list/member details are unavailable or exceed the 200-attachment / 100-brand-member bounds; affected rows require review." });
+  const actions = await query("conversion_actions", "SELECT conversion_action.resource_name, conversion_action.name, conversion_action.category, conversion_action.origin, conversion_action.type, conversion_action.primary_for_goal, conversion_action.value_settings.always_use_default_value, conversion_action.value_settings.default_value FROM conversion_action WHERE conversion_action.status != 'REMOVED'", result.conversionOwner);
   for (const row of actions) {
     const action = record(row.conversionAction),
       resource = string(action.resourceName),
@@ -223,17 +249,12 @@ export async function collectRecoverySources(reader: RecoveryReader, request: {
       name: string(action.name),
       category,
       kind: request.policy.conversionActions[resource] ?? actionKind(category),
-      primary: action.primaryForGoal === true
+      primary: action.primaryForGoal === true,
+      origin: string(action.origin),
+      type: string(action.type),
+      alwaysUseDefaultValue: typeof record(action.valueSettings).alwaysUseDefaultValue === "boolean" ? record(action.valueSettings).alwaysUseDefaultValue as boolean : null,
+      defaultValue: sourceDecimal(record(action.valueSettings).defaultValue)
     });
-  }
-  const goals = await query("conversion_goals", "SELECT customer_conversion_goal.category, customer_conversion_goal.biddable FROM customer_conversion_goal");
-  result.goalCategories = goals.filter(row => record(row.customerConversionGoal).biddable === true).map(row => string(record(row.customerConversionGoal).category));
-  const campaignGoals = await query("campaign_goal_configuration", "SELECT conversion_goal_campaign_config.campaign, conversion_goal_campaign_config.goal_config_level, conversion_goal_campaign_config.custom_conversion_goal FROM conversion_goal_campaign_config");
-  result.campaignGoalLevels = {};
-  for (const row of campaignGoals) {
-    const goal = record(row.conversionGoalCampaignConfig),
-      id = string(goal.campaign).split("/").at(-1);
-    if (id) result.campaignGoalLevels[id] = string(goal.customConversionGoal) ? "CUSTOM" : string(goal.goalConfigLevel);
   }
   const active = new Set(result.campaigns.filter(c => c.status === "ENABLED").map(c => c.id));
   for (const channel of ["SEARCH", "PERFORMANCE_MAX"] as const) {
@@ -292,7 +313,6 @@ export async function collectRecoverySources(reader: RecoveryReader, request: {
     available: false,
     detail: "Tag and import diagnostics are not inferred from action names. Confirm unresolved measurement warnings before a future pilot."
   });
-  result.coverage.push({source:"delivery_change_context",available:false,
-    detail:"Budget, bidding and recent change-history context is not collected in this first implementation. Low volume must not be attributed to exclusions from this report alone."});
+  await collectRecoveryContext(query, result, request, now);
   return result;
 }
