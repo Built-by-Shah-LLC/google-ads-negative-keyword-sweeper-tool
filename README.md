@@ -18,6 +18,10 @@ The target system separates responsibilities:
 
 See [Architecture decisions](docs/ARCHITECTURE_DECISIONS.md) for the controlling product decisions.
 
+Volume Recovery's separate read-only worker and portal boundary are described
+in the [approved implementation plan and iteration handoff](docs/VOLUME_RECOVERY_IMPLEMENTATION_PLAN.md).
+The first local implementation is not deployed and does not remove negatives.
+
 ## Repository contents
 
 - `handoff/` — evidence-backed documentation and labeled search-term examples.

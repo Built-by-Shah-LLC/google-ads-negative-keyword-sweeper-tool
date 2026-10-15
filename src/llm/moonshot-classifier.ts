@@ -119,6 +119,14 @@ export class MoonshotKeywordClassifier implements KeywordClassifier {
     );
   }
 
+  /** Reuses the existing authenticated retry/timeout transport for recovery's distinct response contract. */
+  async completeStructuredJson(request: Record<string, unknown>): Promise<{ value: unknown; usage: LlmTokenUsage }> {
+    const call = await this.callEndpoint("/chat/completions", request, "LLM_REQUEST");
+    let value: unknown = null;
+    try { value = parseClassifierPayload(extractResponseText(call.payload)); } catch { /* Invalid output still incurred reported token usage. */ }
+    return { value, usage: normalizeMoonshotUsage(call.payload.usage) };
+  }
+
   async countFixedInputTokens(
     context: Omit<ClassificationContext, "searchTerms">
   ): Promise<FixedInputTokenCount> {
