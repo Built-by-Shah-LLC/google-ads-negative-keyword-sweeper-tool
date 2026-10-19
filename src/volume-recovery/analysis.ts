@@ -56,7 +56,7 @@ export function analyzeRecovery(sources: RecoverySources, policy: RecoveryPolicy
   const readinessReasons = !measurement ? ["No interpretable lead or sale action was available."] : measurement.kind === "raw_lead" ? ["Selected action records raw conversion events; lead quality is unconfirmed."] : ["Google Ads reports a qualified outcome or sale; this is reported attribution, not independent CRM verification."];
   readinessReasons.push("Conversion counts are events for one selected action, not deduplicated people.");
   const intentById = new Map(intents.map(intent => [intent.itemId, intent]));
-  const inventoryComplete = ["campaigns", "campaign_negatives", "ad_group_negatives", "account_negatives", "shared_sets", "shared_attachments", "shared_keywords", "brand_exclusions"].every(name => available(sources, name));
+  const inventoryComplete = ["campaigns", "campaign_negatives", "ad_group_negatives", "account_negatives", "account_direct_negatives", "shared_sets", "shared_attachments", "shared_keywords", "brand_exclusions"].every(name => available(sources, name));
   const factsByCampaign = new Map<string, RecoverySources["facts"]>();
   for (const fact of sources.facts) {
     const list = factsByCampaign.get(fact.campaignId) ?? [];

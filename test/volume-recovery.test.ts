@@ -57,7 +57,7 @@ function sources(): RecoverySources {
       kind: "raw_lead",
       primary: true
     }],
-    coverage: ["campaigns", "campaign_negatives", "ad_group_negatives", "account_negatives", "shared_sets", "shared_attachments", "shared_keywords", "brand_exclusions", "conversion_actions", "SEARCH_traffic", "SEARCH_conversion_events", "campaign_goal_configuration"].map(source => ({
+    coverage: ["campaigns", "campaign_negatives", "ad_group_negatives", "account_negatives", "account_direct_negatives", "shared_sets", "shared_attachments", "shared_keywords", "brand_exclusions", "conversion_actions", "SEARCH_traffic", "SEARCH_conversion_events", "campaign_goal_configuration"].map(source => ({
       source,
       available: true,
       detail: "Synthetic fixture"

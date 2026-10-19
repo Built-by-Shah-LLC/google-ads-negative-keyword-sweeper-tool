@@ -192,9 +192,17 @@ export async function collectRecoverySources(reader: RecoveryReader, request: {
   const accountSets = new Set(accountAttachments.map(row => string(record(record(row.customerNegativeCriterion).negativeKeywordList).sharedSet)));
   // Account lists affect Search/Shopping inventory, including other eligible campaign types outside this report's ranking scope.
   const accountCampaigns = [...campaignDirectory.values()].filter(c => ["SEARCH", "PERFORMANCE_MAX", "SHOPPING", "MULTI_CHANNEL", "SMART", "LOCAL"].includes(c.channel ?? "")).map(c => c.campaignId);
+  const accountKeywords = await query("account_direct_negatives", "SELECT customer_negative_criterion.resource_name, customer_negative_criterion.keyword.text, customer_negative_criterion.keyword.match_type FROM customer_negative_criterion WHERE customer_negative_criterion.type = 'KEYWORD'");
+  for (const row of accountKeywords) {
+    const criterion = record(row.customerNegativeCriterion), keyword = record(criterion.keyword), matchType = string(keyword.matchType);
+    if (types.has(matchType)) result.exclusions.push({
+      resource: string(criterion.resourceName), text: string(keyword.text), kind: "keyword", scope: "account",
+      matchType: matchType as "EXACT" | "PHRASE" | "BROAD", campaignIds: accountCampaigns, adGroupId: null, adGroupName: null
+    });
+  }
   function details(resourceId: string, set: string | null, ids: string[]): RecoveryExclusionDetails {
     const links = set === null ? [] : [...attachments.filter(row => string(record(row.campaignSharedSet).sharedSet) === set).map(row => string(record(row.campaignSharedSet).resourceName)), ...accountAttachments.filter(row => string(record(record(row.customerNegativeCriterion).negativeKeywordList).sharedSet) === set).map(row => string(record(row.customerNegativeCriterion).resourceName))];
-    return { resourceId, listResourceId: set, listName: set ? names.get(set) ?? null : null, attachmentResourceIds: links.slice(0, 200), campaigns: [...new Set(ids)].slice(0, 200).map(id => campaignDirectory.get(id) ?? { campaignId: id, campaignName: null, channel: null, status: null }), detailsComplete: ids.length <= 200 && links.length <= 200 && ids.every(id => campaignDirectory.has(id)) && (set === null || names.has(set)) && result.coverage.filter(c => ["campaigns", "shared_sets", "shared_attachments", "account_negatives"].includes(c.source)).every(c => c.available), brandMembers: [] };
+    return { resourceId, listResourceId: set, listName: set ? names.get(set) ?? null : null, attachmentResourceIds: links.slice(0, 200), campaigns: [...new Set(ids)].slice(0, 200).map(id => campaignDirectory.get(id) ?? { campaignId: id, campaignName: null, channel: null, status: null }), detailsComplete: ids.length <= 200 && links.length <= 200 && ids.every(id => campaignDirectory.has(id)) && (set === null || names.has(set)) && result.coverage.filter(c => ["campaigns", "shared_sets", "shared_attachments", "account_negatives", "account_direct_negatives"].includes(c.source)).every(c => c.available), brandMembers: [] };
   }
   for (const exclusion of result.exclusions) exclusion.details = details(exclusion.resource, null, exclusion.campaignIds);
   const shared = await query("shared_keywords", "SELECT shared_criterion.resource_name, shared_criterion.shared_set, shared_criterion.keyword.text, shared_criterion.keyword.match_type FROM shared_criterion WHERE shared_set.type IN ('NEGATIVE_KEYWORDS','ACCOUNT_LEVEL_NEGATIVE_KEYWORDS') AND shared_set.status != 'REMOVED'");

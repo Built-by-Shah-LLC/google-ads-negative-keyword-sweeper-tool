@@ -18,6 +18,7 @@ async function fixture(options: {
   portfolio?: boolean;
   defaultValue?: string;
   lists?: boolean;
+  accountKeyword?: boolean;
 } = {}) {
   const calls: string[] = [];
   const data = await collectRecoverySources({ async searchStream(_customer, gaql) {
@@ -30,7 +31,9 @@ async function fixture(options: {
         return ["10", "20", "30"].map(id => ({ sharedSet: { resourceName: "customers/1234567890/sharedSets/" + id, name: "List " + id } }));
       if (options.lists && gaql.includes(" FROM campaign_shared_set"))
         return ["1", "9"].map(id => ({ campaign: { id }, campaignSharedSet: { resourceName: "customers/1234567890/campaignSharedSets/" + id + "~10", sharedSet: "customers/1234567890/sharedSets/10" } }));
-      if (options.lists && gaql.includes(" FROM customer_negative_criterion"))
+      if (options.accountKeyword && gaql.includes(" FROM customer_negative_criterion") && gaql.includes("type = 'KEYWORD'"))
+        return [{ customerNegativeCriterion: { resourceName: "customers/1234567890/customerNegativeCriteria/40", keyword: { text: "riverton collision repair", matchType: "EXACT" } } }];
+      if (options.lists && gaql.includes(" FROM customer_negative_criterion") && gaql.includes("'NEGATIVE_KEYWORD_LIST'"))
         return [{ customerNegativeCriterion: { resourceName: "customers/1234567890/customerNegativeCriteria/20", negativeKeywordList: { sharedSet: "customers/1234567890/sharedSets/20" } } }];
       if (options.lists && gaql.includes(" FROM shared_criterion") && gaql.includes("'BRAND'"))
         return [{ sharedCriterion: { sharedSet: "customers/1234567890/sharedSets/30", brand: { entityId: "/g/mock", displayName: "Riverton", status: "APPROVED" } } }];
@@ -111,6 +114,31 @@ test("inventory retains exact attachment paths and brand members, including out-
   assert.equal(pmax.score, null);
   assert.equal(pmax.recommendation, "manual_review");
   assert.ok(calls.filter(gaql => gaql.includes(" FROM campaign_search_term_view")).every(gaql => !gaql.includes("ad_group.id")));
+});
+test("direct account keyword negatives remain effective blockers without a shared list", async () => {
+  const { data } = await fixture({ accountKeyword: true });
+  const direct = data.exclusions.find(e => e.resource.endsWith("/40"))!;
+  assert.equal(direct.scope, "account");
+  assert.deepEqual(direct.campaignIds, ["1"]);
+  assert.equal(direct.details?.listResourceId, null);
+  assert.equal(direct.details?.detailsComplete, true);
+  data.actions[0]!.kind = "qualified_lead";
+  const row = analyze(data).items.find(e => e.resource.endsWith("1~10"))!.item;
+  assert.equal(row.remainingBlockers, 1);
+  assert.ok(row.blockers?.some(b => b.resourceId === direct.resource && b.scope === "account" && b.certainty === "known"));
+  assert.equal(row.blockerCoverageComplete, true);
+  assert.notEqual(row.recommendation, "potential_pilot");
+  const fanOut = await fixture({ accountKeyword: true, lists: true });
+  assert.deepEqual(fanOut.data.exclusions.find(e => e.resource.endsWith("/40"))!.campaignIds, ["1", "2", "9"]);
+});
+test("both account-list and direct-keyword reads are required for complete blocker coverage", async () => {
+  for (const failed of ["customer_negative_criterion.keyword.text", "customer_negative_criterion.negative_keyword_list.shared_set"]) {
+    const { data } = await fixture({ fail: failed });
+    data.actions[0]!.kind = "qualified_lead";
+    const row = analyze(data).items[0]!.item;
+    assert.equal(row.blockerCoverageComplete, false);
+    assert.notEqual(row.recommendation, "potential_pilot");
+  }
 });
 test("unavailable or capped context stays null/partial, never an observed zero or a complete history", async () => {
   const { data } = await fixture({ fail: " FROM campaign_budget", changes: 10000 });

@@ -1,6 +1,6 @@
 # Volume Recovery implementation plan
 
-Latest source handoff: [iteration two](#19-source-completion-handoff--15-october-2026-iteration-two).
+Latest verification handoff: [19 October integration and review](#20-integration-and-verification-handoff--19-october-2026).
 
 **Status:** Approved for local implementation on 15 October 2026
 
@@ -128,8 +128,8 @@ Persist five lifecycle states: `pending`, `running`, `succeeded`, `partial`, and
 Handle these failure windows explicitly:
 
 1. **Repeated clicks or HTTP retries:** the same idempotency key and payload resolve to the same run. A different payload with that key is rejected. The database's one-active-run constraint prevents two employees from starting paid work twice for the same account.
-2. **Saved request, failed launch:** retain a visible failed start. The account can remain enabled; its latest report says that no analysis completed. Retry creates a new request after a definite rejection, or redispatches the same pending request if launch acceptance is uncertain.
-3. **Launch timeout or lost response:** leave the request pending with an uncertain dispatch outcome. Retrying that run ID is safe because only one worker can claim it. A launch error must not overwrite a worker that has already moved the row to running.
+2. **Saved request, failed launch:** retain a visible failed start after a definite rejection. The account can remain enabled; its latest report says that no analysis completed. A later explicit run creates a new request. Unattempted pending work at `Starting` can be retried once through the durable dispatch fence.
+3. **Launch timeout or lost response:** leave the request pending with an operator-check stage. Before any external start, atomically change `Starting` to `Requesting execution` and commit. Fenced, uncertain and known accepted attempts are never automatically relaunched. A late launch error cannot invalidate a known execution or worker claim. A pre-call process crash after the fence is also uncertain and retains the account/organization capacity slot until separately approved operator investigation/reconciliation. This conservative behavior supersedes the original same-run timeout redispatch proposal.
 4. **Duplicate Cloud Run executions:** claim `pending -> running` with one conditional database operation. Only the winner reads Google Ads or calls the LLM; other executions exit. The claim and all worker writes are bound to the winning execution identity. The worker records that identity as the authoritative execution reference; a delayed launch response must not replace it after the run starts.
 5. **Worker crash:** retain completed item batches and heartbeat information. Show stale progress after five minutes without a heartbeat; this is an uncertainty signal, not proof of failure. Before permitting a new paid run for a stale active request, the explicit retry command checks its recorded Cloud Run execution. Terminal failure finalizes it as partial or failed; an execution still active or unavailable remains visible for investigation.
 6. **Some sources or model batches fail:** retain valid results, record the missing coverage, and finish partial. Results that depend on missing blocker inventory cannot be labeled potential pilot.
@@ -138,7 +138,7 @@ Handle these failure windows explicitly:
 
 Use the existing bounded HTTP/provider retries inside the worker. Set whole-task automatic retries to zero initially to avoid repeating a partially paid analysis without a resume design. A completed, partial, or failed analysis rerun creates a new report; it does not edit the original.
 
-No outbox service or automatic dispatcher is needed for the initial interactive flow. The durable run row plus explicit retry covers a failed launch, including a web-process crash between commit and dispatch. This choice means a saved request is not guaranteed automatic execution after such a crash; the UI must expose retry. Add a dispatcher only if unattended eventual execution becomes a requirement.
+No outbox service or automatic dispatcher is needed for the initial interactive flow. An explicit retry can dispatch a request that never acquired its launch fence. A crash after fencing cannot safely be distinguished from a lost successful response, so it requires an operator check rather than timed redispatch. This choice does not guarantee automatic execution or automatic capacity recovery; add a dispatcher only if unattended eventual execution becomes a requirement. Do not infer that a legacy unfenced `Starting` row was never attempted during a rolling upgrade.
 
 ## 6 API and access contract
 
@@ -276,7 +276,7 @@ Generate CSV from the authorized database snapshot on demand. Use the run ID to 
 
 Keep internal target thresholds, full policy text, cross-account competitor relationships, employee commentary, provider payloads, cloud identifiers, and internal error details out of the shareable CSV. CSV quoting and spreadsheet-formula neutralization must cover untrusted text; preserve long IDs as text. Blank means unavailable, while a numeric zero means an observed zero. The export is a report, not a file that can be uploaded to a mutation executor.
 
-Stream complete rows server-side with existing pagination/batching. If a practical export limit is required, return a clear limit/error rather than silently dropping rows. A CSV of a partial run must identify its partial status. An empty completed report still has a meaningful status/coverage row.
+Read existing report pages and encode complete rows server-side. The implementation retains encoded lines under a 10 MiB aggregate UTF-8 bound (including escaping/CRLF) and a 10,000-item bound; it does not accumulate unbounded rich raw row arrays. Exceeding either limit returns a clear error, never a truncated file. A CSV of a partial run identifies its partial status. An empty completed report still has a meaningful status/coverage row. Streaming is deferred because this bounded implementation fits the current serving memory budget.
 
 ## 11 Runtime and cost defaults
 
@@ -761,3 +761,196 @@ and compiler caches are generated verification artifacts, not source changes.
 - [v25 conversion goals](https://developers.google.com/google-ads/api/fields/v25/campaign_conversion_goal), [custom goals](https://developers.google.com/google-ads/api/fields/v25/custom_conversion_goal).
 - [v25 brand member fields](https://developers.google.com/google-ads/api/fields/v25/shared_criterion).
 - [Account-negative inventory applicability](https://support.google.com/google-ads/answer/11396330).
+
+## 20 Integration and verification handoff — 19 October 2026
+
+### Review findings and disposition
+
+Two independent fallback reviewers covered correctness and security across both
+branches. Dedicated Bugbot/Security Review agent types were unavailable; these
+are not results from those services. The first review found:
+
+1. P1: direct account keyword criteria were omitted while blocker coverage could
+   be complete. Added the separate direct-keyword read and required both account
+   sources before complete coverage; a sole overlapping account negative now
+   prevents a pilot recommendation.
+2. P2: pending-run retries could start duplicate jobs and a rejected redundant
+   launch could fail an already accepted execution. Added a committed atomic
+   launch fence using the existing stage column, with guarded outcome writes.
+3. P2: 10,000 rich CSV items could exceed the 512 MiB web memory allocation.
+   Encode rows incrementally and reject beyond 10 MiB of final escaped UTF-8
+   output, retaining the count limit and formula protection.
+
+Shah approved all three fixes and repeat reviews. Both repeat source reviews
+found no remaining actionable findings. The correctness review's documentation
+note is addressed by the revised failure-handling section above and the portal
+operations, architecture, API and threat-model amendments. Independent visual
+review inspected all 12 current captures; the main agent executed the browser
+and PostgreSQL checks separately.
+
+Actual PostgreSQL also exposed three previously mock-hidden defects: target
+CPL was read from a nonexistent account column; the worker audit trigger lacked
+INSERT permission; and 0047's down guard could miss evidence under forced RLS
+for a non-BYPASSRLS schema owner. Those source corrections are covered below.
+
+### Evidence and release boundaries
+
+- Ads Manager: all five typechecks and **990 tests passed** (480 web, 93 worker,
+  244 API, 69 DB, 104 domain), including 15 focused recovery API cases. Full
+  optimized workspace build passed in fixture-only preview mode.
+- Sweeper: typecheck/build passed; **210 passed, one existing optional DB test
+  skipped** (211 total), including 27 focused recovery cases. No policy/rule
+  compilation changed, so rules:check was not required. Contract mirrors match.
+- Actual loopback PostgreSQL 18: **16 groups passed** using the real API/grant
+  code and worker persistence/analysis, fictional inputs and disabled HTTP.
+  Covers tenant/assignment/RLS, immutable evidence, configuration dates,
+  idempotency/capacity, 20-way launch retries, worker claims, paging/exact money/
+  safe CSV, uncertain/pre-call-crash fences, archived cleanup and terminal
+  reconciliation. Cloud gateway, collectors and classifier are fakes.
+- Full migration chain through 0048 applied, empty-rolled-back and reapplied
+  under a non-superuser/NOBYPASSRLS owner. Populated 0047 rollback refused and
+  retained FORCE RLS. Its forward SQL is byte-identical to the prior feature
+  commit. This is native PostgreSQL 18 evidence, not PostgreSQL 16 CI/Cloud SQL.
+- Actual local fixture browser: 1440/1280/768/390/320px, native trusted Enter,
+  disabled controls, readable source/blocker/context/value disclosures, filter
+  empty/restore and no document overflow passed. Capture after navigation saw
+  only local 200-status link-prefetch GETs and no console warnings/errors;
+  initial startup is outside capture. No login/save/run/export occurred.
+- Docs/QA specification and whitespace checks cover the integrated source.
+  They do not establish production behavior. Initial mock CSV regression used
+  an oversized invalid item; reduced it to a parser-accepted rich Unicode item
+  before the final passing aggregate-limit check.
+
+No Google Ads API read/write, live LLM, cloud execution/deployment, production
+database access/migration/grant/data repair, IAM/credential change or Jira write
+occurred. Art City is explicitly on hold: no further lookup or actual client
+report was attempted. DEV-52/DEV-53 remain at last verified Work in progress.
+Production 0047/grant state is not independently verified. Live GAQL/model,
+Cloud Run/IAM and deployed authenticated save/run/poll/download remain release
+gates. GitHub PR/CI evidence is not established by local tests.
+
+Ads Manager resolves the ten approved documentation conflicts while integrating
+`origin/main` at `1c41ddf` into the feature branch; incoming D-115/D-116/D-117
+work is preserved. D-114's obsolete reservation alone was removed. Both Dev
+deploy workflows are prepared as manual-only with explicit default-false
+approval, but this source is not published. Existing cloud schedules and remote
+workflow behavior remain unchanged. No new feature push or main merge is part
+of this local checkpoint. Original dirty checkouts remain untouched.
+
+Operational tradeoffs: an unknown launch or crash after the launch fence keeps
+its capacity slot until an operator establishes the outcome and obtains separate
+approval for safe reconciliation. No timed redispatch, outbox or admin mutation
+surface was added. Legacy pending work from an unfenced version needs inspection
+before a rolling upgrade. Oversized CSV downloads fail clearly; paginated
+report access remains. Roll back compatible application code/config, not
+immutable report history. 0048's incomplete-note compatibility still needs
+environment-specific verification before any affected rollout.
+
+### Complete file-by-file report for this iteration
+
+Every entry states change/purpose, behavior/operational effect, principal
+risk/follow-up and verification. `Portal` means the 990 offline tests, five
+typechecks and fixture build; `Worker` means the 211-test offline suite,
+typecheck/build; `PG` means the 16 explicitly approved local fictional groups;
+`Docs` means source/decision reconciliation and the documentation validator.
+No label means live acceptance. Test files only change verification behavior.
+Incoming-main files below are retained, not new recovery feature scope; their
+original detailed D-115/D-116/D-117 reports remain in portal `docs/status.md`.
+
+#### Keyword Sweeper — current iteration
+
+- `src/volume-recovery/sources.ts` — Inventories direct account keywords separately from attached lists and retains account scope/fan-out/source details. Prevents invisible blockers; unavailable/capped reads remain partial. Risk: live field/permission compatibility unproved. Verified: Worker, direct-only overlap/fan-out and source-failure tests, both reviews.
+- `src/volume-recovery/analysis.ts` — Requires both account sources before complete supported blocker coverage. A failed/missing source cannot earn a pilot label. Risk: conservative downgrades when Google denies a representation; no fallback assumption of empty inventory. Verified: Worker and both reviews.
+- `test/volume-recovery-evidence.test.ts` — Adds direct-account overlap/fan-out and either-source-failure regressions with injected SELECT results. Prevents the original false-complete bug without customer history. Risk: mocks are not live GAQL validation. Verified: all 27 focused cases/Worker.
+- `test/volume-recovery.test.ts` — Adds successful direct-account coverage to the synthetic complete-inventory baseline. Keeps existing pilot tests honest under the stronger gate. Risk: synthetic completeness only. Verified: Worker.
+- `docs/VOLUME_RECOVERY_IMPLEMENTATION_PLAN.md` — Supersedes unsafe timeout redispatch, documents bounded CSV and this complete handoff. No runtime or release action. Risk: source proof must not be mistaken for production signoff. Verified: final source, actual results and review-note reconciliation.
+
+#### Ads Manager — recovery corrections, gates and documentation
+
+- `.github/workflows/deploy-dev-worker.yml` — Removes push deployment and requires explicit manual deployment-and-Ads-read approval. A future main merge is code-only for this workflow; existing schedules are untouched. Risk: future manual dispatch still invokes discovery/sync and is prohibited now. Verified: deployment-safety tests/Portal and source review; no dispatch.
+- `.github/workflows/deploy-dev.yml` — Removes push deployment and requires explicit default-false manual approval. Preserves deployment implementation but stops automatic publication effects once merged. Risk: release becomes a deliberate manual operation, gates not yet remote. Verified: deployment-safety tests/Portal and review.
+- `apps/worker/test/deployment-safety.test.ts` — Guards both workflows against automatic/reusable triggers and ungated deploy jobs. Test-only protection; string/source checks are not GitHub execution proof. Verified: both new cases/Portal.
+- `package.json` — Adds the explicit `test:recovery:postgres` command without dependencies or automatic test/CI wiring. Keeps DB writes opt-in and worker source path explicit. Risk: operators must supply a prepared disposable loopback `_test` database. Verified: PG and refusal of missing opt-in/remote URL.
+- `scripts/verify-volume-recovery-postgres.ts` — New cross-repo rehearsal using actual repositories/grants/worker and fake external dependencies. Rejects remote/redirect URL options, requires opt-in, never loads env files and blocks fetch. Risk: PG18/fakes and simulated crashes are not cloud/provider or general isolation proof; fixtures persist only until run-owned cluster disposal. Verified: all 16 groups and safety refusals.
+- `packages/api/src/keyword-sweeps/volume-recovery.ts` — Resolves current CPL by account-local effective date, atomically fences launch before gateway calls, guards late outcomes and caps encoded CSV at10MiB. Reuses schema and immutable requests. Risk: unknown launch holds capacity; unusually rich exports refuse rather than truncate; live integration still gated. Verified: 15 focused tests, Portal, PG, both repeat reviews.
+- `packages/api/test/keyword-sweeps/volume-recovery.test.ts` — Covers target query/pinned value, concurrent/accepted/uncertain/pre-call-crash dispatch and valid rich Unicode/quoted CSV limits. Mock checks complement, not replace, PG concurrency. Verified: all 15 focused and244 API cases.
+- `packages/db/migrations/0047_volume_recovery.sql` — Corrects only down guard visibility with atomic temporary owner-visible RLS changes and restored FORCE RLS. Refuses evidence loss for non-bypass owners. Risk: schema-owner-only rollback; no production reapply is needed merely for this fix, forward SQL unchanged. Verified: byte comparison, PG populated refusal and non-super full roundtrip.
+- `packages/db/src/sweeper-runtime-grants.ts` — Grants INSERT-only audit access required by invoker-rights lifecycle triggers, explicitly removing other audit privileges. Enables real worker claim without audit reads/deletes. Risk: approved runtime grant rollout still required; not performed. Verified: PG claim and audit-read denial, Portal/review.
+- `packages/db/test/dev-runtime-grants.test.ts` — Asserts audit revoke/INSERT and absence of audit SELECT in worker grant generation. Test-only; actual role behavior additionally checked in PG. Verified: Portal/PG.
+- `packages/db/test/volume-recovery-migration.test.ts` — Guards owner-visible/restore-FORCE order in down SQL. Test-only; source assertions do not by themselves establish transactional safety. Verified: Portal plus real PG refusal/roundtrip.
+- `design-system/components.md` — Unions recovery value-grid/evidence guidance with main's retained-form/floating-help patterns. Preserves both admitted designs; no new component runtime. Risk: doc drift/shared consumers. Verified: Docs, independent source/12-capture review.
+- `design-system/product-compositions.md` — Preserves recovery and updated Today/Overview sibling-modal compositions. Keeps scope boundaries rather than choosing one branch's docs. Risk: no live behavior implied. Verified: Docs/source and responsive review.
+- `docs/acceptance-matrix.md` — Preserves incoming criteria and records exact PG/offline/fixture evidence plus live gaps. Prevents local results being read as release approval. Risk: PG18 is not target PG16. Verified: Docs and actual command/capture results.
+- `docs/api-ownership.md` — Preserves new sweep CSV ownership and recovery APIs; adds10MiB/10k export and no-relaunch semantics. No new endpoint or permission. Risk: stale client expectations for retries/large exports; explicit semantics now documented. Verified: Docs/API source/tests.
+- `docs/architecture.md` — Unions incoming Today/checklist/export design with recovery, effective CPL, stage fence, aggregate export and least privilege/rollback contracts. No provisioning. Risk: operational rollout is separate. Verified: Docs, PG/source and reviews.
+- `docs/domain-rule-coverage.md` — Retains main's eleven-check/binary-note rule and duration evidence mapping. Documentation only, not recovery scope. Risk: preserve historic status compatibility. Verified: Docs/Portal domain tests.
+- `docs/frontend-reconciliation-matrix.md` — Unions recovery and incoming Today/tooltip/request-modal state. No runtime change; explicitly retains local/live evidence limits. Risk: stale presentation map. Verified: Docs/source and responsive captures.
+- `docs/operations.md` — Reconciles incoming rollout notes and D-118 manual gates, local runner, unknown-launch capacity tradeoff, direct-account coverage and CSV limits. Operational instructions only; no production commands run. Risk: manual dispatch still reads Ads, legacy pending rows need inspection. Verified: Docs/PG/source and review-note reconciliation.
+- `docs/product/brief.md` — Retains main's admitted eleven-module/binary-current-editor refinements. No new recovery admission or data write. Risk: historical stored semantics must stay readable. Verified: Docs/Portal domain/checklist tests.
+- `docs/product/decisions.md` — Preserves accepted D-114 and incoming D-115–117, removes the obsolete D-114 reservation and adds D-118 approvals/limits. Documentation is not cloud execution authority. Risk: maintain distinct source/live claims. Verified: Docs/sequential decisions and request comparison.
+- `docs/product/scope-ledger.md` — Unions only the already-approved recovery and incoming refinements. Adds no arbitrary Ads writer/report feature. Risk: accidental scope widening avoided by explicit exclusions. Verified: Docs/Portal scope-lock tests and review.
+- `docs/security/threat-model.md` — Preserves both branches and records fence, CSV aggregate bound and dual account-source completeness. No secret/role scope expansion beyond explicit audit INSERT. Risk: source controls are not live IAM/RLS proof. Verified: Docs, repeat security review, privacy tests/PG denials.
+- `docs/status.md` — Records reviewed defects/fixes, exact990/210/16-group evidence, merge/gate state, client-report hold and this inventory's location. No Jira/release mutation. Risk: historical status entries are dated, not newly revalidated. Verified: Docs/actual command results and final repository state.
+- `docs/ui-contracts.md` — Unions optional recovery v1 and incoming Today/date/duration fields. Keeps old consumers/nullable missing values. Risk: contract mirrors must remain coordinated. Verified: Docs/Portal and mirror comparison.
+- `docs/what-we-use.md` — Corrects source-level auto-deploy descriptions, records disposable PG proof and distinguishes untouched live schedules/resources. No external connection added. Risk: prospective gates are not published yet. Verified: Docs/workflow and runner source.
+
+#### Ads Manager — incoming-main source retained during integration
+
+All entries in this subsection preserve main's existing implementations, with
+no additional local logic edits. Their reason is avoiding regressions/lost work
+while integrating recovery. `Portal` was rerun against the merged source. New
+recovery fixture screenshots do not repeat every incoming Today interaction or
+establish authenticated writes; original main QA details remain dated evidence.
+
+- `apps/web/app/(authenticated)/today/page.test.tsx` — Retains compact critical-count rendering assertion. Test-only; copy check is not behavior/auth proof. Verified: Portal.
+- `apps/web/app/api/accounts/[accountId]/keyword-sweeps/[runId]/csv/route.ts` — Retains terminal sweep CSV Node GET adapter. No sweep execution; live authorization/download remains a gate. Verified: Portal route/build and CSV tests.
+- `apps/web/src/scope-lock.test.ts` — Retains admitted sweep CSV route alongside recovery routes. Test-only inventory, not authorization. Verified: Portal.
+- `apps/web/src/server/keyword-sweeps/keyword-sweep-csv.ts` — Retains main's distinct bounded terminal sweep export with formula/privacy/count checks. Does not reuse recovery data or call Ads. Risk: real session/count completeness still unproved. Verified: Portal CSV tests/build.
+- `apps/web/src/server/keyword-sweeps/keyword-sweep-csv.test.ts` — Retains paging/escaping/privacy/access/count refusal cases. Test-only doubles, not live RLS. Verified: Portal.
+- `apps/web/src/ui/components/dialog-frame.tsx` — Retains mounted-but-closed form semantics. Preserves modal draft/retry state; hidden focus ownership is a shared UI risk. Verified: Portal and original D-117 interaction evidence, not rerun here.
+- `apps/web/src/ui/components/dialog-frame.test.tsx` — Retains closed-frame hidden/ARIA assertions. Static test-only, not actual focus-trap proof. Verified: Portal.
+- `apps/web/src/ui/features/account-analytics/metric-help-disclosure.tsx` — Retains floating hover/focus help, viewport clamp and owner-aware Escape. Shared tooltip/scroll compatibility risk. Verified: Portal and existing D-117 browser evidence; no new tooltip operation here.
+- `apps/web/src/ui/features/account-analytics/metric-help-disclosure.test.tsx` — Retains semantics/edge placement tests. Test-only geometry, not real pointer behavior. Verified: Portal.
+- `apps/web/src/ui/features/account-workflows/daily-checklist-screen.tsx` — Retains binary current editing, optional incomplete notes and historical labels. Risk: durable notes require0048 compatibility; no durable save performed. Verified: Portal and source integration.
+- `apps/web/src/ui/features/account-workflows/daily-checklist-screen.test.tsx` — Retains binary/eleven-check/noted-incomplete rendering/helper coverage. Test-only, no storage proof. Verified: Portal.
+- `apps/web/src/ui/features/negative-keyword-sweeps/keyword-sweep-decision-table.tsx` — Retains existing reviewed-action explanatory copy and result toasts, not a recovery apply path. Risk: separate default-off writer remains outside this task. Verified: Portal; no action invoked.
+- `apps/web/src/ui/features/negative-keyword-sweeps/keyword-sweep-decision-table.test.tsx` — Retains Search/PMax copy and confirmation/retry assertions. Test-only; no real transition. Verified: Portal.
+- `apps/web/src/ui/features/negative-keyword-sweeps/manual-sweep-card.tsx` — Retains bounded form in the dedicated retained modal. Risk: draft/idempotency state and live capability gate must survive. Verified: Portal/original D-117 evidence; no run launched.
+- `apps/web/src/ui/features/negative-keyword-sweeps/manual-sweep-card.test.tsx` — Retains title/account/form/confirmation checks. Static tests do not prove network acceptance. Verified: Portal.
+- `apps/web/src/ui/features/today/guarantee-review-metrics.ts` — Retains exact selected-period totals with full paging and unavailable states. Risk: bounded source completeness/history assumptions. Verified: Portal controlled cases, no live facts.
+- `apps/web/src/ui/features/today/guarantee-review-metrics.test.ts` — Retains cross-month/decimal/missing/first-day/paging tests. Test-only API doubles. Verified: Portal.
+- `apps/web/src/ui/features/today/preview-operations.ts` — Retains fictitious issue-open timestamps for display. Fixture-only, not real history. Verified: Portal.
+- `apps/web/src/ui/features/today/preview-operations.test.ts` — Retains critical fixture/eleven-module reconciliation. Test-only consistency. Verified: Portal.
+- `apps/web/src/ui/features/today/today-briefing.tsx` — Retains main's delivery context, counts/help, progress/history and request-modal composition. No recovery execution bridge added. Risk: complex shared UI relies on original interaction proof beyond current recovery screenshots. Verified: Portal and original D-115–117 evidence.
+- `apps/web/src/ui/features/today/today-briefing.test.tsx` — Retains main's composition, count/zero/error, modal/capability checks. Static/source test limits remain. Verified: Portal.
+- `apps/web/src/ui/mocks/data.ts` — Retains optional fictional guarantee/duration fields. Changes preview only; not client data. Verified: Portal/fixture build.
+- `design-system/components.css` — Retains main's canonical Today/tooltip/modal/checklist CSS together with recovery grid. Shared styling can regress other screens; no disconnected overrides added. Verified: Portal, existing main QA and fresh independently reviewed recovery screenshots.
+- `design-system/product-component-requirements.md` — Retains incoming binary/count/help/modal acceptance semantics. Documentation-only, not additional capability admission. Verified: Docs/Portal contracts.
+- `design-system/tokens.css` — Retains tooltip width/layer tokens. Shared stacking risk; no new recovery overlay. Verified: Portal/original D-117 QA and current fixture rendering.
+- `packages/api/src/today/postgres-today-operations-repository.ts` — Retains scoped issue-open/checklist dates. Risk: dates are not continuous criticality/completion proof. Verified: Portal SQL-double tests, not live query scale.
+- `packages/api/src/today/postgres-today-pace-history.ts` — Retains effective-goal/daily-history loader and safe absent-schema fallback. Risk: target live query performance/history completeness. Verified: Portal controlled repository tests.
+- `packages/api/src/today/postgres-today-repository.ts` — Retains pace-history composition before compatibility probes. Prevents aborted-transaction ordering regression; real Today queries not exercised here. Verified: Portal repository tests.
+- `packages/api/test/accounts/postgres-human-workflow-repository.test.ts` — Retains expanded-plan compatibility/management independence cases. Test-only doubles, not transaction execution. Verified: Portal.
+- `packages/api/test/today/postgres-today-operations-repository.test.ts` — Retains progress/partial/history projections. Test-only SQL-double coverage. Verified: Portal.
+- `packages/api/test/today/postgres-today-pace-history.test.ts` — Retains loader/date/schema-fallback regressions. Test-only; real query plans remain unproved. Verified: Portal.
+- `packages/api/test/today/postgres-today-repository.test.ts` — Retains duration integration and42P01/42703 fallback ordering cases. Test-only; no live Today acceptance. Verified: Portal.
+- `packages/db/migrations/0048_incomplete_check_notes.sql` — Retains main's narrow incomplete-note constraint and loss-refusing down guard. Changes no source rows; production applied state unverified. Verified: source tests and local full migration roundtrip, not production.
+- `packages/db/test/migrate.test.ts` — Retains0048 constraint/source checks. Test-only; local chain roundtrip supplies separate execution evidence. Verified: Portal/PG setup.
+- `packages/domain/src/checklist-work.ts` — Retains eleven-module critical plan and compatible noted-incomplete normalization. Risk: existing days can acquire required work, as approved. Verified: Portal domain tests; storage0048 separately gated.
+- `packages/domain/src/index.ts` — Retains pace-duration export alongside recovery contract export. Public API compatibility risk is compile-time, not new runtime effects. Verified: Portal typechecks/build.
+- `packages/domain/src/lead-pace-duration.ts` — Retains exact history-based behind duration with resets/unknown boundaries. Does not substitute issue age. Risk: input completeness/reconciliations affect reconstruction. Verified: Portal domain tests.
+- `packages/domain/src/ui-contracts.ts` — Retains optional history/duration fields, preserving older consumers. No schema/backfill. Risk: missing values remain unknown. Verified: Portal typechecks/tests.
+- `packages/domain/test/checklist-work.test.ts` — Retains noted-incomplete/history/expanded-plan regressions. Test-only domain proof. Verified: Portal.
+- `packages/domain/test/lead-pace-duration.test.ts` — Retains fractional/calendar/reset/gap/duration cases. Test-only fixtures, not real history proof. Verified: Portal.
+
+#### Ignored local evidence and cleanup
+
+`qa/agent-e2e/runs/volume-recovery-20261019/report.md` records the observe-only
+contract, each inspected result, console/network limits and cleanup. Its 12
+PNGs are individually listed with purpose in that report; none is real client
+data or source. They were opened by the main agent and independently reviewed.
+The agent-owned preview server is stopped, emulation cleared and the QA tab
+group retained for review. Disposable local PG cluster/fictional fixtures are
+removed after verification, without touching the existing developer database.
+Feature worktrees and useful evidence are retained; build/cache outputs are
+generated, ignored and not source edits.
