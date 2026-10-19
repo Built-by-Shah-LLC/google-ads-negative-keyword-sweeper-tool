@@ -22,6 +22,38 @@ Volume Recovery's separate read-only worker and portal boundary are described
 in the [approved implementation plan and iteration handoff](docs/VOLUME_RECOVERY_IMPLEMENTATION_PLAN.md).
 The first local implementation is not deployed and does not remove negatives.
 
+### Offline classification verification
+
+The [classification verification plan](docs/VOLUME_RECOVERY_CLASSIFICATION_VERIFICATION_PLAN.md)
+and implementation handoff separate mocked integration correctness from actual
+model quality. The small sanitised fixture uses a fictional body/paint policy
+and CSV row provenance; synthetic API responses are not a replay of the original
+account. No previous Sweeper run is assumed. Run the focused offline tests with:
+
+```sh
+node --import tsx --test test/recovery-classifier-validation.test.ts test/volume-recovery-classification.test.ts test/recovery-classification-evaluation.test.ts
+```
+
+`scripts/evaluate-recovery-classification.ts` prepares a **separately approved,
+paid** one-batch evaluation through the actual recovery adapter. It is not in
+CI and has not been run against a real model. Without `--approve-paid-fixture`
+it refuses before credentials/transport. After approval for the fixture text,
+fictional policy and provider cost, an operator must explicitly supply
+`MOONSHOT_API_KEY`, `MOONSHOT_MODEL`, `--budget-usd`, `--input-usd-per-million`,
+`--output-usd-per-million` and a dated `--price-basis`; an optional
+`--cached-input-usd-per-million` otherwise defaults to the full input rate.
+No `.env`, Google Ads credentials or database configuration is loaded. It uses
+Moonshot's existing endpoint, enabled thinking, one request and zero retries.
+The conservative planning quote is not a provider billing cap; actual reported
+usage/rates and any budget overrun are recorded. Output includes policy/input
+hashes, settings, tokens/cache, clear/ambiguous label agreement and each
+disagreement. Explanations still need individual review for unsupported claims;
+confidence is not calibrated accuracy. A failed request has unknown cost, not
+zero. Missing/malformed usage yields unknown cost/budget assessment; absent or
+invalid cache usage stays unknown and is priced conservatively at the full
+input rate. Explicit provider-reported zero remains zero. Treat the output as
+sensitive account-text evidence, not a client report.
+
 ## Repository contents
 
 - `handoff/` — evidence-backed documentation and labeled search-term examples.

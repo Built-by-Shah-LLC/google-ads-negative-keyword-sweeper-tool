@@ -1,4 +1,5 @@
 import type { AppConfig } from "../config/env.js";
+import type { Dispatcher } from "undici";
 import { MoonshotKeywordClassifier } from "../llm/moonshot-classifier.js";
 import type { LlmTokenUsage } from "../types.js";
 import type { RecoveryCandidate, RecoveryIntent } from "./analysis.js";
@@ -9,7 +10,12 @@ export function validateRecoveryIntents(value: unknown, ids: string[], categorie
   const remaining = new Set(ids);
   return envelope.items.map(value => {
     const row = recoveryRecord(value);
-    if (Object.keys(row).sort().join(",") !== "category,competitorLikelihood,confidence,itemId,reason" || typeof row.itemId !== "string" || !remaining.delete(row.itemId) || row.category !== null && !categories.includes(String(row.category)) || !["likely", "unlikely", "unknown"].includes(String(row.competitorLikelihood)) || typeof row.confidence !== "number" || !Number.isFinite(row.confidence) || row.confidence < 0 || row.confidence > 1 || typeof row.reason !== "string" || row.reason.length < 1 || row.reason.length > 1000) throw new Error("Invalid recovery classification.");
+    if (Object.keys(row).sort().join(",") !== "category,competitorLikelihood,confidence,itemId,reason" ||
+      typeof row.itemId !== "string" || !remaining.delete(row.itemId) ||
+      row.category !== null && (typeof row.category !== "string" || !categories.includes(row.category)) ||
+      typeof row.competitorLikelihood !== "string" || !["likely", "unlikely", "unknown"].includes(row.competitorLikelihood) ||
+      typeof row.confidence !== "number" || !Number.isFinite(row.confidence) || row.confidence < 0 || row.confidence > 1 ||
+      typeof row.reason !== "string" || !row.reason.trim() || row.reason.length > 1000) throw new Error("Invalid recovery classification.");
     return {
       itemId: row.itemId,
       category: row.category as string | null,
@@ -96,14 +102,16 @@ export function recoveryModelRequest(config: AppConfig["llm"], accountName: stri
     } : {})
   };
 }
-export function createRecoveryClassifier(config: AppConfig["llm"]): {
+export function createRecoveryClassifier(config: AppConfig["llm"], dispatcher?: Dispatcher): {
   classify(accountName: string, snapshot: unknown, candidates: RecoveryCandidate[], categories: string[]): Promise<{
     intents: RecoveryIntent[] | null;
     usage: LlmTokenUsage;
+    usageReported: boolean;
+    cachedInputTokensReported: boolean;
   }>;
 } {
   if (!["moonshot", "kimi-code"].includes(config.provider)) throw new Error("Volume Recovery currently requires the existing Moonshot-compatible provider.");
-  const classifier = new MoonshotKeywordClassifier(config);
+  const classifier = new MoonshotKeywordClassifier(config, dispatcher);
   return {
     async classify(accountName, snapshot, candidates, categories) {
       const response = await classifier.completeStructuredJson(recoveryModelRequest(config, accountName, snapshot, candidates, categories));
@@ -113,7 +121,9 @@ export function createRecoveryClassifier(config: AppConfig["llm"]): {
       } catch {/* The pipeline retains evidence with a partial classification flag. */}
       return {
         intents,
-        usage: response.usage
+        usage: response.usage,
+        usageReported: response.usageReported,
+        cachedInputTokensReported: response.cachedInputTokensReported
       };
     }
   };
