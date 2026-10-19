@@ -1,6 +1,7 @@
 # Volume Recovery implementation plan
 
 Latest verification handoff: [19 October integration and review](#20-integration-and-verification-handoff--19-october-2026).
+Main publication authorization: [code-only checkpoint](#21-code-only-main-publication--19-october-2026).
 
 **Status:** Approved for local implementation on 15 October 2026
 
@@ -954,3 +955,27 @@ group retained for review. Disposable local PG cluster/fictional fixtures are
 removed after verification, without touching the existing developer database.
 Feature worktrees and useful evidence are retained; build/cache outputs are
 generated, ignored and not source edits.
+
+## 21 Code-only main publication — 19 October 2026
+
+Shah explicitly requested merging both feature branches to main. Fresh fetch
+confirmed Sweeper main `72b96f5` is contained in reviewed `378c40c`, and Ads
+Manager main `1c41ddf` is contained in reviewed `98d0acc`. Both publications
+can fast-forward without application changes or conflict resolution. The only
+new commits record this authority/publication boundary; exact remote tips are
+verified after pushing. Dirty primary checkouts remain untouched.
+
+The workflows were inspected: Sweeper main runs repository/rule tests; portal
+main runs repository/disposable-CI PostgreSQL checks. Both portal deployments
+are manual-only with explicit approval. No deployment, production migration,
+cloud execution, live model or Google Ads API call is authorized or performed
+by the agent. Existing source tests/reviews below remain evidence, not proof
+of live release readiness or a successful new GitHub CI run. Art City remains
+on hold; Jira status is unchanged at last verified Work in progress.
+
+File-by-file publication edits: this implementation plan records the approval,
+ancestry and no-deployment boundary; portal `docs/status.md` records the same
+checkpoint and `docs/what-we-use.md` aligns source-gate wording. They change no
+application logic. Risk: code publication is not production acceptance.
+Verified by fetched ancestry, docs/whitespace checks and final remote-tip
+comparison; the complete source file report remains in section20 above.
