@@ -120,11 +120,18 @@ export class MoonshotKeywordClassifier implements KeywordClassifier {
   }
 
   /** Reuses the existing authenticated retry/timeout transport for recovery's distinct response contract. */
-  async completeStructuredJson(request: Record<string, unknown>): Promise<{ value: unknown; usage: LlmTokenUsage }> {
+  async completeStructuredJson(request: Record<string, unknown>): Promise<{ value: unknown; usage: LlmTokenUsage; usageReported: boolean; cachedInputTokensReported: boolean }> {
     const call = await this.callEndpoint("/chat/completions", request, "LLM_REQUEST");
     let value: unknown = null;
     try { value = parseClassifierPayload(extractResponseText(call.payload)); } catch { /* Invalid output still incurred reported token usage. */ }
-    return { value, usage: normalizeMoonshotUsage(call.payload.usage) };
+    const rawUsage = isRecord(call.payload.usage) ? call.payload.usage : {};
+    const details = isRecord(rawUsage.prompt_tokens_details) ? rawUsage.prompt_tokens_details : {};
+    const usage = normalizeMoonshotUsage(rawUsage);
+    const usageReported = nonNegativeNumber(rawUsage.prompt_tokens) && nonNegativeNumber(rawUsage.completion_tokens);
+    // Normalized zero is useful for existing runtime totals, but is not proof of reported usage/cost.
+    const cachedInputTokensReported = usageReported && usage.cachedInputTokens <= usage.inputTokens &&
+      [rawUsage.cached_tokens, details.cached_tokens].some(value => nonNegativeNumber(value) && value === usage.cachedInputTokens);
+    return { value, usage, usageReported, cachedInputTokensReported };
   }
 
   async countFixedInputTokens(

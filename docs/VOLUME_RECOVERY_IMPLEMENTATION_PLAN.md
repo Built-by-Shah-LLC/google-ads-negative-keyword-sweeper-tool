@@ -1138,3 +1138,138 @@ record drift if another operator changes the job; no new compatibility impact.
 Verified against Git ancestry/tree equality, GitHub merge/CI results, Cloud Build
 metadata and before/after Cloud Run configuration. The eight implementation
 files and their individual risks/proof remain reported in section 22.
+
+## 24. Classification verification implementation — 20 October 2026
+
+### Review findings and operating boundary
+
+The initial red validator regression reproduced an array-valued category
+passing as a string. Strict category/competitor types and nonblank reasons now
+fail closed. Independent fallback correctness/security reviews both identified
+one P2 in the new optional evaluator: normalized missing usage looked like a
+zero-cost response. A second red test reproduced it; the fix preserves explicit
+usage availability without changing existing normalized runtime totals. Missing
+input/output usage means unknown cost/budget, and missing/invalid cache stays
+unknown with conservative pricing. Explicit reported zero remains zero.
+
+Both fallback reviews reported no remaining actionable findings after the
+fix; security independently passed 42 Sweeper / 17 API tests and eight extra
+in-memory usage-edge assertions. Requested native-bot/main publication gates
+remain pending. These reviewers are **not** native Bugbot or
+Security Review: their launchers are not exposed in this session. Shah was
+asked whether independent reviews may substitute before merge; no waiver is
+assumed. This entry does not claim a main merge, CI pass or deployment.
+
+DEV-52 and DEV-53 were read as **Work in progress**; no Jira write. Current
+authority permits implementation and source publication/merge after required
+verification, not migration execution, Google Ads reads/writes, paid model
+requests, live DB access/repairs, Cloud Run jobs or deployment. None of those
+prohibited operations was performed. Existing user files remain excluded.
+
+### Verification actually run
+
+- Real prompt -> Moonshot fake HTTP -> parser -> validator -> production
+  collection/orchestration/analysis -> in-memory saved contract is covered.
+  The fixture has 26 CSV-grounded findings / 25 unique semantic inputs; policy,
+  identities, attachments and query responses are explicitly synthetic, not an
+  original-account replay. No earlier Sweeper run is assumed.
+- Focused recovery suite: **71 passed**. Existing Moonshot tests plus new
+  classifier/evaluator tests: **42 passed**. Full `npm run check`, `npm test`
+  and `npm run build` passed: **254 passed, one optional DB integration skip**
+  (255 total). DB integration was explicitly disabled/unconfigured.
+- Portal: targeted API **17** and table **18** passed; all five typechecks and
+  **1,012 tests** passed; optimized preview workspace build passed with DB
+  variables removed. Portal docs gate remains blocked by the pre-existing
+  unrelated untracked `agents/` directory, which was not hidden or removed.
+  The user's generated `next-env.d.ts` was restored byte-for-byte after build.
+- Worker/portal contract files and saved-finding fixtures compare
+  byte-identically. Scoped whitespace checks passed. No production UI
+  component/layout changed; no new responsive/browser/download check is claimed.
+- Fake responses prove integration and fail-closed behavior, **not actual
+  model semantic accuracy**, PostgreSQL grants/RLS/concurrency, real GAQL,
+  Cloud Run IAM, latency, full-load behavior or deployed end-to-end success.
+  The opt-in one-batch evaluator is prepared and tested offline, not run live.
+
+### Complete Sweeper file-by-file change report
+
+All verification below is local/offline unless a later publication record
+explicitly says otherwise. No migration, deployment or live data repair is
+implied by a code/test change.
+
+1. `src/volume-recovery/classifier.ts`: adds the existing optional dispatcher
+   seam, strict string validation and trimmed nonempty reasons, and forwards
+   usage-availability flags. Why: exercise the real chain and reject coerced
+   output. Consequence: malformed batches now remain unclassified; valid
+   callers and report contracts are unchanged. Risk/tradeoff: stricter output
+   can increase honest partial results; it never invents a fallback category.
+   Verified by red/green malformed-shape, HTTP/parser and whole-pipeline tests.
+2. `src/llm/moonshot-classifier.ts`: structured completion adds code-owned
+   main/cache-usage availability flags while retaining normalized usage. Why:
+   zero defaults are not billing evidence. Consequence: the evaluator can
+   report unknown cost without exposing raw provider data; normal sweep
+   classification/token normalization is unchanged. Additive internal return
+   fields need no migration. Verified by existing Moonshot and new missing,
+   malformed, partial, explicit-zero and invalid-cache response tests.
+3. `scripts/evaluate-recovery-classification.ts`: prepares one opt-in reference
+   batch through the real recovery adapter. It validates fixture/cost consent,
+   budget and supplied pricing before provider construction, allows zero
+   retries, imports no Ads/DB entrypoints, and reports hashes/settings/usage/
+   estimated cost, clear versus ambiguous agreement and disagreements. Why:
+   future semantic evaluation without rerunning an account. Risk: paid/data-
+   sharing operation if separately approved and invoked; planning cost is not
+   a billing cap, and explanation quality still needs human review. Real-model
+   quality is unverified. Verified only with fake transport/refusal tests.
+4. `test/fixtures/recovery-classification.json`: pins 26 selected CSV rows and
+   25 unique inputs, values/nulls, expected meanings/allowed uncertainty and
+   fictional body/paint policy. Why: realistic multilingual/service/employment/
+   competitor/no-history regressions without private account identities.
+   No runtime policy changes. Risk: narrow reference set, not all-account
+   ground truth; original relationships/raw data are unavailable. Verified
+   against selected CSV records and fixture/pipeline assertions.
+5. `test/fixtures/recovery-classified-finding.json`: pins one actual serialized
+   offline worker finding and mirrors it in the portal. Why: bridge report
+   contracts without live DB/cloud. Test-only synthetic identity/context; must
+   be updated intentionally if behavior changes. Verified by deep equality to
+   whole-pipeline output and byte comparison with the portal fixture.
+6. `test/helpers/recovery-classification.ts`: reconstructs explicitly synthetic
+   source rows, real-parser fake HTTP replies, isolated campaign/list identities
+   and an in-memory store. Why: reuse one bounded offline harness. Blank-channel
+   terms stay unattached; per-campaign metrics never share semantic fan-out.
+   Risk: cannot verify actual Ads resources or Postgres behavior. Verified by
+   collection/request assertions and all focused pipeline tests.
+7. `test/recovery-classifier-validation.test.ts`: small direct validator
+   regression for coerced arrays and whitespace reasons. Why: preserve the
+   reproduced trust-boundary bug. No runtime effect; only the named shapes are
+   proved here. Failed before the fix and passes after it/full suite.
+8. `test/volume-recovery-classification.test.ts`: adds real adapter/parser and
+   whole-orchestration regressions for policy/input/schema/IDs, malicious
+   synthetic data, usage, 25/26 batches, fan-out, 2,001 inputs/outcome priority,
+   fake-clock limits, partial/all failures, taxonomy, no history and policy/
+   evidence vetoes/accounting. Why: test delivery, not just injected accepted
+   intents. No live endpoints/storage. Risk: synthetic success is not semantic
+   accuracy or production capacity proof. Verified by focused and full runs.
+9. `test/recovery-classification-evaluation.test.ts`: covers default refusal,
+   consent/budget/no-retry gates, real-adapter fake trial, individual
+   disagreement reporting, usage/cache/cost and missing-versus-zero cases.
+   Why: keep optional paid tooling fail-closed and honest. No paid trial is run;
+   provider pricing/billing remain unverified. All five tests pass offline.
+10. `README.md`: documents focused checks, opt-in approval/configuration,
+    pricing basis, sensitive output and uncertainty. Why: prevent accidental
+    paid execution and inflated accuracy claims. Documentation only; operators
+    must supply separately approved current rates/text/model. Verified against
+    script guards and tests; no command with paid approval was executed.
+11. `docs/VOLUME_RECOVERY_CLASSIFICATION_VERIFICATION_PLAN.md`: preserves the
+    supplied plan and original observations, marks local acceptance evidence,
+    and adds an implementation record. Why: distinguish the original planning
+    turn from later work. No live report is repaired; private full CSV is not
+    committed. Risk: evidence ages; review/publication status remains explicit.
+    Verified against actual commands, source and fixture provenance.
+12. `docs/VOLUME_RECOVERY_IMPLEMENTATION_PLAN.md`: this canonical handoff links
+    scope, findings, tests, file effects, limits and publication gates. Why:
+    durable truthful DEV-52 evidence. Documentation only; no operational state
+    changes. Risk: future releases must update state rather than infer from
+    these offline results. Verified against the observed tests/review records.
+
+Companion portal changes, their per-file risks and proof are recorded in its
+`docs/status.md` D-121 entry. The compact table source is unchanged; CSV grows
+from 36 to 41 columns, with fixed safe notes instead of arbitrary model prose.
