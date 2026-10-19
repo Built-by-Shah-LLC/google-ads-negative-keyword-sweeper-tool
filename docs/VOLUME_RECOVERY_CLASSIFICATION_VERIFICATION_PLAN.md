@@ -2,7 +2,7 @@
 
 Date: 2026-10-20
 
-Status: offline implementation and verification completed locally; reviews/publication pending (see section 13)
+Status: offline implementation verified, merged and deployed to the established Dev targets; real-model accuracy remains unverified (see section 13 and the implementation handoff)
 
 Repositories: Keyword Sweeper and Built Ads Manager
 
@@ -289,3 +289,14 @@ Review/publication outcomes and the complete file-by-file report are recorded
 in section 24 of `VOLUME_RECOVERY_IMPLEMENTATION_PLAN.md` and the companion
 portal's D-121 status entry. DEV-52/DEV-53 were read as Work in progress; no
 Jira cloud change. No main merge is implied until its actual evidence is added.
+
+Subsequent release authorization: Shah explicitly directed merging both PRs,
+deploying to the established Dev targets and monitoring CI, accepting the
+completed independent fallback reviews in context. Native bots were not run.
+Sweeper PR #10 merged as `71c9d47e6b1eec271af04e5b5e6654ee34c48e43`;
+Ads Manager PR #42 merged as `4c5527077040ebf84909f6670106dc584fa03a3b`.
+Both merge trees equal their tested feature trees. The actual rollout and
+remaining gates are recorded in section 25 of the implementation handoff;
+this does not authorize migrations, Ads calls or a new paid review. Both main
+CI runs passed, the web-only Dev rollout/health check succeeded, and the
+recovery Job's image pin was updated without execution or other spec drift.

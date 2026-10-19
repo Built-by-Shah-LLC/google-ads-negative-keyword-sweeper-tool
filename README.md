@@ -20,7 +20,8 @@ See [Architecture decisions](docs/ARCHITECTURE_DECISIONS.md) for the controlling
 
 Volume Recovery's separate read-only worker and portal boundary are described
 in the [approved implementation plan and iteration handoff](docs/VOLUME_RECOVERY_IMPLEMENTATION_PLAN.md).
-The first local implementation is not deployed and does not remove negatives.
+Volume Recovery does not remove negatives. The handoff records the current
+release state separately from offline test evidence.
 
 ### Offline classification verification
 

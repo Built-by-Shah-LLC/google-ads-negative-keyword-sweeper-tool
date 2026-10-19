@@ -1273,3 +1273,89 @@ implied by a code/test change.
 Companion portal changes, their per-file risks and proof are recorded in its
 `docs/status.md` D-121 entry. The compact table source is unchanged; CSV grows
 from 36 to 41 columns, with fixed safe notes instead of arbitrary model prose.
+
+## 25. Authorized D-121 main publication and Dev rollout — 20 October 2026
+
+Release completed in Dev. Shah explicitly directed merging both PRs, deploying to
+the established Dev targets and monitoring CI after the fallback-review
+handoff. This accepts the completed independent reviews in context, not a
+claim that native Bugbot/Security Review ran. No remaining actionable source
+finding was reported. No migration, Google Ads API read/write, new paid model
+request, recovery execution, IAM/grant change or database repair is authorized.
+
+Sweeper [PR #10](https://github.com/Built-by-Shah-LLC/google-ads-negative-keyword-sweeper-tool/pull/10)
+merged exact tested head `c404d675f28a840ac7441487bfe70cafbaf5300c` as
+`71c9d47e6b1eec271af04e5b5e6654ee34c48e43`. Portal
+[PR #42](https://github.com/Built-by-Shah-LLC/built-ads-manager/pull/42)
+merged exact tested head `6f112f5f5b7e76762fddc2d0ec24b5cd2c9bee30` as
+`4c5527077040ebf84909f6670106dc584fa03a3b`. PR CI passed; readback/tree
+comparison confirms both merges equal their tested feature trees. Primary
+feature checkouts fast-forwarded to remote main; unrelated dirty files remain
+preserved and excluded. No conflict resolution, reset or linked worktree.
+
+Sweeper main [CI](https://github.com/Built-by-Shah-LLC/google-ads-negative-keyword-sweeper-tool/actions/runs/39342188415)
+passed, as did portal main
+[CI](https://github.com/Built-by-Shah-LLC/built-ads-manager/actions/runs/39342196587).
+The release captures existing web revision `bam-dev-web-00107-5cq` and recovery
+digest `sha256:da431a070e4a7a2e2d6dc24eb967796111e7166b31593827f6d6619b0fff97a2`
+before changes. Recovery execution count is three with the same historical
+latest execution `negative-keyword-sweeper-recovery-lwrhn`.
+
+A clean Cloud Shell clone pinned to merged Sweeper `71c9d47` built successfully
+with the standard Dockerfile in Cloud Build
+`08158345-6d4a-4286-973e-18709dde517d`. Only Dev Job
+`negative-keyword-sweeper-recovery` was updated to immutable digest
+`sha256:fbd361bace15661eca93b8f85d0d6a4b14573e4cf3a5cb67a33f66a87f0a41ac`.
+Readback normalized only the image and generated client nonce; the remaining
+complete Job spec matched exactly. Generation advanced 2 to 3. Execution count
+stayed three and the latest historical execution was identical. Command/args,
+identity, env/secret references, limits and private networking stayed unchanged.
+No job was executed and no broad daily/manual deploy script was used. No other
+job, schedule, IAM policy or secret value was changed. Normal daily/manual
+images/tags were not updated.
+
+The web-only [Dev workflow](https://github.com/Built-by-Shah-LLC/built-ads-manager/actions/runs/39342522502)
+succeeded from merged portal `4c55270`. Readback shows ready revision
+`bam-dev-web-00108-7h6` at 100% traffic, image digest
+`sha256:4c8f098d272d6380191eb6e739921de849b5d591a00ae7bb656b9c4cb55af567`.
+Identity, environment/secret references, resources, network, private-range
+egress and invoker setting matched the preceding revision. All three recovery
+target settings survived. An independent public `/api/health` returned `ok`;
+source inspection confirms this checks only PostgreSQL `SELECT 1`, not Ads.
+
+The deployment has one non-blocking GitHub annotation: the pinned Google auth/
+setup actions declare Node 20 and were forced onto Node 24. Every step passed;
+no action pin or workflow was changed here. Review their runtime compatibility
+in a separate maintenance change, not as an unverified release modification.
+
+Semantic accuracy, fresh worker collection/persistence, live GAQL/provider
+compatibility, browser CSV download/SSO/RLS and production acceptance remain
+unverified. No paid evaluation or fresh review was run. Existing reports are
+immutable; the portal's new CSV projection does not reclassify them. DEV-52/
+DEV-53 were read again as Work in progress; no Jira mutation. Rollback can
+restore preceding web revision `bam-dev-web-00107-5cq` and the captured prior
+Job pin without executing work; no rollback or production deployment ran.
+
+### Release-only file-by-file report
+
+No runtime source, SQL, rule, package or deployment workflow changed in this
+release-record follow-up; those tested changes are reported in section 24.
+
+- `README.md`: replaces the stale not-deployed sentence with the canonical
+  release-state pointer. Why: offline proof and actual rollout are different.
+  Documentation only; no new execution authority or compatibility impact.
+  Risk is future record drift. Verified against the completed rollout records.
+- `docs/VOLUME_RECOVERY_CLASSIFICATION_VERIFICATION_PLAN.md`: marks the approved
+  source/Dev delivery and links actual evidence, preserving the original mock-
+  versus-model distinction. Documentation only; no live report repair or
+  semantic certification. Verified against merge/CI/config/health readback;
+  future model evaluation remains separately approved.
+- `docs/VOLUME_RECOVERY_IMPLEMENTATION_PLAN.md`: this section records exact
+  commits, CI, build/digests, config comparison, no-execution proof, rollback
+  targets and remaining limits. Why: durable truthful DEV-52 handoff. No runtime
+  effect; later changes can age the snapshot. Verified against Git tree equality,
+  GitHub results and Cloud Run/Build metadata. Scoped whitespace checks passed.
+
+Companion portal release files and individual risks/proof are recorded in its
+current `docs/status.md`. The owned Cloud Shell build checkout is temporary;
+it is not a linked user worktree or the dirty developer source.
