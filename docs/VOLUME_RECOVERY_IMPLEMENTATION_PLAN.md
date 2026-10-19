@@ -1,6 +1,7 @@
 # Volume Recovery implementation plan
 
-Latest verification handoff: [19 October integration and review](#20-integration-and-verification-handoff--19-october-2026).
+Latest source handoff: [20 October evidence corrections](#22-evidence-corrections--20-october-2026).
+Earlier integration verification: [19 October integration and review](#20-integration-and-verification-handoff--19-october-2026).
 Main publication authorization: [code-only checkpoint](#21-code-only-main-publication--19-october-2026).
 
 **Status:** Approved for local implementation on 15 October 2026
@@ -979,3 +980,111 @@ checkpoint and `docs/what-we-use.md` aligns source-gate wording. They change no
 application logic. Risk: code publication is not production acceptance.
 Verified by fetched ancestry, docs/whitespace checks and final remote-tip
 comparison; the complete source file report remains in section20 above.
+
+## 22 Evidence corrections — 20 October 2026
+
+### Review findings and changed behavior
+
+Shah approved the traffic-first compact table and required Sweeper corrections.
+DEV-52 and DEV-53 were read and remain **Work in progress**; Jira was not changed.
+Independent source review found no remaining actionable correctness finding in
+the changed paths. That review did not execute tests or providers.
+
+The previous direct-account-keyword fix was based on an invalid v25 field
+assumption. [Google's v25 CustomerNegativeCriterion fields](https://developers.google.com/google-ads/api/fields/v25/customer_negative_criterion)
+provide `negative_keyword_list.shared_set`, not `.keyword.text`/`.match_type`.
+Remove that unsupported query, rather than ignoring a legitimate account
+inventory failure. Account-list attachments plus shared criteria still collect
+account negatives and their full eligible campaign fan-out; both reads remain
+required. The synthetic fixture no longer invents those nonexistent fields.
+This corrects the technical representation in section 20, not its all-scope
+coverage or no-Ads-write requirement. Public documentation is not a live query
+acceptance test; no Google Ads API call was made.
+
+Identical **existing** model inputs (text, scope, match type, under the same
+account/pinned policy) now share one validated intent. Campaign facts and
+recommendations stay separate. Groups prioritize observed qualified outcomes,
+sales, raw events, clicks and impressions, then deterministic identity. The
+2,000 bound now applies to unique inputs; batches remain 25, time 20 minutes,
+report 10,000 items. No model fields, provider or higher limit is added. Safe
+row explanations distinguish skipped input/time limits, invalid output,
+provider failure and missing taxonomy. Coverage reports evaluated/rejected/
+unevaluated counts. A future run can still be partial; no completion guarantee.
+
+Blocker lookup indexes plain exact negatives and skips only proven exact
+nonmatches. Punctuation, broad/phrase, brand and unknown-group semantics remain
+conservative; the two-million actual-comparison and 200-detail bounds stay.
+Exactly consuming the budget is not the same as skipping a comparison. Capped
+campaign changes/action detail no longer falsely makes blocker matching
+incomplete; omitted blocker or source attachment detail still does. **Every**
+detail cap continues to veto potential-pilot labels and lower confidence.
+No-outcome conversion fallback follows resolved campaign goals instead of an
+arbitrary account-wide call action; positive attributed outcomes remain separate
+and take precedence. Scoring formulas/version and monetary safeguards are unchanged.
+
+### Evidence actually run and operational boundary
+
+- `npm run check`, `npm test`, `npm run build`: passed; 216 passed, one existing
+  optional integration test skipped (217 total). Focused recovery tests: 33/33.
+- Regressions cover supported account-list mapping/fan-out/failures, 10,000 exact
+  negatives against 1,000 witnesses inside a 1,000-comparison budget, punctuation,
+  separate context/source byte caps, deduplication without metric sharing,
+  outcome-first 2,001-input selection, skipped/time/invalid/provider reasons and
+  goal-aware fallback. Injected collectors/providers only, not live accuracy,
+  full-load certification, PostgreSQL/RLS/IAM or paid-run acceptance.
+- Worker/portal v1 contract files remain byte-identical; no schema, migration,
+  CSV projection, entry-point authorization or normal-sweep policy change.
+- Work uses ordinary primary checkouts on `fix/volume-recovery-evidence` from
+  fetched origin/main (Sweeper `11d56d08`, portal `adc307a`). No implicit worktree.
+  The conflicting old README draft and untracked plan were preserved byte-for-
+  byte in `/private/tmp/volume-recovery-sweeper-drafts.HdeCH5` before switching;
+  other user changes remain untouched and excluded from commits. Local main
+  was not reset, merged or forced forward.
+- No push/merge/deployment, migration, grant/data repair, cloud execution,
+  Google Ads API read/write, model call or Jira mutation. Existing saved reports
+  remain immutable: new source cannot repair their missing evidence. A future
+  approved worker/web rollout plus separately approved new review is required.
+  The 20,000-row/source, 10,000-row report and runtime limits remain real risks.
+
+### Complete Sweeper file-by-file handoff
+
+- `src/volume-recovery/sources.ts`: Removes only the unsupported direct-account
+  keyword query/coverage dependency. Keeps account-list/shared-criterion scope,
+  attachment identity/fan-out and fail-closed missing reads. Operational effect:
+  one fewer invalid read, no new permission. Risk: live GAQL compatibility remains
+  unverified. Verified by v25 docs, injected collector regressions and full checks.
+- `src/volume-recovery/scoring.ts`: Exports the existing normalization unchanged
+  for exact indexing and priority lookup. No formula/score-version change.
+  Risk: all callers must retain the same normalization. Verified by matching/
+  decimal regressions, focused tests, full check/test/build and source review.
+- `src/volume-recovery/blockers.ts`: Adds per-campaign-array exact indexes and an
+  explicit skipped-comparison flag; keeps uncertainty, counts, witness paths and
+  bounds. Effect: unrelated exact terms no longer consume the matching budget.
+  Tradeoff: bounded in-memory indexes; no claim of arbitrary portfolio load.
+  Verified by 10,000-entry regression, punctuation/scope cases and source review.
+- `src/volume-recovery/analysis.ts`: Separates blocker/source truncation from
+  context/action caps, accepts safe per-row missing-intent reasons and uses
+  resolved goals for zero-outcome fallback. All caps still veto pilots; positive
+  events and monetary rules stay intact. Compatibility: v1 fields unchanged,
+  old stored reports unchanged. Verified by cap/null/goal/ranking tests, parser
+  round-trips, contract comparison, full checks and independent source review.
+- `src/volume-recovery/pipeline.ts`: Deduplicates identical semantic inputs,
+  prioritizes historic evidence, validates every batch before fan-out and saves
+  safe status reasons/counts. Effect: bounded provider budget reaches more
+  campaign findings without sharing metrics or increasing caps. Risk: prioritizing
+  observed history cannot establish future demand; live provider latency/quality
+  untested. Verified by synthetic fan-out, 2,001-group, timeout/error cases and review.
+- `test/volume-recovery-evidence.test.ts`: Replaces invented direct-keyword mocks
+  with the supported attachment path and tests index/cap independence. Test-only;
+  synthetic field fixtures do not prove Google accepts a query. Verified in all
+  33 focused cases and the full 217-case test run (one existing skip).
+- `test/volume-recovery.test.ts`: Adds dedup/priority/status/goal regressions and
+  removes obsolete direct-source baseline. Test-only; fake services do not prove
+  CRM truth or deployed integration. Verified by focused/full checks and review.
+- `docs/VOLUME_RECOVERY_IMPLEMENTATION_PLAN.md`: Records this correction,
+  authority, exact proof, backups, limits and this report while preserving prior
+  history. No runtime operation; documentation drift is the risk. Verified
+  against source, actual test output, contract comparison and scoped diff checks.
+
+Portal per-file report and responsive evidence are recorded in its canonical
+`docs/status.md` D-120 entry. No deployment or rerun is implied by either report.

@@ -106,10 +106,10 @@ export function recoveryScore(input: {
     unavailable
   };
 }
+export const normalizeRecoveryText = (value: string) => value.normalize("NFKC").trim().toLocaleLowerCase("en-US").replace(/\s+/gu, " ");
 export function negativeMatches(text: string, query: string, matchType: "EXACT" | "PHRASE" | "BROAD"): boolean | null {
-  const normalize = (value: string) => value.normalize("NFKC").trim().toLocaleLowerCase("en-US").replace(/\s+/gu, " ");
-  const negative = normalize(text),
-    search = normalize(query);
+  const negative = normalizeRecoveryText(text),
+    search = normalizeRecoveryText(query);
   if (!negative || !search) return null;
   // shortcut: uncertain punctuation/spelling is review-only; expand only with verified Ads matching examples.
   if (!/^[\p{L}\p{N} ]+$/u.test(negative) || !/^[\p{L}\p{N} ]+$/u.test(search)) return negative === search ? true : null;

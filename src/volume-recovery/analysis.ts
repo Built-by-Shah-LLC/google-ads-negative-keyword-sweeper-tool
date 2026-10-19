@@ -34,7 +34,7 @@ export function recoveryCandidates(sources: RecoverySources): RecoveryCandidate[
 function available(sources: RecoverySources, source: string): boolean {
   return sources.coverage.some(entry => entry.source === source && entry.available);
 }
-export function analyzeRecovery(sources: RecoverySources, policy: RecoveryPolicy, intents: RecoveryIntent[], targetCpa: string | null): {
+export function analyzeRecovery(sources: RecoverySources, policy: RecoveryPolicy, intents: RecoveryIntent[], targetCpa: string | null, intentUnavailable: ReadonlyMap<string, string> = new Map()): {
   items: {
     key: string;
     resource: string;
@@ -56,7 +56,7 @@ export function analyzeRecovery(sources: RecoverySources, policy: RecoveryPolicy
   const readinessReasons = !measurement ? ["No interpretable lead or sale action was available."] : measurement.kind === "raw_lead" ? ["Selected action records raw conversion events; lead quality is unconfirmed."] : ["Google Ads reports a qualified outcome or sale; this is reported attribution, not independent CRM verification."];
   readinessReasons.push("Conversion counts are events for one selected action, not deduplicated people.");
   const intentById = new Map(intents.map(intent => [intent.itemId, intent]));
-  const inventoryComplete = ["campaigns", "campaign_negatives", "ad_group_negatives", "account_negatives", "account_direct_negatives", "shared_sets", "shared_attachments", "shared_keywords", "brand_exclusions"].every(name => available(sources, name));
+  const inventoryComplete = ["campaigns", "campaign_negatives", "ad_group_negatives", "account_negatives", "shared_sets", "shared_attachments", "shared_keywords", "brand_exclusions"].every(name => available(sources, name));
   const factsByCampaign = new Map<string, RecoverySources["facts"]>();
   for (const fact of sources.facts) {
     const list = factsByCampaign.get(fact.campaignId) ?? [];
@@ -107,8 +107,10 @@ export function analyzeRecovery(sources: RecoverySources, policy: RecoveryPolicy
     });
     const supported = actionEvidence.filter(action => action.kind !== "ignore");
     const observed = supported.filter(action => action.events !== null && fraction(action.events).n > 0n);
+    const goalActions = sources.campaignGoalActionIds?.[campaignId ?? ""];
+    const fallback = goalActions ? supported.filter(action => goalActions.includes(action.resource)) : supported;
     // Select one supported outcome for this query context; preserve, but never sum, overlapping funnel actions.
-    const selected = (observed.length ? observed : supported).sort((a, b) => priorities[b.kind] - priorities[a.kind] || Number(Boolean(policy.valueTargets?.[b.resource])) - Number(Boolean(policy.valueTargets?.[a.resource])) || Number(b.primary) - Number(a.primary) || a.resource.localeCompare(b.resource))[0];
+    const selected = (observed.length ? observed : fallback).sort((a, b) => priorities[b.kind] - priorities[a.kind] || Number(Boolean(policy.valueTargets?.[b.resource])) - Number(Boolean(policy.valueTargets?.[a.resource])) || Number(b.primary) - Number(a.primary) || a.resource.localeCompare(b.resource))[0];
     const reportedActions = [...(selected ? [selected] : []), ...actionEvidence.filter(action => action.resource !== selected?.resource && action.events !== null && fraction(action.events).n > 0n)];
     const detailsTruncated = reportedActions.length > 100 || blockerResult.known + blockerResult.possible > blockerResult.blockers.length || (campaignId !== null && sources.contextTruncatedCampaignIds?.includes(campaignId) === true);
     const conversions = actionFacts.filter(fact => fact.action === selected?.resource);
@@ -123,7 +125,6 @@ export function analyzeRecovery(sources: RecoverySources, policy: RecoveryPolicy
     const value = selected?.value ?? null;
     const positive = events !== null && fraction(events).n > 0n;
     const context = campaignId ? sources.campaignContexts?.[campaignId] ?? null : null;
-    const goalActions = sources.campaignGoalActionIds?.[campaignId ?? ""];
     const soleGoal = Boolean(selected && goalActions?.length === 1 && goalActions[0] === selected.resource);
     const configuredValueTarget = selected ? policy.valueTargets?.[selected.resource] : undefined;
     const unitValues = value !== null && events !== null && fraction(value).n * fraction(events).d === fraction(events).n * fraction(value).d;
@@ -180,7 +181,7 @@ export function analyzeRecovery(sources: RecoverySources, policy: RecoveryPolicy
       exclusion: exclusionDetails(exclusion),
       context,
       ranking: { basis: selected?.kind === "qualified_lead" ? "qualified_events" : valueBased ? "value_roas" : positive ? "raw_events" : "demand", selectedAction: selected?.resource ?? null, valueMeaning: valueTarget?.interpretation ?? "unconfirmed", targetCpa: appliedCpa, targetRoas: appliedRoas, targetSource: appliedRoas ? configuredValueTarget ? "account_policy" : "google_single_action_goal" : appliedCpa ? "account_policy" : "unavailable", recentEvidence: dates.some(date => date >= recentStart), completedConversionWeeks: weeks.size, scoringVersion: 1, rounding: "half_up" },
-      blockerCoverageComplete: complete && !detailsTruncated,
+      blockerCoverageComplete: complete,
       provenance: "legacy_unattributed",
       category,
       competitorLikelihood: intent?.competitorLikelihood ?? "unknown",
@@ -188,7 +189,7 @@ export function analyzeRecovery(sources: RecoverySources, policy: RecoveryPolicy
       evidenceConfidence: !complete || detailsTruncated || !facts.length || !conversionsAvailable ? "low" : "medium",
       valueClass,
       recommendation,
-      explanation: exclusion.kind === "brand" ? "Brand exclusions require separate review; their traffic effect is not scored." : intent?.reason ?? "Intent classification is unavailable. Review the evidence before changing account policy.",
+      explanation: exclusion.kind === "brand" ? "Brand exclusions require separate review; their traffic effect is not scored." : intent?.reason ?? intentUnavailable.get(key) ?? "Intent classification is unavailable. Review the evidence before changing account policy.",
       metrics: {
         impressions,
         clicks,
@@ -223,7 +224,7 @@ export function analyzeRecovery(sources: RecoverySources, policy: RecoveryPolicy
     insufficient_evidence: 2,
     retain: 3
   };
-  if (blockerLookup.remaining <= 0) sources.coverage.push({ source: "blocker_matching_limit", available: false, detail: "The two-million-comparison bound was reached; affected blocker assessments are incomplete and cannot enter a future pilot." });
+  if (blockerLookup.exhausted) sources.coverage.push({ source: "blocker_matching_limit", available: false, detail: "The two-million-comparison bound was reached; affected blocker assessments are incomplete and cannot enter a future pilot." });
   if (results.some(row => row.item.detailsTruncated)) sources.coverage.push({ source: "retained_detail_limit", available: false, detail: "Some retained detail reached its storage bound; affected findings are review-only and detail is explicitly partial." });
   results.sort((a, b) => rank[a.item.recommendation] - rank[b.item.recommendation] || (a.item.channel ?? "").localeCompare(b.item.channel ?? "") || (a.item.ranking?.selectedAction ?? "").localeCompare(b.item.ranking?.selectedAction ?? "") || a.item.valueClass.localeCompare(b.item.valueClass) || Number(b.item.score?.total ?? 0) - Number(a.item.score?.total ?? 0) || a.key.localeCompare(b.key));
   return {
@@ -238,18 +239,22 @@ export function boundedRecoveryItem(original: RecoveryItem): RecoveryItem {
   const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).length;
   if (bytes(original) <= RECOVERY_ITEM_MAX_BYTES - 4000) return original;
   const item = structuredClone(original);
+  let blockerDetailTruncated = false;
+  let sourceDetailTruncated = false;
   const arrays: { list: unknown[]; keep: number }[] = [item.blockers ?? [], item.exclusion?.campaigns ?? [], item.exclusion?.attachmentResourceIds ?? [], item.exclusion?.brandMembers ?? [], item.context?.changes ?? [], item.context?.goals?.actionResourceIds ?? [], item.context?.goals?.biddableGoals ?? [], item.context?.primaryStatusReasons ?? []].map(list => ({ list, keep: 0 }));
   arrays.push({ list: item.conversionActions, keep: 1 });
   // Keep the selected action, primary metrics, known counts and score inputs; reduce optional detail only.
   while (bytes(item) > RECOVERY_ITEM_MAX_BYTES - 4000) {
     const largest = arrays.filter(({ list, keep }) => list.length > keep).sort((a, b) => bytes(b.list) - bytes(a.list))[0];
     if (!largest) break;
+    blockerDetailTruncated ||= largest.list === item.blockers;
+    sourceDetailTruncated ||= largest.list === item.exclusion?.campaigns || largest.list === item.exclusion?.attachmentResourceIds || largest.list === item.exclusion?.brandMembers;
     largest.list.splice(Math.max(largest.keep, Math.floor(largest.list.length / 2)));
   }
   item.detailsTruncated = true;
   item.evidenceConfidence = "low";
-  item.blockerCoverageComplete = false;
-  if (item.exclusion) item.exclusion.detailsComplete = false;
+  if (blockerDetailTruncated || sourceDetailTruncated) item.blockerCoverageComplete = false;
+  if (item.exclusion && sourceDetailTruncated) item.exclusion.detailsComplete = false;
   if (item.context) item.context.limitations.push("Retained detail reached its byte bound; omitted entries require review.");
   if (item.recommendation === "potential_pilot") item.recommendation = "manual_review";
   return item;
