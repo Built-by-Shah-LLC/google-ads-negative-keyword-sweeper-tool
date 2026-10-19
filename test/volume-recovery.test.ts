@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import { analyzeRecovery, recoveryCandidates } from "../src/volume-recovery/analysis.js";
 import { canonicalRecoveryJson, EMPTY_RECOVERY_POLICY, parseRecoveryItem, validateRecoveryPolicy } from "../src/volume-recovery/contract.js";
 import { validateRecoveryIntents } from "../src/volume-recovery/classifier.js";
-import { runVolumeRecovery } from "../src/volume-recovery/pipeline.js";
+import { runVolumeRecovery, recoveryIntentGroups } from "../src/volume-recovery/pipeline.js";
 import { PostgresRecoveryStore, type RecoveryStore, type RecoveryRequest } from "../src/volume-recovery/persistence.js";
 import { collectRecoverySources, sourceDecimal, type RecoverySources } from "../src/volume-recovery/sources.js";
 import { negativeMatches, recoveryDates, recoveryScore, sumDecimals } from "../src/volume-recovery/scoring.js";
@@ -57,7 +57,7 @@ function sources(): RecoverySources {
       kind: "raw_lead",
       primary: true
     }],
-    coverage: ["campaigns", "campaign_negatives", "ad_group_negatives", "account_negatives", "account_direct_negatives", "shared_sets", "shared_attachments", "shared_keywords", "brand_exclusions", "conversion_actions", "SEARCH_traffic", "SEARCH_conversion_events", "campaign_goal_configuration"].map(source => ({
+    coverage: ["campaigns", "campaign_negatives", "ad_group_negatives", "account_negatives", "shared_sets", "shared_attachments", "shared_keywords", "brand_exclusions", "conversion_actions", "SEARCH_traffic", "SEARCH_conversion_events", "campaign_goal_configuration"].map(source => ({
       source,
       available: true,
       detail: "Synthetic fixture"
@@ -343,6 +343,86 @@ test("invalid model output retains evidence, tokens and a partial status", async
     inputTokens: 123,
     outputTokens: 45
   });
+  assert.match((h.saved[0] as { item: { explanation: string } }).item.explanation, /model response failed validation/);
+});
+test("identical semantic inputs share classification, never their campaign metrics", async () => {
+  const h = harness(), data = sources();
+  data.campaigns.push({ ...data.campaigns[0]!, id: "9", name: "Other campaign" });
+  data.exclusions[0]!.campaignIds.push("9");
+  data.facts.push({ ...data.facts[0]!, key: "f9", campaignId: "9", clicks: "7", costMicros: "50000000" });
+  let classified = 0;
+  const classify = h.services.classify;
+  h.services.classify = async (request, candidates) => { classified += candidates.length; return classify(request, candidates); };
+  h.services.collect = async () => data;
+  assert.equal(await runVolumeRecovery(runId, "recovery-abc", h.services), "succeeded");
+  assert.equal(classified, 1);
+  const rows = h.saved.slice(0, -1) as { item: ReturnType<typeof analyzeRecovery>["items"][number]["item"] }[];
+  assert.equal(rows.length, 2);
+  assert.deepEqual(rows.map(row => row.item.metrics.clicks).sort(), ["38", "7"]);
+  assert.ok(rows.every(row => row.item.semanticConfidence === 0.95 && row.item.category === "COMPETITOR-NEGATIVE"));
+  data.exclusions.push({ ...data.exclusions[0]!, resource: "different-scope", scope: "account" });
+  assert.equal(recoveryIntentGroups(data, recoveryCandidates(data)).length, 2, "Different model scope is not deduplicated");
+});
+test("intent bounds prioritize historic outcomes and label unprocessed findings", async () => {
+  const h = harness(), data = sources(), original = data.exclusions[0]!;
+  data.exclusions = Array.from({ length: 2001 }, (_, index) => ({ ...original, resource: "criterion/" + index, text: "repair " + index }));
+  data.facts[0]!.query = "repair 2000";
+  data.actions[0]!.kind = "qualified_lead";
+  h.services.collect = async () => data;
+  const groups = recoveryIntentGroups(data, recoveryCandidates(data));
+  assert.equal(groups[0]!.candidate.exclusion.text, "repair 2000");
+  assert.equal(await runVolumeRecovery(runId, "recovery-abc", h.services), "partial");
+  const rows = h.saved.slice(0, -1) as { item: ReturnType<typeof analyzeRecovery>["items"][number]["item"] }[];
+  assert.equal(rows.find(row => row.item.negativeText === "repair 2000")!.item.semanticConfidence, 0.95);
+  const skipped = rows.filter(row => row.item.semanticConfidence === null);
+  assert.equal(skipped.length, 1);
+  assert.match(skipped[0]!.item.explanation, /2,000-unique-input bound/);
+});
+test("expired time budget and provider errors have distinct safe row explanations", async () => {
+  const timed = harness();
+  let clockCalls = 0;
+  timed.services.now = () => new Date(now.valueOf() + (clockCalls++ ? 20 * 60000 : 0));
+  let classifyCalls = 0;
+  timed.services.classify = async () => { classifyCalls++; throw new Error("must not call provider"); };
+  assert.equal(await runVolumeRecovery(runId, "recovery-abc", timed.services), "partial");
+  assert.equal(classifyCalls, 0);
+  assert.match((timed.saved[0] as { item: { explanation: string } }).item.explanation, /classification time budget/);
+  const failed = harness();
+  failed.services.classify = async () => { throw new Error("private token / provider response"); };
+  assert.equal(await runVolumeRecovery(runId, "recovery-abc", failed.services), "partial");
+  assert.match((failed.saved[0] as { item: { explanation: string } }).item.explanation, /provider request/);
+  assert.equal(JSON.stringify(failed.saved).includes("private token"), false);
+});
+test("missing taxonomy never calls a model and foreign response IDs cannot fan out", async () => {
+  const missing = harness();
+  missing.request.snapshot = { rulesMarkdown: "Policy without a recovery taxonomy", phraseProtections: [] };
+  missing.request.policyHash = createHash("sha256").update(canonicalRecoveryJson(missing.request.snapshot)).digest("hex");
+  let modelCalls = 0;
+  missing.services.classify = async () => { modelCalls++; throw new Error("provider must not be called"); };
+  assert.equal(await runVolumeRecovery(runId, "recovery-abc", missing.services), "partial");
+  assert.equal(modelCalls, 0);
+  assert.match((missing.saved[0] as { item: { explanation: string } }).item.explanation, /no valid policy taxonomy/);
+  const summary = (missing.saved.at(-1) as { summary: { coverage: { source: string; detail: string }[] } }).summary;
+  assert.match(summary.coverage.find(source => source.source === "classification_summary")!.detail, /0 evaluated, 0 rejected, 1 not evaluated/);
+  const foreign = harness();
+  foreign.services.classify = async () => ({ intents: [{ ...intent(sources())[0]!, itemId: "foreign-item" }], usage: { inputTokens: 10, outputTokens: 5 } });
+  assert.equal(await runVolumeRecovery(runId, "recovery-abc", foreign.services), "partial");
+  const row = (foreign.saved[0] as { item: { explanation: string; semanticConfidence: number | null } }).item;
+  assert.equal(row.semanticConfidence, null);
+  assert.match(row.explanation, /response failed validation/);
+});
+test("with no attributed outcomes the basis follows resolved campaign goals, not an arbitrary account call action", () => {
+  const data = sources();
+  data.conversionFacts = [];
+  data.actions.unshift({ ...data.actions[0]!, resource: "customers/1234567890/conversionActions/0", name: "Calls from ads" });
+  data.campaignGoalActionIds = { "1": [action] };
+  const row = analyzeRecovery(data, policy, [], "85").items[0]!.item;
+  assert.match(row.conversionBasis, /Submit lead form/);
+  assert.equal(row.valueClass, "D");
+  assert.equal(row.metrics.conversionEvents, "0");
+  assert.equal(row.metrics.clicks, "38");
+  data.campaignGoalActionIds["1"] = [];
+  assert.equal(analyzeRecovery(data, policy, [], "85").items[0]!.item.metrics.conversionEvents, null);
 });
 test("source collection is SELECT-only, resolves manager conversion ownership and preserves source gaps", async () => {
   const calls: {

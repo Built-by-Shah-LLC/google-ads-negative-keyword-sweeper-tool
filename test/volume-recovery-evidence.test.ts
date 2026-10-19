@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { analyzeRecovery, recoveryCandidates, boundedRecoveryItem } from "../src/volume-recovery/analysis.js";
-import { recoveryBlockers } from "../src/volume-recovery/blockers.js";
+import { recoveryBlockers, type BlockerLookup } from "../src/volume-recovery/blockers.js";
 import { EMPTY_RECOVERY_POLICY, parseRecoveryItem, validateRecoveryPolicy, type RecoveryPolicy } from "../src/volume-recovery/contract.js";
 import { collectRecoverySources, type RecoverySources } from "../src/volume-recovery/sources.js";
 import { recoveryScore } from "../src/volume-recovery/scoring.js";
@@ -18,7 +18,6 @@ async function fixture(options: {
   portfolio?: boolean;
   defaultValue?: string;
   lists?: boolean;
-  accountKeyword?: boolean;
 } = {}) {
   const calls: string[] = [];
   const data = await collectRecoverySources({ async searchStream(_customer, gaql) {
@@ -31,8 +30,6 @@ async function fixture(options: {
         return ["10", "20", "30"].map(id => ({ sharedSet: { resourceName: "customers/1234567890/sharedSets/" + id, name: "List " + id } }));
       if (options.lists && gaql.includes(" FROM campaign_shared_set"))
         return ["1", "9"].map(id => ({ campaign: { id }, campaignSharedSet: { resourceName: "customers/1234567890/campaignSharedSets/" + id + "~10", sharedSet: "customers/1234567890/sharedSets/10" } }));
-      if (options.accountKeyword && gaql.includes(" FROM customer_negative_criterion") && gaql.includes("type = 'KEYWORD'"))
-        return [{ customerNegativeCriterion: { resourceName: "customers/1234567890/customerNegativeCriteria/40", keyword: { text: "riverton collision repair", matchType: "EXACT" } } }];
       if (options.lists && gaql.includes(" FROM customer_negative_criterion") && gaql.includes("'NEGATIVE_KEYWORD_LIST'"))
         return [{ customerNegativeCriterion: { resourceName: "customers/1234567890/customerNegativeCriteria/20", negativeKeywordList: { sharedSet: "customers/1234567890/sharedSets/20" } } }];
       if (options.lists && gaql.includes(" FROM shared_criterion") && gaql.includes("'BRAND'"))
@@ -115,24 +112,23 @@ test("inventory retains exact attachment paths and brand members, including out-
   assert.equal(pmax.recommendation, "manual_review");
   assert.ok(calls.filter(gaql => gaql.includes(" FROM campaign_search_term_view")).every(gaql => !gaql.includes("ad_group.id")));
 });
-test("direct account keyword negatives remain effective blockers without a shared list", async () => {
-  const { data } = await fixture({ accountKeyword: true });
-  const direct = data.exclusions.find(e => e.resource.endsWith("/40"))!;
-  assert.equal(direct.scope, "account");
-  assert.deepEqual(direct.campaignIds, ["1"]);
-  assert.equal(direct.details?.listResourceId, null);
-  assert.equal(direct.details?.detailsComplete, true);
+test("v25 account keywords use account-list attachments and shared criteria, never nonexistent keyword fields", async () => {
+  const { data, calls } = await fixture({ lists: true });
+  assert.ok(calls.every(query => !query.includes("customer_negative_criterion.keyword") && !/FROM customer_negative_criterion WHERE customer_negative_criterion.type = 'KEYWORD'/.test(query)));
+  assert.equal(data.coverage.some(source => source.source === "account_direct_negatives"), false);
+  const account = data.exclusions.find(e => e.scope === "account")!;
+  assert.equal(account.details?.listResourceId, "customers/1234567890/sharedSets/20");
+  assert.equal(account.details?.detailsComplete, true);
+  assert.deepEqual(account.campaignIds, ["1", "2", "9"]);
   data.actions[0]!.kind = "qualified_lead";
   const row = analyze(data).items.find(e => e.resource.endsWith("1~10"))!.item;
-  assert.equal(row.remainingBlockers, 1);
-  assert.ok(row.blockers?.some(b => b.resourceId === direct.resource && b.scope === "account" && b.certainty === "known"));
+  assert.equal(row.remainingBlockers, 2);
+  assert.ok(row.blockers?.some(b => b.resourceId === account.resource && b.scope === "account" && b.certainty === "known"));
   assert.equal(row.blockerCoverageComplete, true);
   assert.notEqual(row.recommendation, "potential_pilot");
-  const fanOut = await fixture({ accountKeyword: true, lists: true });
-  assert.deepEqual(fanOut.data.exclusions.find(e => e.resource.endsWith("/40"))!.campaignIds, ["1", "2", "9"]);
 });
-test("both account-list and direct-keyword reads are required for complete blocker coverage", async () => {
-  for (const failed of ["customer_negative_criterion.keyword.text", "customer_negative_criterion.negative_keyword_list.shared_set"]) {
+test("account-list attachment and shared-keyword failures still prevent complete blocker coverage", async () => {
+  for (const failed of ["customer_negative_criterion.negative_keyword_list.shared_set", " FROM shared_criterion"]) {
     const { data } = await fixture({ fail: failed });
     data.actions[0]!.kind = "qualified_lead";
     const row = analyze(data).items[0]!.item;
@@ -148,6 +144,8 @@ test("unavailable or capped context stays null/partial, never an observed zero o
   assert.equal(data.coverage.find(c => c.source === "recent_changes")?.available, false);
   assert.equal(row.context?.changes.length, 20);
   assert.equal(row.detailsTruncated, true);
+  assert.equal(row.blockerCoverageComplete, true, "A capped change log is not a missing keyword blocker check");
+  assert.notEqual(row.recommendation, "potential_pilot");
   assert.equal(data.coverage.find(c => c.source === "context_detail_limit")?.available, false);
   assert.ok(row.context?.limitations.some(reason => reason.includes("latest 20")));
   assert.equal(JSON.stringify(data.coverage).includes("private provider"), false);
@@ -227,6 +225,23 @@ test("brand semantics, unknown ad group and matching bounds cannot claim no rema
   assert.equal(recoveryBlockers(source, [group], [], "1", { cache: new Map(), remaining: 0 }).complete, false);
   assert.equal(recoveryBlockers({ ...source, text: "collision repair", matchType: "PHRASE" }, [source], []).complete, false);
 });
+test("large exact inventories do not spend the comparison budget on proven exact nonmatches", async () => {
+  const { data } = await fixture(), source = data.exclusions[0]!;
+  const others = Array.from({ length: 10000 }, (_, index) => ({ ...source, resource: "criterion/" + index, text: "repair " + index }));
+  const lookup: BlockerLookup = { cache: new Map(), remaining: 1000 };
+  for (let index = 0; index < 1000; index++) {
+    const result = recoveryBlockers(others[index]!, others, [{ ...data.facts[0]!, query: "repair " + index }], "1", lookup);
+    assert.equal(result.known, 0);
+    assert.equal(result.complete, true);
+  }
+  assert.equal(lookup.remaining, 0);
+  assert.notEqual(lookup.exhausted, true, "Exactly consuming the budget is not a skipped comparison");
+  const punctuation = recoveryBlockers(source, [{ ...source, resource: "other/plain" }], [{ ...data.facts[0]!, query: "repair-shop" }]);
+  assert.equal(punctuation.possible, 1, "Punctuation remains unknown, not filtered out by the index");
+  assert.equal(punctuation.complete, false);
+  const unknownExact = { ...source, resource: "punctuation/1", text: "repair-shop" };
+  assert.equal(recoveryBlockers(source, [unknownExact], data.facts).possible, 1);
+});
 test("oversized Unicode detail is capped before persistence without dropping metrics or claiming a full assessment", async () => {
   const { data } = await fixture();
   const original = analyze(data).items[0]!.item;
@@ -237,7 +252,7 @@ test("oversized Unicode detail is capped before persistence without dropping met
   assert.ok(new TextEncoder().encode(JSON.stringify(bounded)).length < 100000);
   assert.deepEqual(bounded.metrics, original.metrics);
   assert.equal(bounded.conversionActions[0]!.resourceId, action);
-  assert.equal(bounded.blockerCoverageComplete, false);
+  assert.equal(bounded.blockerCoverageComplete, true, "Only context detail was reduced");
   assert.equal(bounded.recommendation, "manual_review");
   assert.ok(bounded.context!.changes.length < 20);
   assert.equal(original.context!.changes.length, 20);
@@ -246,6 +261,7 @@ test("oversized Unicode detail is capped before persistence without dropping met
   const cappedInventory = boundedRecoveryItem(inventoryOnly);
   assert.equal(cappedInventory.detailsTruncated, true);
   assert.equal(cappedInventory.exclusion?.detailsComplete, false);
+  assert.equal(cappedInventory.blockerCoverageComplete, false);
   assert.deepEqual(parseRecoveryItem(cappedInventory), cappedInventory);
 });
 test("the selected action survives count/byte caps even when it was last in the source", async () => {

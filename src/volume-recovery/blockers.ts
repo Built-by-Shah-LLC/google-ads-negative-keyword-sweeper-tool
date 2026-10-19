@@ -1,6 +1,6 @@
 import type { RecoveryBlocker, RecoveryExclusionDetails } from "./contract.js";
 import type { RecoveryExclusion, RecoveryFact } from "./sources.js";
-import { negativeMatches } from "./scoring.js";
+import { negativeMatches, normalizeRecoveryText } from "./scoring.js";
 export function exclusionDetails(exclusion: RecoveryExclusion): RecoveryExclusionDetails {
   return exclusion.details ?? { resourceId: exclusion.resource, listResourceId: null, listName: null, attachmentResourceIds: [], campaigns: exclusion.campaignIds.slice(0, 200).map(campaignId => ({ campaignId, campaignName: null, channel: null, status: null })), detailsComplete: false, brandMembers: [] };
 }
@@ -13,6 +13,8 @@ export interface BlockerLookup {
     complete: boolean;
   }>;
   remaining: number;
+  exhausted?: boolean;
+  indexes?: WeakMap<RecoveryExclusion[], { exact: Map<string, RecoveryExclusion[]>; rest: RecoveryExclusion[] }>;
 }
 export function recoveryBlockers(exclusion: RecoveryExclusion, others: RecoveryExclusion[], facts: RecoveryFact[], campaignId = "", lookup: BlockerLookup = { cache: new Map(), remaining: 2000000 }): {
   blockers: RecoveryBlocker[];
@@ -29,13 +31,32 @@ export function recoveryBlockers(exclusion: RecoveryExclusion, others: RecoveryE
     let cached = lookup.cache.get(cacheKey);
     if (!cached) {
       cached = { matches: [], complete: true };
-      for (const other of others) {
+      lookup.indexes ??= new WeakMap();
+      let index = lookup.indexes.get(others);
+      if (!index) {
+        index = { exact: new Map(), rest: [] };
+        for (const other of others) {
+          const text = normalizeRecoveryText(other.text);
+          if (other.kind === "keyword" && other.matchType === "EXACT" && /^[\p{L}\p{N} ]+$/u.test(text)) {
+            const matches = index.exact.get(text) ?? [];
+            matches.push(other);
+            index.exact.set(text, matches);
+          } else index.rest.push(other);
+        }
+        lookup.indexes.set(others, index);
+      }
+      const query = normalizeRecoveryText(witness.query);
+      // Only plain exact nonmatches are safely eliminated; punctuation/brands retain conservative matching.
+      const relevant = /^[\p{L}\p{N} ]+$/u.test(query) ? [...(index.exact.get(query) ?? []), ...index.rest] : others;
+      for (const other of relevant) {
         if (other.adGroupId && witness.group && other.adGroupId !== witness.group)
           continue;
-        if (lookup.remaining-- <= 0) {
+        if (lookup.remaining <= 0) {
           cached.complete = false;
+          lookup.exhausted = true;
           break;
         }
+        lookup.remaining--;
         const match = other.kind === "brand" ? null : negativeMatches(other.text, witness.query, other.matchType!);
         if (match !== false)
           cached.matches.push({ other, match });
