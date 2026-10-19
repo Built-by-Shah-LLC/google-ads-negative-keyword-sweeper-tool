@@ -1088,3 +1088,53 @@ and take precedence. Scoring formulas/version and monetary safeguards are unchan
 
 Portal per-file report and responsive evidence are recorded in its canonical
 `docs/status.md` D-120 entry. No deployment or rerun is implied by either report.
+
+## 23. Authorized D-120 Dev recovery-image release — 20 October 2026
+
+Review findings: no remaining actionable source finding was reported in the
+preceding independent review. Clean [PR #8 CI](https://github.com/Built-by-Shah-LLC/google-ads-negative-keyword-sweeper-tool/actions/runs/39334152025)
+and merged-main [Rule release CI](https://github.com/Built-by-Shah-LLC/google-ads-negative-keyword-sweeper-tool/actions/runs/39334397065)
+passed check/test/rule integrity. These are offline checks, not provider or
+database acceptance. The previously recorded optional integration skip remains.
+
+Shah explicitly authorized push/merge and Dev deployment for both repos, with
+no job executions, migrations or Google Ads API reads/writes. Published branch
+`fix/volume-recovery-evidence` at `ad60a91`, then merged
+[PR #8](https://github.com/Built-by-Shah-LLC/google-ads-negative-keyword-sweeper-tool/pull/8)
+without conflicts as `ae61410ade37a71ffc4814f0b520f99960124e35`. The merge tree
+matches the tested feature tree. The primary feature branch fast-forwarded to
+that verified remote main; unrelated user files and draft backups are untouched.
+DEV-52 was read and remains **Work in progress**; no Jira mutation.
+
+Cloud Build `11e3e4e7-b86b-419d-8aae-302ef40861ac` built the existing standard
+Dockerfile from a clean Cloud Shell clone pinned to the merged commit, not the
+dirty developer checkout. It published
+`us-west1-docker.pkg.dev/built-ads-manager-dev/negative-keyword-sweeper/sweeper:recovery-ae61410`,
+digest `sha256:da431a070e4a7a2e2d6dc24eb967796111e7166b31593827f6d6619b0fff97a2`.
+Only the existing Dev `negative-keyword-sweeper-recovery` Job image was updated
+in `us-west1`; no broad deployment script was used. Before/after spec comparison
+found only the image and generated `client.knative.dev/nonce` changed. Command,
+args, service identity, resources, retries, timeout, environment/secret references
+and network settings were unchanged. Generation advanced 1 to 2. Execution
+count stayed **3**, with the identical latest historical execution. No job was
+executed, secret value read/changed, migration/grant/data repair performed,
+schedule/IAM changed or Google Ads/model API called by this release. Daily and
+manual jobs/tags were not updated. Companion web rollout is recorded in Ads
+Manager's canonical `docs/status.md`; it does not start a recovery request.
+
+The new worker is available for a later explicitly approved review. Old saved
+reports remain immutable and retain their original gaps. Live source/model
+compatibility, latency, fresh claim/persistence and full-load behavior were not
+verified by this image update. Rollback can restore the previous compatible pin
+`sha256:8372fdd286e7bfa28c6f8977440824aa76ede4a3ffbdd8317ff2ddf367f1dc29`
+without running work or deleting reports; no rollback or production deploy ran.
+
+File-by-file release change: `docs/VOLUME_RECOVERY_IMPLEMENTATION_PLAN.md`
+alone records actual source publication, CI, build, immutable image update,
+configuration/execution-count verification and remaining gates. Why: preserve
+the earlier local-only handoff while recording what really deployed. No runtime,
+schema or policy behavior is changed by this documentation follow-up. Risk is
+record drift if another operator changes the job; no new compatibility impact.
+Verified against Git ancestry/tree equality, GitHub merge/CI results, Cloud Build
+metadata and before/after Cloud Run configuration. The eight implementation
+files and their individual risks/proof remain reported in section 22.
