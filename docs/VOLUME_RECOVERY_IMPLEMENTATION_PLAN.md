@@ -1652,13 +1652,33 @@ semantic accuracy or that a confidence value is calibrated.
 The remaining saved gaps are conversion diagnostics, context detail limits,
 the two-million blocker-comparison limit and retained detail limits. These
 continue to restrict affected findings to review; they are not missing intent
-or fabricated confidence. The portal CSV refinement and detailed Cloud log
-readback are still being verified separately. No replacement paid review was
-started merely because the browser had locked.
+or fabricated confidence. The portal CSV refinement is being verified
+separately. No replacement paid review was started merely because the browser
+had locked.
 
 Cloud Shell re-provisioned during the disconnect, so its earlier `/tmp` files
 are no longer available. The immutable image/build identifiers above and saved
 portal review remain the release evidence; no secret or credential material was
-copied to recover the session. Google Cloud requested organization re-verification
-before further log/configuration reads. That manual check is distinct from the
-already verified retained report and does not invalidate its saved counts.
+copied to recover the session. Google Cloud requested organization re-verification;
+after the existing Cloud Shell session was restored, direct log/configuration
+reads succeeded without creating a new credential or permission grant.
+
+The scoped log query returned 688 entries for execution
+`negative-keyword-sweeper-recovery-fczct`. It confirms 275 planned initial
+batches at concurrency six and 285 total classification requests: 277 accepted
+responses and eight responses needing repair. The exact failing rule was
+`duplicate_item_id` (18 row issues), rather than an HTTP failure or a reason to
+discard every valid peer. Smaller repair requests resolved all 6,871 inputs.
+The final log reconciles 10,125 accepted finding intents and 10,125 saved/source
+report items, zero input-limit skips, zero time skips and zero unresolved
+rejections. The worker duration was 1,181,207.58 ms (about 19m41s), with
+3,856,289 input and 601,138 output tokens reported. Counts establish response-
+contract acceptance and persistence, not classifier semantic accuracy.
+
+Cloud Run independently reports Completed=True, one succeeded task, start
+2026-10-20 20:48:18 UTC and completion 21:08:13 UTC (21 October 01:48–02:08
+Asia/Karachi). Current Job readback remains generation seven, the immutable
+`bee243...` image above, concurrency six, 7,200-second timeout, zero retries,
+CPU one, memory 1 GiB, the Built by Shah filter and disabled Ads mutations.
+No Google Ads mutation, migration, data repair, IAM/secret/schedule change or
+new portfolio launch occurred in this verification.
