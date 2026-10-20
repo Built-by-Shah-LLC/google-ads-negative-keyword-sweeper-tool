@@ -18,6 +18,8 @@ async function fixture(options: {
   portfolio?: boolean;
   defaultValue?: string;
   lists?: boolean;
+  campaignNameContains?: string | null;
+  mixedCampaignNames?: boolean;
 } = {}) {
   const calls: string[] = [];
   const data = await collectRecoverySources({ async searchStream(_customer, gaql) {
@@ -58,13 +60,17 @@ async function fixture(options: {
           { campaign: { id: "1" }, segments: { date: "2026-08-20" }, metrics: { impressions: "1000", clicks: "50", costMicros: "400000000", conversions: "4", conversionsValue: "400" } }
         ];
       if (gaql.includes(" FROM campaign "))
-        return [{ campaign: { id: "1", name: "Synthetic Search", status: "ENABLED", advertisingChannelType: "SEARCH", servingStatus: "SERVING", primaryStatus: "LIMITED", primaryStatusReasons: ["BUDGET_CONSTRAINED"], campaignBudget: "customers/1234567890/campaignBudgets/9", biddingStrategyType: "MAXIMIZE_CONVERSION_VALUE", biddingStrategySystemStatus: "LEARNING", ...(options.portfolio ? { biddingStrategy: "customers/9999999999/biddingStrategies/8" } : {}), maximizeConversionValue: { targetRoas: "4" } } }, ...(options.lists ? [{ campaign: { id: "2", name: "Synthetic PMax", status: "ENABLED", advertisingChannelType: "PERFORMANCE_MAX" } }, { campaign: { id: "9", name: "Paused Shopping", status: "PAUSED", advertisingChannelType: "SHOPPING" } }, { campaign: { id: "10", name: "Display", status: "ENABLED", advertisingChannelType: "DISPLAY" } }] : [])];
+        return [{ campaign: { id: "1", name: options.mixedCampaignNames ? "Built By Shah - Synthetic Search" : "Synthetic Search", status: "ENABLED", advertisingChannelType: "SEARCH", servingStatus: "SERVING", primaryStatus: "LIMITED", primaryStatusReasons: ["BUDGET_CONSTRAINED"], campaignBudget: "customers/1234567890/campaignBudgets/9", biddingStrategyType: "MAXIMIZE_CONVERSION_VALUE", biddingStrategySystemStatus: "LEARNING", ...(options.portfolio ? { biddingStrategy: "customers/9999999999/biddingStrategies/8" } : {}), maximizeConversionValue: { targetRoas: "4" } } }, ...(options.lists ? [{ campaign: { id: "2", name: options.mixedCampaignNames ? "Other Agency PMax" : "Synthetic PMax", status: "ENABLED", advertisingChannelType: "PERFORMANCE_MAX" } }, { campaign: { id: "9", name: options.mixedCampaignNames ? "Other Agency Shopping" : "Paused Shopping", status: "PAUSED", advertisingChannelType: "SHOPPING" } }, { campaign: { id: "10", name: "Display", status: "ENABLED", advertisingChannelType: "DISPLAY" } }] : [])];
       if (gaql.includes(" FROM campaign_criterion") && gaql.includes("'KEYWORD'"))
-        return [{ campaign: { id: "1" }, campaignCriterion: { resourceName: "customers/1234567890/campaignCriteria/1~10", keyword: { text: "riverton collision repair", matchType: "EXACT" } } }];
+        return [{ campaign: { id: "1" }, campaignCriterion: { resourceName: "customers/1234567890/campaignCriteria/1~10", keyword: { text: "riverton collision repair", matchType: "EXACT" } } }, ...(options.mixedCampaignNames ? [{ campaign: { id: "2" }, campaignCriterion: { resourceName: "customers/1234567890/campaignCriteria/2~20", keyword: { text: "other agency negative", matchType: "EXACT" } } }] : [])];
+      if (options.mixedCampaignNames && gaql.includes(" FROM ad_group_criterion"))
+        return [{ campaign: { id: "2" }, adGroup: { id: "22", name: "Other agency group" }, adGroupCriterion: { resourceName: "customers/1234567890/adGroupCriteria/22~20", keyword: { text: "other agency group negative", matchType: "PHRASE" } } }];
       if (gaql.includes(" FROM search_term_view"))
         return [{ campaign: { id: "1" }, adGroup: { id: "2" }, searchTermView: { searchTerm: "riverton collision repair" }, segments: { date: "2026-10-06", conversionAction: action }, metrics: gaql.includes("all_conversions") ? { allConversions: "3", allConversionsValue: options.placeholder ? "3" : "300" } : { impressions: "520", clicks: "38", costMicros: "304000000" } }];
+      if (options.mixedCampaignNames && gaql.includes(" FROM campaign_search_term_view"))
+        return [{ campaign: { id: "2" }, campaignSearchTermView: { searchTerm: "other agency query" }, segments: { date: "2026-10-06", conversionAction: action }, metrics: gaql.includes("all_conversions") ? { allConversions: "1", allConversionsValue: "1" } : { impressions: "100", clicks: "10", costMicros: "50000000" } }];
       return [];
-    } }, { customerId, timeZone: "America/Los_Angeles", currencyCode: "USD", policy }, now);
+    } }, { customerId, timeZone: "America/Los_Angeles", currencyCode: "USD", policy, campaignNameContains: options.campaignNameContains ?? null }, now);
   return { data, calls };
 }
 function analyze(data: RecoverySources, configured = policy) {
@@ -111,6 +117,26 @@ test("inventory retains exact attachment paths and brand members, including out-
   assert.equal(pmax.score, null);
   assert.equal(pmax.recommendation, "manual_review");
   assert.ok(calls.filter(gaql => gaql.includes(" FROM campaign_search_term_view")).every(gaql => !gaql.includes("ad_group.id")));
+});
+test("campaign-name scope includes Built by Shah campaigns by default and null can opt into all campaigns", async () => {
+  const filtered = (await fixture({ lists: true, mixedCampaignNames: true, campaignNameContains: "bUiLt bY sHaH" })).data;
+  assert.deepEqual(filtered.campaigns.map(campaign => campaign.id), ["1"]);
+  assert.ok(filtered.exclusions.every(exclusion => exclusion.campaignIds.every(id => id === "1")));
+  assert.ok(filtered.facts.every(fact => fact.campaignId === "1"));
+  assert.deepEqual(Object.keys(filtered.campaignContexts ?? {}), ["1"]);
+  assert.equal(filtered.exclusions.some(exclusion => exclusion.kind === "brand"), false);
+  assert.deepEqual(filtered.exclusions.find(exclusion => exclusion.scope === "shared_list")?.details?.attachmentResourceIds, ["customers/1234567890/campaignSharedSets/1~10"]);
+  assert.deepEqual(filtered.exclusions.find(exclusion => exclusion.scope === "account")?.campaignIds, ["1"]);
+  assert.match(filtered.coverage.find(source => source.source === "campaign_name_filter")!.detail, /case-insensitively/u);
+
+  const all = (await fixture({ lists: true, mixedCampaignNames: true, campaignNameContains: null })).data;
+  assert.deepEqual(all.campaigns.map(campaign => campaign.id), ["1", "2"]);
+  assert.deepEqual(all.exclusions.find(exclusion => exclusion.scope === "account")?.campaignIds, ["1", "2", "9"]);
+  assert.equal(all.exclusions.some(exclusion => exclusion.campaignIds.includes("2") && exclusion.scope === "campaign"), true);
+  assert.equal(all.exclusions.some(exclusion => exclusion.campaignIds.includes("2") && exclusion.scope === "ad_group"), true);
+  assert.equal(all.facts.some(fact => fact.campaignId === "2"), true);
+  assert.deepEqual(Object.keys(all.campaignContexts ?? {}), ["1", "2"]);
+  assert.equal(all.exclusions.some(exclusion => exclusion.kind === "brand"), true);
 });
 test("v25 account keywords use account-list attachments and shared criteria, never nonexistent keyword fields", async () => {
   const { data, calls } = await fixture({ lists: true });

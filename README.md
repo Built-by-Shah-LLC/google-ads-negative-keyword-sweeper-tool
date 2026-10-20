@@ -21,7 +21,10 @@ See [Architecture decisions](docs/ARCHITECTURE_DECISIONS.md) for the controlling
 Volume Recovery's separate read-only worker and portal boundary are described
 in the [approved implementation plan and iteration handoff](docs/VOLUME_RECOVERY_IMPLEMENTATION_PLAN.md).
 Volume Recovery does not remove negatives. The handoff records the current
-release state separately from offline test evidence.
+release state separately from offline test evidence. It uses
+`CAMPAIGN_NAME_CONTAINS` too: the default `Built by Shah` value limits recovery
+to those campaign names case-insensitively, while an explicitly empty value
+opts that job into all campaign names.
 
 ### Offline classification verification
 

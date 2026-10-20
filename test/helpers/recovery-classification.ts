@@ -121,7 +121,7 @@ export function offlineHarness(respond?: (candidates: RecoveryCandidate[], index
   const model = fakeDispatcher((_body, index) => respond ? respond(batch, index) : completion(reply(batch).reverse()));
   const classifier = createRecoveryClassifier(config, model.dispatcher);
   const services: RecoveryServices = {
-    store, collect: input => collectRecoverySources(source.reader, input, now), now: () => now,
+    store, collect: input => collectRecoverySources(source.reader, { ...input, campaignNameContains: null }, now), now: () => now,
     classify(input, candidates, allowed) { batch = candidates; return classifier.classify(input.accountName, input.snapshot, candidates, allowed); }
   };
   return { request, services, saved, progress, source, model, terminal: () => terminal! };
