@@ -17,6 +17,19 @@ import { validateDecisions } from "./validation.js";
 
 const RETRYABLE_STATUS = new Set([408, 409, 429, 500, 502, 503, 504]);
 
+export interface StructuredJsonTransportDiagnostics {
+  providerRequestId: string | null;
+  httpAttemptCount: number;
+  retryCount: number;
+  finalStatusCode: number | null;
+  timedOut: boolean;
+  httpDurationMs: number;
+}
+
+export interface StructuredJsonCompletionDiagnostics extends StructuredJsonTransportDiagnostics {
+  parseOutcome: "parsed" | "missing_output" | "invalid_json";
+}
+
 export class MoonshotKeywordClassifier implements KeywordClassifier {
   readonly provider: string;
   readonly model: string;
@@ -120,10 +133,15 @@ export class MoonshotKeywordClassifier implements KeywordClassifier {
   }
 
   /** Reuses the existing authenticated retry/timeout transport for recovery's distinct response contract. */
-  async completeStructuredJson(request: Record<string, unknown>): Promise<{ value: unknown; usage: LlmTokenUsage; usageReported: boolean; cachedInputTokensReported: boolean }> {
+  async completeStructuredJson(request: Record<string, unknown>): Promise<{ value: unknown; usage: LlmTokenUsage; usageReported: boolean; cachedInputTokensReported: boolean; diagnostics: StructuredJsonCompletionDiagnostics }> {
     const call = await this.callEndpoint("/chat/completions", request, "LLM_REQUEST");
     let value: unknown = null;
-    try { value = parseClassifierPayload(extractResponseText(call.payload)); } catch { /* Invalid output still incurred reported token usage. */ }
+    let parseOutcome: StructuredJsonCompletionDiagnostics["parseOutcome"] = "parsed";
+    let responseText: string | null = null;
+    try { responseText = extractResponseText(call.payload); } catch { parseOutcome = "missing_output"; }
+    if (responseText !== null) {
+      try { value = parseClassifierPayload(responseText); } catch { parseOutcome = "invalid_json"; }
+    }
     const rawUsage = isRecord(call.payload.usage) ? call.payload.usage : {};
     const details = isRecord(rawUsage.prompt_tokens_details) ? rawUsage.prompt_tokens_details : {};
     const usage = normalizeMoonshotUsage(rawUsage);
@@ -131,7 +149,16 @@ export class MoonshotKeywordClassifier implements KeywordClassifier {
     // Normalized zero is useful for existing runtime totals, but is not proof of reported usage/cost.
     const cachedInputTokensReported = usageReported && usage.cachedInputTokens <= usage.inputTokens &&
       [rawUsage.cached_tokens, details.cached_tokens].some(value => nonNegativeNumber(value) && value === usage.cachedInputTokens);
-    return { value, usage, usageReported, cachedInputTokensReported };
+    return {
+      value,
+      usage,
+      usageReported,
+      cachedInputTokensReported,
+      diagnostics: {
+        ...summarizeStructuredJsonAttempts(call.attempts, call.requestId),
+        parseOutcome
+      }
+    };
   }
 
   async countFixedInputTokens(
@@ -284,6 +311,24 @@ class MoonshotRequestError extends Error {
     super(message, options);
     this.name = "MoonshotRequestError";
   }
+}
+
+export function structuredJsonFailureDiagnostics(error: unknown): StructuredJsonTransportDiagnostics {
+  return error instanceof MoonshotRequestError
+    ? summarizeStructuredJsonAttempts(error.attempts, error.requestId)
+    : summarizeStructuredJsonAttempts([], null);
+}
+
+function summarizeStructuredJsonAttempts(attempts: LlmHttpAttempt[], providerRequestId: string | null): StructuredJsonTransportDiagnostics {
+  const finalAttempt = attempts.at(-1);
+  return {
+    providerRequestId,
+    httpAttemptCount: attempts.length,
+    retryCount: attempts.filter(attempt => attempt.outcome === "RETRYING").length,
+    finalStatusCode: finalAttempt?.statusCode ?? null,
+    timedOut: attempts.some(attempt => attempt.statusCode === null && /timed out/iu.test(attempt.error ?? "")),
+    httpDurationMs: Math.round(attempts.reduce((total, attempt) => total + attempt.durationMs, 0) * 100) / 100
+  };
 }
 
 function createRequest(

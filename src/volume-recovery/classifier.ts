@@ -1,9 +1,29 @@
 import type { AppConfig } from "../config/env.js";
 import type { Dispatcher } from "undici";
-import { MoonshotKeywordClassifier } from "../llm/moonshot-classifier.js";
+import {
+  MoonshotKeywordClassifier,
+  structuredJsonFailureDiagnostics,
+  type StructuredJsonTransportDiagnostics
+} from "../llm/moonshot-classifier.js";
 import type { LlmTokenUsage } from "../types.js";
 import type { RecoveryCandidate, RecoveryIntent } from "./analysis.js";
 import { recoveryRecord } from "./contract.js";
+
+export interface RecoveryClassificationDiagnostics extends StructuredJsonTransportDiagnostics {
+  provider: string;
+  model: string;
+  outcome: "accepted" | "provider_request_failed" | "response_missing_output" | "response_invalid_json" | "response_schema_invalid";
+  durationMs: number;
+  usageReported: boolean | null;
+  cachedInputTokensReported: boolean | null;
+}
+
+export class RecoveryClassificationFailure extends Error {
+  constructor(readonly diagnostics: RecoveryClassificationDiagnostics, options?: ErrorOptions) {
+    super("Recovery classification provider request failed.", options);
+    this.name = "RecoveryClassificationFailure";
+  }
+}
 export function validateRecoveryIntents(value: unknown, ids: string[], categories: string[]): RecoveryIntent[] {
   const envelope = recoveryRecord(value);
   if (Object.keys(envelope).length !== 1 || !Array.isArray(envelope.items) || envelope.items.length !== ids.length) throw new Error("Incomplete recovery classification.");
@@ -108,23 +128,59 @@ export function createRecoveryClassifier(config: AppConfig["llm"], dispatcher?: 
     usage: LlmTokenUsage;
     usageReported: boolean;
     cachedInputTokensReported: boolean;
+    diagnostics: RecoveryClassificationDiagnostics;
   }>;
 } {
   if (!["moonshot", "kimi-code"].includes(config.provider)) throw new Error("Volume Recovery currently requires the existing Moonshot-compatible provider.");
   const classifier = new MoonshotKeywordClassifier(config, dispatcher);
   return {
     async classify(accountName, snapshot, candidates, categories) {
-      const response = await classifier.completeStructuredJson(recoveryModelRequest(config, accountName, snapshot, candidates, categories));
-      let intents: RecoveryIntent[] | null = null;
+      const started = performance.now();
+      let response;
       try {
-        intents = validateRecoveryIntents(response.value, candidates.map(c => c.key), categories);
-      } catch {/* The pipeline retains evidence with a partial classification flag. */}
+        response = await classifier.completeStructuredJson(recoveryModelRequest(config, accountName, snapshot, candidates, categories));
+      } catch (error) {
+        throw new RecoveryClassificationFailure({
+          provider: classifier.provider,
+          model: classifier.model,
+          outcome: "provider_request_failed",
+          durationMs: elapsedMs(started),
+          usageReported: null,
+          cachedInputTokensReported: null,
+          ...structuredJsonFailureDiagnostics(error)
+        }, { cause: error instanceof Error ? error : undefined });
+      }
+      let intents: RecoveryIntent[] | null = null;
+      let outcome: RecoveryClassificationDiagnostics["outcome"] = response.diagnostics.parseOutcome === "missing_output"
+        ? "response_missing_output"
+        : response.diagnostics.parseOutcome === "invalid_json"
+          ? "response_invalid_json"
+          : "response_schema_invalid";
+      if (response.diagnostics.parseOutcome === "parsed") {
+        try {
+          intents = validateRecoveryIntents(response.value, candidates.map(c => c.key), categories);
+          outcome = "accepted";
+        } catch {/* The pipeline retains evidence with a partial classification flag. */}
+      }
       return {
         intents,
         usage: response.usage,
         usageReported: response.usageReported,
-        cachedInputTokensReported: response.cachedInputTokensReported
+        cachedInputTokensReported: response.cachedInputTokensReported,
+        diagnostics: {
+          provider: classifier.provider,
+          model: classifier.model,
+          outcome,
+          durationMs: elapsedMs(started),
+          usageReported: response.usageReported,
+          cachedInputTokensReported: response.cachedInputTokensReported,
+          ...response.diagnostics
+        }
       };
     }
   };
+}
+
+function elapsedMs(started: number): number {
+  return Math.round((performance.now() - started) * 100) / 100;
 }

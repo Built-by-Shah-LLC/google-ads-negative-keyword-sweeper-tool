@@ -184,12 +184,22 @@ export async function loadEnvironment(rootDirectory: string): Promise<Record<str
   return { ...fileValues, ...localValues, ...process.env };
 }
 
-export async function loadOperationalConfig(rootDirectory = process.cwd()): Promise<OperationalConfig> {
-  const env = await loadEnvironment(rootDirectory);
+function loggingConfig(env: Record<string, string | undefined>): LoggingConfig {
   const level = env.LOG_LEVEL || "info";
   if (!new Set(["trace", "debug", "info", "warn", "error", "fatal", "silent"]).has(level)) {
     throw new Error("LOG_LEVEL must be trace, debug, info, warn, error, fatal, or silent.");
   }
+  return { level: level as LoggingConfig["level"] };
+}
+
+/** Loads logging without making focused workers depend on email configuration. */
+export async function loadLoggingConfig(rootDirectory = process.cwd()): Promise<LoggingConfig> {
+  return loggingConfig(await loadEnvironment(rootDirectory));
+}
+
+export async function loadOperationalConfig(rootDirectory = process.cwd()): Promise<OperationalConfig> {
+  const env = await loadEnvironment(rootDirectory);
+  const logging = loggingConfig(env);
 
   const handledErrorCodes = commaSeparated(env.ALERT_HANDLED_ERROR_CODES);
   const handledErrorStages = commaSeparated(env.ALERT_HANDLED_ERROR_STAGES);
@@ -197,7 +207,7 @@ export async function loadOperationalConfig(rootDirectory = process.cwd()): Prom
   const enabled = booleanValue(env.ERROR_EMAIL_ENABLED, false, "ERROR_EMAIL_ENABLED");
   if (!enabled) {
     return {
-      logging: { level: level as LoggingConfig["level"] },
+      logging,
       emailAlerts: { enabled: false, handledErrorCodes, handledErrorStages },
       runReportEmail
     };
@@ -226,7 +236,7 @@ export async function loadOperationalConfig(rootDirectory = process.cwd()): Prom
     smtp.password = env.SMTP_PASSWORD;
   }
   return {
-    logging: { level: level as LoggingConfig["level"] },
+    logging,
     runReportEmail,
     emailAlerts: {
       enabled: true,

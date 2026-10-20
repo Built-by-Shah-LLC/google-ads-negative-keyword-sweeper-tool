@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
+import type { Dispatcher } from "undici";
 import { recoveryCandidates, type RecoveryCandidate } from "../src/volume-recovery/analysis.js";
-import { createRecoveryClassifier, validateRecoveryIntents } from "../src/volume-recovery/classifier.js";
+import { createRecoveryClassifier, RecoveryClassificationFailure, validateRecoveryIntents } from "../src/volume-recovery/classifier.js";
 import { canonicalRecoveryJson, type RecoveryCoverage } from "../src/volume-recovery/contract.js";
 import { recoveryIntentGroups, runVolumeRecovery } from "../src/volume-recovery/pipeline.js";
 import { negativeMatches } from "../src/volume-recovery/scoring.js";
@@ -89,7 +90,35 @@ test("invalid HTTP completions reject whole batches while retaining reported usa
   const response = await createRecoveryClassifier(config, malformed.dispatcher).classify(fixture.accountName, snapshot, candidates, categories);
   assert.equal(response.intents, null);
   assert.equal(response.usage.inputTokens, 100);
+  assert.equal(response.diagnostics.outcome, "response_invalid_json");
+  assert.equal(response.diagnostics.finalStatusCode, 200);
   for (const confidence of [NaN, Infinity, -0.1]) assert.throws(() => validateRecoveryIntents({ items: [{ ...valid[0], confidence }, valid[1]] }, candidates.map(row => row.key), categories));
+});
+test("provider failures expose safe status/retry diagnostics without response details", async () => {
+  const candidates = (await inputs()).slice(0, 1);
+  const dispatcher = {
+    async request() {
+      return {
+        statusCode: 429,
+        headers: { "x-request-id": "opaque-request-429" },
+        body: { text: async () => JSON.stringify({ error: { message: "private provider credential detail" } }) }
+      };
+    }
+  } as unknown as Dispatcher;
+  await assert.rejects(
+    () => createRecoveryClassifier(config, dispatcher).classify(fixture.accountName, snapshot, candidates, categories),
+    (error: unknown) => {
+      assert.ok(error instanceof RecoveryClassificationFailure);
+      assert.equal(error.diagnostics.outcome, "provider_request_failed");
+      assert.equal(error.diagnostics.finalStatusCode, 429);
+      assert.equal(error.diagnostics.providerRequestId, "opaque-request-429");
+      assert.equal(error.diagnostics.httpAttemptCount, 1);
+      assert.equal(error.diagnostics.retryCount, 0);
+      assert.equal(error.diagnostics.timedOut, false);
+      assert.equal(JSON.stringify(error.diagnostics).includes("private provider credential"), false);
+      return true;
+    }
+  );
 });
 test("whole offline flow parses sources and saves accepted intent without sharing campaign metrics", async () => {
   const h = offlineHarness();

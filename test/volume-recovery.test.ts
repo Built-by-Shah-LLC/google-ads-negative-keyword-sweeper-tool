@@ -4,8 +4,8 @@ import type { PoolClient } from "pg";
 import { createHash } from "node:crypto";
 import { analyzeRecovery, recoveryCandidates } from "../src/volume-recovery/analysis.js";
 import { canonicalRecoveryJson, EMPTY_RECOVERY_POLICY, parseRecoveryItem, validateRecoveryPolicy } from "../src/volume-recovery/contract.js";
-import { validateRecoveryIntents } from "../src/volume-recovery/classifier.js";
-import { runVolumeRecovery, recoveryIntentGroups } from "../src/volume-recovery/pipeline.js";
+import { RecoveryClassificationFailure, validateRecoveryIntents } from "../src/volume-recovery/classifier.js";
+import { runVolumeRecovery, recoveryIntentGroups, type RecoveryServices } from "../src/volume-recovery/pipeline.js";
 import { PostgresRecoveryStore, type RecoveryStore, type RecoveryRequest } from "../src/volume-recovery/persistence.js";
 import { collectRecoverySources, sourceDecimal, type RecoverySources } from "../src/volume-recovery/sources.js";
 import { negativeMatches, recoveryDates, recoveryScore, sumDecimals } from "../src/volume-recovery/scoring.js";
@@ -380,6 +380,12 @@ test("intent bounds prioritize historic outcomes and label unprocessed findings"
 });
 test("expired time budget and provider errors have distinct safe row explanations", async () => {
   const timed = harness();
+  const warnings: Record<string, unknown>[] = [];
+  Object.assign(timed.services, { logger: {
+    info() {},
+    warn(fields: Record<string, unknown>) { warnings.push(fields); },
+    error() {}
+  } as unknown as NonNullable<RecoveryServices["logger"]> });
   let clockCalls = 0;
   timed.services.now = () => new Date(now.valueOf() + (clockCalls++ ? 20 * 60000 : 0));
   let classifyCalls = 0;
@@ -387,11 +393,60 @@ test("expired time budget and provider errors have distinct safe row explanation
   assert.equal(await runVolumeRecovery(runId, "recovery-abc", timed.services), "partial");
   assert.equal(classifyCalls, 0);
   assert.match((timed.saved[0] as { item: { explanation: string } }).item.explanation, /classification time budget/);
+  const stopped = warnings.find(fields => fields.recoveryEvent === "recovery_classification_stopped")!;
+  assert.equal(stopped.reason, "time_budget");
+  assert.equal(stopped.notEvaluatedUniqueInputCount, 1);
   const failed = harness();
   failed.services.classify = async () => { throw new Error("private token / provider response"); };
   assert.equal(await runVolumeRecovery(runId, "recovery-abc", failed.services), "partial");
   assert.match((failed.saved[0] as { item: { explanation: string } }).item.explanation, /provider request/);
   assert.equal(JSON.stringify(failed.saved).includes("private token"), false);
+});
+test("structured recovery logs cover every phase and keep provider/customer text private", async () => {
+  const h = harness();
+  const logs: Array<{ level: "info" | "warn" | "error"; fields: Record<string, unknown>; message: string | undefined }> = [];
+  const logger = {
+    info(fields: Record<string, unknown>, message?: string) { logs.push({ level: "info", fields, message }); },
+    warn(fields: Record<string, unknown>, message?: string) { logs.push({ level: "warn", fields, message }); },
+    error(fields: Record<string, unknown>, message?: string) { logs.push({ level: "error", fields, message }); }
+  } as unknown as NonNullable<RecoveryServices["logger"]>;
+  Object.assign(h.services, { logger });
+  h.services.classify = async () => {
+    throw new RecoveryClassificationFailure({
+      provider: "moonshot-kimi",
+      model: "synthetic-model",
+      outcome: "provider_request_failed",
+      providerRequestId: "opaque-request-429",
+      httpAttemptCount: 2,
+      retryCount: 1,
+      finalStatusCode: 429,
+      timedOut: false,
+      httpDurationMs: 125,
+      durationMs: 130,
+      usageReported: null,
+      cachedInputTokensReported: null
+    }, { cause: new Error("private provider credential and response body") });
+  };
+  assert.equal(await runVolumeRecovery(runId, "recovery-abc", h.services), "partial");
+  const events = logs.map(entry => entry.fields.recoveryEvent);
+  for (const event of [
+    "recovery_claim_started", "recovery_run_claimed", "recovery_snapshot_validated",
+    "recovery_collection_started", "recovery_collection_completed", "recovery_classification_planned",
+    "recovery_classification_batch_started", "recovery_classification_batch_rejected",
+    "recovery_classification_completed", "recovery_analysis_started", "recovery_analysis_completed",
+    "recovery_persistence_started", "recovery_persistence_batch_saved", "recovery_persistence_completed",
+    "recovery_finalization_started", "recovery_run_completed"
+  ]) assert.ok(events.includes(event), `Missing ${event}`);
+  const rejected = logs.find(entry => entry.fields.recoveryEvent === "recovery_classification_batch_rejected")!;
+  assert.equal(rejected.level, "warn");
+  assert.equal(rejected.fields.classificationOutcome, "provider_request_failed");
+  assert.equal(rejected.fields.finalStatusCode, 429);
+  assert.equal(rejected.fields.providerRequestId, "opaque-request-429");
+  assert.equal(rejected.fields.retryCount, 1);
+  const serialized = JSON.stringify(logs);
+  assert.equal(serialized.includes("private provider credential"), false);
+  assert.equal(serialized.includes("riverton collision repair"), false);
+  assert.equal(serialized.includes("1234567890"), false);
 });
 test("missing taxonomy never calls a model and foreign response IDs cannot fan out", async () => {
   const missing = harness();

@@ -6,6 +6,7 @@ import test from "node:test";
 import {
   loadConfig,
   loadGoogleAdsConnectionConfig,
+  loadLoggingConfig,
   loadOperationalConfig,
   PRODUCTION_MUTATION_CONFIRMATION
 } from "../src/config/env.js";
@@ -104,6 +105,16 @@ test("rejects incomplete enabled email configuration", async () => {
   try {
     await writeFile(join(directory, ".env"), "ERROR_EMAIL_ENABLED=true\nERROR_EMAIL_TO=operator@example.com\n", "utf8");
     await assert.rejects(() => loadOperationalConfig(directory), /ERROR_EMAIL_FROM, SMTP_HOST/u);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("focused logging configuration does not depend on email settings", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "sweeper-logging-config-"));
+  try {
+    await writeFile(join(directory, ".env"), "LOG_LEVEL=warn\nERROR_EMAIL_ENABLED=true\n", "utf8");
+    assert.deepEqual(await loadLoggingConfig(directory), { level: "warn" });
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
