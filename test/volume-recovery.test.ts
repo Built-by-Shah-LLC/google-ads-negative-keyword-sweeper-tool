@@ -73,6 +73,8 @@ function sources(): RecoverySources {
 function intent(data: RecoverySources) {
   return [{
     itemId: recoveryCandidates(data)[0]!.key,
+    negativeText: data.exclusions[0]!.text,
+    decision: "NEGATIVE" as const,
     category: "COMPETITOR-NEGATIVE",
     competitorLikelihood: "likely" as const,
     confidence: 0.95,
@@ -205,7 +207,7 @@ test("an unused old qualified action does not erase a current action's attribute
 test("model and browser contracts reject invented IDs, malformed policies and missing scores", () => {
   assert.throws(() => validateRecoveryIntents({
     items: []
-  }, ["a"], ["COMPETITOR-NEGATIVE"]));
+  }, [{ itemId: "a", negativeText: "synthetic" }], ["COMPETITOR-NEGATIVE"]));
   assert.throws(() => validateRecoveryIntents({
     items: [{
       itemId: "a",
@@ -214,7 +216,7 @@ test("model and browser contracts reject invented IDs, malformed policies and mi
       confidence: 1,
       reason: "x"
     }]
-  }, ["a"], []));
+  }, [{ itemId: "a", negativeText: "synthetic" }], []));
   assert.throws(() => validateRecoveryPolicy({
     ...policy,
     execute: true
@@ -282,7 +284,8 @@ function harness(duplicate = false) {
         return {
           intents: candidates.map(c => ({
             ...intent(sources())[0]!,
-            itemId: c.key
+            itemId: c.key,
+            negativeText: c.exclusion.text
           })),
           usage: {
             inputTokens: 100,

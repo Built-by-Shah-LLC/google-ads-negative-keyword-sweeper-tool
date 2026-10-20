@@ -42,7 +42,7 @@ async function main(root: string, logger: Logger): Promise<void> {
         policy: request.policy,
         campaignNameContains: config.campaignNameContains
       }),
-      classify: (request, candidates, categories) => classifier.classify(request.accountName, request.snapshot, candidates, categories),
+      classify: (request, candidates, categories, repair) => classifier.classify(request.accountName, request.snapshot, candidates, categories, repair),
       logger,
       classificationConcurrency: config.llm.concurrency
     });

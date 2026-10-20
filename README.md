@@ -31,9 +31,19 @@ opts that job into all campaign names.
 Recovery classifies every collected, campaign-scoped keyword input and saves
 every generated finding; the former 2,000-input and 10,000-finding cutoffs are
 removed. `LLM_CONCURRENCY` controls parallel recovery batches (at most eight).
+The pinned taxonomy includes both KEEP and NEGATIVE rules. Its model-only
+contract binds each answer to the exact input text and disposition, rejects
+category/disposition/competitor contradictions and zero-confidence labels,
+and requires the pinned no-service-signal fallback instead of unknown when
+that rule exists. A policy without that fallback may retain genuine unknowns.
+Application code never assigns a fallback or confidence. KEEP findings default
+to review and respect explicit account policy and every existing evidence gate.
 Invalid responses preserve independently valid, unique IDs; only missing or
 invalid inputs are retried in groups of five, then individually. Duplicate IDs
-are never accepted arbitrarily. The classification safety budget is 90 minutes;
+are never accepted arbitrarily. Repairs receive code-owned validation codes.
+Separate KEEP/negative/fallback/unknown and zero-confidence counts appear in
+classification logs and retained coverage. These are consistency checks, not
+independently verified model accuracy. The classification safety budget is 90 minutes;
 deploy the recovery Job with a two-hour task timeout and zero whole-task retries
 so it has time to rank and persist the report. Source/detail/blocker bounds and
 their truthful partial-evidence flags remain in force.

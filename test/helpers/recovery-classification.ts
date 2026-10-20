@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type { Dispatcher } from "undici";
 import type { AppConfig } from "../../src/config/env.js";
 import type { RecoveryCandidate, RecoveryIntent } from "../../src/volume-recovery/analysis.js";
-import { createRecoveryClassifier } from "../../src/volume-recovery/classifier.js";
+import { createRecoveryClassifier, recoveryCategories } from "../../src/volume-recovery/classifier.js";
 import { canonicalRecoveryJson, EMPTY_RECOVERY_POLICY, parseRecoveryItem, type RecoveryItem } from "../../src/volume-recovery/contract.js";
 import type { RecoveryRequest, RecoveryStore } from "../../src/volume-recovery/persistence.js";
 import type { RecoveryServices } from "../../src/volume-recovery/pipeline.js";
@@ -16,7 +16,7 @@ export const config: AppConfig["llm"] = {
   thinking: "enabled", batchSize: 25, concurrency: 1, requestTimeoutMs: 1000, maxRetries: 0
 };
 export const snapshot = { rulesMarkdown: fixture.rulesMarkdown, phraseProtections: [] };
-export const categories = [...fixture.rulesMarkdown.matchAll(/^###\s+`([A-Z][A-Z0-9-]*-NEGATIVE)`/gm)].map(match => match[1]!);
+export const categories = recoveryCategories(fixture.rulesMarkdown);
 export type ReferenceCase = typeof fixture.cases[number];
 export const signature = (row: { text: string; scope: string; match: string }) => JSON.stringify([row.text, row.scope, row.match]);
 export function reference(candidate: RecoveryCandidate) {
@@ -28,7 +28,7 @@ export function reference(candidate: RecoveryCandidate) {
 export function reply(candidates: RecoveryCandidate[]): RecoveryIntent[] {
   return candidates.map(candidate => {
     const row = reference(candidate);
-    return { itemId: candidate.key, category: row.categories[0]!, competitorLikelihood: row.competitor[0] as RecoveryIntent["competitorLikelihood"], confidence: row.categories[0] === null ? 0.4 : 0.9, reason: row.meaning };
+    return { itemId: candidate.key, negativeText: candidate.exclusion.text, decision: row.categories[0] === null ? "UNKNOWN" : row.categories[0]?.endsWith("-KEEP") ? "KEEP" : "NEGATIVE", category: row.categories[0]!, competitorLikelihood: row.competitor[0] as RecoveryIntent["competitorLikelihood"], confidence: row.categories[0] === null ? 0.4 : 0.9, reason: row.meaning };
   });
 }
 export interface ModelRequest {
@@ -125,7 +125,7 @@ export function offlineHarness(respond?: (candidates: RecoveryCandidate[], index
   const classifier = createRecoveryClassifier(config, model.dispatcher);
   const services: RecoveryServices = {
     store, collect: input => collectRecoverySources(source.reader, { ...input, campaignNameContains: null }, now), now: () => now,
-    classify(input, candidates, allowed) { candidates.forEach(candidate => knownCandidates.set(candidate.key, candidate)); return classifier.classify(input.accountName, input.snapshot, candidates, allowed); }
+    classify(input, candidates, allowed, repair) { candidates.forEach(candidate => knownCandidates.set(candidate.key, candidate)); return classifier.classify(input.accountName, input.snapshot, candidates, allowed, repair); }
   };
   return { request, services, saved, progress, source, model, terminal: () => terminal! };
 }
