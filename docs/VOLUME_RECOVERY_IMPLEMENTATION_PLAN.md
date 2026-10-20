@@ -1,6 +1,6 @@
 # Volume Recovery implementation plan
 
-Latest source handoff: [20 October Built-by-Shah campaign scope](#26-d-122-built-by-shah-campaign-scope--20-october-2026).
+Latest release handoff: [20 October Built-by-Shah Dev rollout](#27-d-122-authorized-main-publication-and-dev-rollout--20-october-2026).
 Earlier integration verification: [19 October integration and review](#20-integration-and-verification-handoff--19-october-2026).
 Main publication authorization: [code-only checkpoint](#21-code-only-main-publication--19-october-2026).
 
@@ -1443,3 +1443,60 @@ quality, Cloud Run IAM or production behavior.
 - `docs/VOLUME_RECOVERY_IMPLEMENTATION_PLAN.md`: supersedes the original
   all-campaign default, records D-122 behavior, evidence, boundaries and this
   handoff. Documentation only; it does not deploy or rerun recovery.
+
+## 27. D-122 authorized main publication and Dev rollout — 20 October 2026
+
+### Review findings and production actions
+
+No remaining actionable campaign-scope issue was found after the mixed-campaign
+regression and all-campaign compatibility correction recorded in section 26.
+Shah then explicitly authorized merge, deployment and Cloud Run environment
+verification. Sweeper
+[PR #12](https://github.com/Built-by-Shah-LLC/google-ads-negative-keyword-sweeper-tool/pull/12)
+merged source commit `3202b7e38f5fd051e0552e42eb98f2ed3bd0b3e1` to `main`
+as `b367d60223702ff1ffcb507496470051a107b4ca`; its
+[post-merge Rule release run](https://github.com/Built-by-Shah-LLC/google-ads-negative-keyword-sweeper-tool/actions/runs/39438956619)
+passed. Companion documentation
+[PR #44](https://github.com/Built-by-Shah-LLC/built-ads-manager/pull/44)
+merged as `0ec3ffa19f3d2858999bf255f90b468f8ac15e33`; its
+[post-merge Verify run](https://github.com/Built-by-Shah-LLC/built-ads-manager/actions/runs/39439061889)
+passed.
+
+Cloud Build `4b50132a-9c84-4573-9d59-22c3be3613a8` succeeded from a clean,
+detached checkout of the exact Sweeper merge commit. It produced immutable
+digest
+`sha256:df3361a01993148f22b3c596d5c440438ffbcd941c0700f40eaa4b3ee996e3ac`.
+Only the Dev `negative-keyword-sweeper-recovery` Job was updated: its image now
+uses that digest and its read-back environment contains exactly
+`CAMPAIGN_NAME_CONTAINS=Built by Shah` for this setting. The Job advanced from
+generation 3 to 5 because one interrupted update request was followed by the
+successful retry; this was configuration reconciliation, not a Job execution.
+
+The before/after runtime specs were normalized by replacing the image and
+removing only `CAMPAIGN_NAME_CONTAINS`; both normalized files had SHA-256
+`8bb449ae6f409b11f5dc5b58829586040182a087a94ae2c1e802966ef69f4f9f`.
+Service account `sweeper-runner@built-ads-manager-dev.iam.gserviceaccount.com`,
+zero retries and the 1,800-second timeout were preserved. Execution count
+remained 4 and the latest execution remained
+`negative-keyword-sweeper-recovery-5kwn4`, created at
+`2026-10-20T12:10:51.182973Z` and completed successfully at
+`2026-10-20T12:34:00.501883Z`. No recovery Job was executed, so this rollout
+does not prove live Google Ads reads, report persistence/RLS or model quality.
+
+Rollback may restore the captured prior compatible digest
+`sha256:fbd361bace15661eca93b8f85d0d6a4b14573e4cf3a5cb67a33f66a87f0a41ac`
+without running the Job. No rollback, migration, database/grant repair, IAM,
+secret or schedule change, Google Ads mutation or paid/model request occurred.
+The Ads Manager change remained documentation-only, so no web/worker deployment
+was required for D-122. DEV-52 and DEV-53 remained **Work in progress** and no
+Jira write occurred.
+
+### Release-record file report
+
+- `docs/VOLUME_RECOVERY_IMPLEMENTATION_PLAN.md`: adds the exact merged commits,
+  passing post-merge checks, Cloud Build ID and immutable digest, deployed Job
+  readback, normalized-spec proof, unchanged execution evidence and rollback
+  digest. This is documentation only; the actual Cloud Run update described
+  above was a separate production action. Risk: the readback proves current Dev
+  configuration but not a future execution or production behavior. Verified
+  against GitHub and direct `gcloud run jobs describe` before/after evidence.
