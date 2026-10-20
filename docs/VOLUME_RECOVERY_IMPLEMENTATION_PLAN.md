@@ -1595,10 +1595,10 @@ be recorded below after it occurs.
 Worker source commit `53a988c2ce7db008583ca1e170bc91fcec4850e2` was published
 on `fix/recovery-full-inventory` in [PR #15](https://github.com/Built-by-Shah-LLC/google-ads-negative-keyword-sweeper-tool/pull/15).
 GitHub displayed all checks passed (one successful check) and no conflicts.
-Automatic approval review rejected confirming its merge because explicit main-
-merge approval is required; that approval was requested and remains pending.
-No alternative main-branch mutation was attempted. The authorized Dev rollout
-uses the tested feature commit while its PR remains open.
+Automatic approval review initially rejected confirming its merge because
+explicit main-merge approval was required. That approval was requested; no
+alternative main-branch mutation was attempted while it was pending. The first
+authorized Dev rollout used the tested feature commit while its PR was open.
 
 Cloud Build `6833feb5-b927-4a0c-a45d-de7299a66f36` succeeded from a clean Cloud
 Shell checkout pinned to that exact commit, producing immutable digest
@@ -1627,4 +1627,38 @@ requested. Execution start, current live counters, model validation outcomes,
 terminal persistence, new report/CSV and semantic accuracy are not yet verified.
 The cloud job is independent of the browser, so the UI lock does not cancel a
 submitted request. No success or live quality claim follows from source tests
-or image deployment. Continue monitoring this request before starting another.
+or image deployment. The subsequent verified outcome is recorded below.
+
+### Iteration 1 retained live acceptance and approved main merge
+
+Shah subsequently explicitly approved merging to main and finishing all scoped
+Dev deployments. After manual Mac unlock, PR #15 displayed one successful
+check at head `d13f2b73634e1a1244d01d2ade40cf8e2737a7a2` and no conflicts. It
+merged as `4edbf24ddd65c10762d00307753306766764e614`; a fresh remote fetch and
+ancestor check confirmed the complete fix on `origin/main`. The merged runtime
+source, Dockerfile, package manifests and TypeScript configuration are identical
+to deployed source `53a988c2ce7db008583ca1e170bc91fcec4850e2`.
+
+The authenticated Dev portal retained review
+`2b36a90a-ca89-48bc-aba8-89ca632178db` as **Review finished with gaps**, with
+history 2026-07-21 through 2026-10-18. Its saved classification summary reports
+**10,125 keyword findings; 6,871 unique model inputs; 6,871 evaluated; zero
+rejected; zero not evaluated**. The saved campaign filter explicitly permits
+only names containing `Built by Shah` case-insensitively. Classification is
+complete for the collected supported keyword inventory; this is actual saved
+provider-backed evidence, not the synthetic capacity fixture. It does not prove
+semantic accuracy or that a confidence value is calibrated.
+
+The remaining saved gaps are conversion diagnostics, context detail limits,
+the two-million blocker-comparison limit and retained detail limits. These
+continue to restrict affected findings to review; they are not missing intent
+or fabricated confidence. The portal CSV refinement and detailed Cloud log
+readback are still being verified separately. No replacement paid review was
+started merely because the browser had locked.
+
+Cloud Shell re-provisioned during the disconnect, so its earlier `/tmp` files
+are no longer available. The immutable image/build identifiers above and saved
+portal review remain the release evidence; no secret or credential material was
+copied to recover the session. Google Cloud requested organization re-verification
+before further log/configuration reads. That manual check is distinct from the
+already verified retained report and does not invalidate its saved counts.
