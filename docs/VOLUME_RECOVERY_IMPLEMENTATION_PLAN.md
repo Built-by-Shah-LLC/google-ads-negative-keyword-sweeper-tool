@@ -1588,3 +1588,43 @@ be recorded below after it occurs.
 - `docs/VOLUME_RECOVERY_IMPLEMENTATION_PLAN.md`: records authority, findings,
   actual offline proof, per-file effects and pending release evidence. No
   operational action is established solely by this documentation.
+
+
+### Iteration 1 Dev deployment and live request
+
+Worker source commit `53a988c2ce7db008583ca1e170bc91fcec4850e2` was published
+on `fix/recovery-full-inventory` in [PR #15](https://github.com/Built-by-Shah-LLC/google-ads-negative-keyword-sweeper-tool/pull/15).
+GitHub displayed all checks passed (one successful check) and no conflicts.
+Automatic approval review rejected confirming its merge because explicit main-
+merge approval is required; that approval was requested and remains pending.
+No alternative main-branch mutation was attempted. The authorized Dev rollout
+uses the tested feature commit while its PR remains open.
+
+Cloud Build `6833feb5-b927-4a0c-a45d-de7299a66f36` succeeded from a clean Cloud
+Shell checkout pinned to that exact commit, producing immutable digest
+`sha256:bee243538a7058ad3aacd49ea1c01bd4a4b0313779c9b3497fb013bfcd07f6ce`.
+Dev Job `negative-keyword-sweeper-recovery` advanced from generation 6 to 7
+and readback confirmed this image, `LLM_CONCURRENCY=6`, a 7,200-second task
+timeout, zero automatic retries, `CAMPAIGN_NAME_CONTAINS=Built by Shah` and
+`GOOGLE_ADS_MUTATION_MODE=disabled`. A complete spec-path comparison showed
+only the image, timeout, added concurrency entry and generated
+`client.knative.dev/nonce` label changed. The initial normalization checked the
+wrong nonce location and returned false; path-level comparison resolved that
+without hiding other differences. CPU 1 and memory 1 GiB were preserved.
+
+The preceding image was
+`sha256:b4f2e5bcafb4aee6d35fb119f1597be82120734619e7391f4661ab4fd1de5a38`,
+with 1,800-second timeout and no explicit LLM_CONCURRENCY. The full preceding
+Job and web configuration snapshots remain in this task's Cloud Shell `/tmp`
+files for rollback; no rollback, IAM/secret/schedule change or migration ran.
+
+The authenticated portal's New review command submitted the approved same-
+account review `2b36a90a-ca89-48bc-aba8-89ca632178db` at 2026-10-20 20:48 UTC
+(21 October 01:48 Asia/Karachi). It returned Waiting for worker with no Ads
+changes. A scoped log-monitor command was submitted, but before its output
+could be read the Mac locked and automatic unlock failed. Manual unlock was
+requested. Execution start, current live counters, model validation outcomes,
+terminal persistence, new report/CSV and semantic accuracy are not yet verified.
+The cloud job is independent of the browser, so the UI lock does not cancel a
+submitted request. No success or live quality claim follows from source tests
+or image deployment. Continue monitoring this request before starting another.
