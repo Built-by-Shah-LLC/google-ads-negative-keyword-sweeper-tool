@@ -29,7 +29,8 @@ async function main(): Promise<void> {
         customerId: request.customerId,
         timeZone: request.timeZone,
         currencyCode: request.currencyCode,
-        policy: request.policy
+        policy: request.policy,
+        campaignNameContains: config.campaignNameContains
       }),
       classify: (request, candidates, categories) => classifier.classify(request.accountName, request.snapshot, candidates, categories)
     });

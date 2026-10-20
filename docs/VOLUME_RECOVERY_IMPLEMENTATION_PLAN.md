@@ -1,6 +1,6 @@
 # Volume Recovery implementation plan
 
-Latest source handoff: [20 October evidence corrections](#22-evidence-corrections--20-october-2026).
+Latest source handoff: [20 October Built-by-Shah campaign scope](#26-d-122-built-by-shah-campaign-scope--20-october-2026).
 Earlier integration verification: [19 October integration and review](#20-integration-and-verification-handoff--19-october-2026).
 Main publication authorization: [code-only checkpoint](#21-code-only-main-publication--19-october-2026).
 
@@ -166,7 +166,15 @@ Claim one persisted request and resolve its active `client_accounts` mapping in 
 
 Recovery must work for accounts that have never run Keyword Sweeper. Do not require `runs/`, a normal sweep decision, the 30-day baseline-completion file, or membership in the daily-sweep master list. The configured account mapping and authorized request are the selection authority.
 
-Default analysis scope is all enabled, non-removed Search and PMax campaigns in that account. Inventory exclusions from paused/other contexts as applicable, but label them outside the active recommendation scope. Preserve delivery-status diagnostics rather than hiding low-volume campaigns through the normal sweep's serving filter. Do not silently inherit its campaign-name filter. Display the resolved scope in the report.
+Default analysis scope is campaigns whose names contain the configured
+`CAMPAIGN_NAME_CONTAINS` value case-insensitively; the existing default is
+`Built by Shah`. An explicitly empty value is the simple all-campaign opt-in.
+Apply the resolved scope to Search/PMax ranking and to direct, ad-group,
+shared-list, account-list and brand-exclusion fan-out before evidence is
+retained. Inventory paused/other matching contexts as applicable, but label
+them outside the active recommendation scope. Preserve delivery-status
+diagnostics rather than hiding low-volume matching campaigns through the
+normal sweep's serving filter. Record the resolved scope in report coverage.
 
 ### Stage 2 Profile conversion measurement automatically
 
@@ -1359,3 +1367,79 @@ release-record follow-up; those tested changes are reported in section 24.
 Companion portal release files and individual risks/proof are recorded in its
 current `docs/status.md`. The owned Cloud Shell build checkout is temporary;
 it is not a linked user worktree or the dirty developer source.
+
+## 26. D-122 Built-by-Shah campaign scope — 20 October 2026
+
+### Review findings and changed behavior
+
+Review found that Volume Recovery was the exception to the repository's
+existing campaign-name policy: its entry point loaded
+`CAMPAIGN_NAME_CONTAINS`, but the collector never received it, and the approved
+plan explicitly selected every eligible campaign. A mixed-campaign regression
+first exposed one compatibility issue in the fix: the all-campaign opt-in had
+lost unattached inventory-only shared-list rows. The collector now preserves
+that prior behavior only when filtering is disabled. No remaining actionable
+scope issue was found in the final diff.
+
+The recovery entry point now passes the existing setting into source
+collection. The omitted-value default remains `Built by Shah`; matching is
+case-insensitive. Matching campaign identities are established before direct
+and ad-group negatives, shared-list attachments, account-list fan-out, brand
+exclusions, traffic, conversion facts and campaign context are retained. A
+coverage row records the resolved filter. Setting `CAMPAIGN_NAME_CONTAINS` to
+an explicitly empty value produces `null` and restores the prior all-campaign
+behavior. This is a code/config toggle, not a new browser control.
+
+DEV-52 and DEV-53 were read as **Work in progress**; no Jira write occurred.
+No Google Ads or model request, recovery execution, migration, database/grant
+repair, deployment, push, merge or cloud configuration change was performed.
+Existing immutable reports are unchanged. A later authorized image rollout and
+separately approved fresh run are required before new saved evidence can use
+the scope.
+
+### Verification actually run
+
+- Focused recovery evidence test: **16 passed**.
+- Focused recovery/evidence/classification run: **66 passed** after preserving
+  the all-campaign inventory compatibility noted above.
+- `npm run check`: passed.
+- `npm test`: **255 passed, one existing optional integration test skipped**
+  (**256 total**).
+- `npm run build`: passed.
+- `git diff --check`: passed.
+
+All provider/source data in these tests is injected and fictional. The checks
+prove local filtering and the null opt-in; they do not prove the deployed Job's
+environment, live Google Ads compatibility, report persistence/RLS, model
+quality, Cloud Run IAM or production behavior.
+
+### Complete Sweeper file-by-file change report
+
+- `src/volume-recovery.ts`: passes `config.campaignNameContains` to the recovery
+  collector. Why: the existing default/toggle previously stopped at config.
+  Consequence: future runs use the same setting as other Sweeper modes. Risk:
+  a deployed explicit blank still intentionally selects all campaigns. Verified
+  by typecheck/build plus config and collector regressions.
+- `src/volume-recovery/sources.ts`: filters the campaign directory before every
+  campaign-dependent exclusion/evidence association and records the resolved
+  scope. Why: a late filter could retain other-agency blockers or metrics.
+  Consequence: nonmatching campaigns produce no retained finding/context;
+  account-wide metadata remains available for matching-campaign interpretation.
+  Tradeoff: provider reads can still return account-wide rows before in-memory
+  filtering. Verified by the mixed Search/PMax/Shopping regression and full run.
+- `test/volume-recovery-evidence.test.ts`: adds mixed matching/nonmatching direct,
+  ad-group, shared/account-list, brand, traffic/conversion and context cases,
+  plus the null all-campaign comparison. Test-only; injected rows do not prove
+  GAQL behavior. The new case and all 16 file tests passed.
+- `test/helpers/recovery-classification.ts`: makes the offline classification
+  fixture opt explicitly into its historical all-campaign synthetic scope.
+  Why: it tests classification rather than deployment defaults. No production
+  effect. Verified by all 66 focused and 255 passing full-suite tests.
+- `test/volume-recovery.test.ts`: keeps the isolated SELECT-only collector case
+  explicit about all-campaign scope. Test-only; no live source is contacted.
+  Verified in the focused and full suites.
+- `README.md`: documents the shared default and empty-value opt-in. No runtime
+  effect; risk is future config drift. Checked against env parsing and source.
+- `docs/VOLUME_RECOVERY_IMPLEMENTATION_PLAN.md`: supersedes the original
+  all-campaign default, records D-122 behavior, evidence, boundaries and this
+  handoff. Documentation only; it does not deploy or rerun recovery.

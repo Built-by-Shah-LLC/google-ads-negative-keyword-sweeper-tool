@@ -460,7 +460,8 @@ test("source collection is SELECT-only, resolves manager conversion ownership an
     customerId: "1234567890",
     timeZone: "America/Los_Angeles",
     currencyCode: "USD",
-    policy: EMPTY_RECOVERY_POLICY
+    policy: EMPTY_RECOVERY_POLICY,
+    campaignNameContains: null
   }, now);
   assert.ok(calls.every(call => call.query.startsWith("SELECT ") && !/mutate/i.test(call.query)));
   assert.equal(calls.find(call => call.query.includes(" FROM conversion_action"))!.customer, "9876543210");
