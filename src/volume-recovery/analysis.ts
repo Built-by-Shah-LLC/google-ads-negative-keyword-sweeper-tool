@@ -26,7 +26,6 @@ export function recoveryCandidates(sources: RecoverySources): RecoveryCandidate[
         exclusion,
         campaignId
       });
-      if (result.length > 10000) return result; // One extra row signals a bounded, explicitly partial report.
     }
   }
   return result;

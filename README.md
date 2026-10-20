@@ -28,6 +28,24 @@ opts that job into all campaign names.
 
 ### Volume Recovery observability
 
+Recovery classifies every collected, campaign-scoped keyword input and saves
+every generated finding; the former 2,000-input and 10,000-finding cutoffs are
+removed. `LLM_CONCURRENCY` controls parallel recovery batches (at most eight).
+Invalid responses preserve independently valid, unique IDs; only missing or
+invalid inputs are retried in groups of five, then individually. Duplicate IDs
+are never accepted arbitrarily. The classification safety budget is 90 minutes;
+deploy the recovery Job with a two-hour task timeout and zero whole-task retries
+so it has time to rank and persist the report. Source/detail/blocker bounds and
+their truthful partial-evidence flags remain in force.
+
+Batch logs include the attempt, repair chunk, accepted/rejected input counts,
+provider finish reason and output character count. `validationIssues` identifies
+the row index, field and code-owned failure rule, with safe type/count/length
+facts where useful. It never contains model values, input IDs, raw field names,
+advertiser text or prompts. Repaired failures stay visible in logs without
+making successfully repaired classification partial. The existing v1 report
+contract, policy gates, campaign filter and Google Ads read-only boundary remain.
+
 The worker emits structured JSON logs at the default `info` level for claim,
 snapshot validation, source collection, classification planning and each model
 batch, analysis, report persistence, finalization, and store shutdown. Every

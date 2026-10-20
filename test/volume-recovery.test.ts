@@ -340,8 +340,8 @@ test("invalid model output retains evidence, tokens and a partial status", async
   assert.deepEqual((h.saved.at(-1) as {
     usage: unknown;
   }).usage, {
-    inputTokens: 123,
-    outputTokens: 45
+    inputTokens: 369,
+    outputTokens: 135
   });
   assert.match((h.saved[0] as { item: { explanation: string } }).item.explanation, /model response failed validation/);
 });
@@ -363,7 +363,7 @@ test("identical semantic inputs share classification, never their campaign metri
   data.exclusions.push({ ...data.exclusions[0]!, resource: "different-scope", scope: "account" });
   assert.equal(recoveryIntentGroups(data, recoveryCandidates(data)).length, 2, "Different model scope is not deduplicated");
 });
-test("intent bounds prioritize historic outcomes and label unprocessed findings", async () => {
+test("full inventory retains historic outcome priority without skipping inputs", async () => {
   const h = harness(), data = sources(), original = data.exclusions[0]!;
   data.exclusions = Array.from({ length: 2001 }, (_, index) => ({ ...original, resource: "criterion/" + index, text: "repair " + index }));
   data.facts[0]!.query = "repair 2000";
@@ -371,12 +371,11 @@ test("intent bounds prioritize historic outcomes and label unprocessed findings"
   h.services.collect = async () => data;
   const groups = recoveryIntentGroups(data, recoveryCandidates(data));
   assert.equal(groups[0]!.candidate.exclusion.text, "repair 2000");
-  assert.equal(await runVolumeRecovery(runId, "recovery-abc", h.services), "partial");
+  assert.equal(await runVolumeRecovery(runId, "recovery-abc", h.services), "succeeded");
   const rows = h.saved.slice(0, -1) as { item: ReturnType<typeof analyzeRecovery>["items"][number]["item"] }[];
   assert.equal(rows.find(row => row.item.negativeText === "repair 2000")!.item.semanticConfidence, 0.95);
   const skipped = rows.filter(row => row.item.semanticConfidence === null);
-  assert.equal(skipped.length, 1);
-  assert.match(skipped[0]!.item.explanation, /2,000-unique-input bound/);
+  assert.equal(skipped.length, 0);
 });
 test("expired time budget and provider errors have distinct safe row explanations", async () => {
   const timed = harness();
@@ -387,7 +386,7 @@ test("expired time budget and provider errors have distinct safe row explanation
     error() {}
   } as unknown as NonNullable<RecoveryServices["logger"]> });
   let clockCalls = 0;
-  timed.services.now = () => new Date(now.valueOf() + (clockCalls++ ? 20 * 60000 : 0));
+  timed.services.now = () => new Date(now.valueOf() + (clockCalls++ ? 90 * 60000 : 0));
   let classifyCalls = 0;
   timed.services.classify = async () => { classifyCalls++; throw new Error("must not call provider"); };
   assert.equal(await runVolumeRecovery(runId, "recovery-abc", timed.services), "partial");

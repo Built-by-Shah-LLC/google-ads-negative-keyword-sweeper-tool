@@ -1500,3 +1500,91 @@ Jira write occurred.
   above was a separate production action. Risk: the readback proves current Dev
   configuration but not a future execution or production behavior. Verified
   against GitHub and direct `gcloud run jobs describe` before/after evidence.
+
+## 28. D-124 full scoped inventory and classification repair — 21 October 2026
+
+### Findings and authority
+
+The authorized investigation of Dev execution `negative-keyword-sweeper-recovery-rd6rc`
+found 725 accepted, 175 rejected and 5,909 unevaluated unique inputs out of 6,809.
+The 2,000-input cutoff skipped 4,809 and the 20-minute serial budget skipped
+another 1,100. Seven HTTP-200, parsed-JSON responses failed schema validation,
+which discarded every row in their batches without recording the failing rule.
+The candidate/report 10,000-row cutoff also hid part of the collected inventory.
+The report's two campaigns both matched `Built by Shah`; its saved scope was
+correct. Existing reports remain immutable.
+
+Shah explicitly requested fixing these limits and validation failures, precise
+diagnostics, and continued deployment/live test iterations until this account's
+full BBS inventory is processed. This authorizes the scoped Dev recovery and
+companion export rollout, fresh read-only recovery reviews and their provider
+cost. It does not authorize Google Ads mutations, migrations, repairs, IAM or
+secret changes, new schedules, or portfolio-wide bulk launches. DEV-52/DEV-53
+were read as Work in progress; no Jira mutation is implied.
+
+### First implementation and offline evidence
+
+All collected keyword inputs are selected, and every generated finding is saved.
+Existing `LLM_CONCURRENCY` bounds parallel batches to eight; the planned Dev
+setting is six. Valid, uniquely identified rows survive a partial response.
+Only rejected inputs are retried in groups of five, then individually, for at
+most three classification attempts per input. The prompt explicitly states the
+JSON contract and allowed taxonomy, requests short reasons, and the schema pins
+the expected item count. No invalid confidence/category/ID is coerced into an
+accepted result. A 90-minute safety deadline remains, with a planned two-hour
+Cloud Run timeout and zero whole-task retries. Failed persistence stops new
+work and drains active workers before finalization.
+
+Safe validation diagnostics contain rule, field, row index, and relevant
+type/count/length limits, capped at 50 issues per response. Finish reason and
+output character count distinguish truncation from contract failures. Existing
+HTTP/timeout/request-ID telemetry remains. No model values, advertiser text,
+raw unexpected field names, prompts or raw exceptions enter logs.
+
+Verification run before publication: `npm run check`, `npm test` (**261 passed,
+one existing optional integration skip**) and `npm run build` passed. The focused
+classification/worker set passed **56 tests**, including a 10,025-finding,
+10,025-input fixture and bounded concurrency, plus preserving 24 valid inputs
+while repairing one bad row. These are fictional/injected checks, not live
+provider accuracy or deployed persistence proof. Deployment/live evidence will
+be recorded below after it occurs.
+
+### Sweeper file-by-file report
+
+- `src/volume-recovery/classifier.ts`: precise safe validation issues, independent
+  valid-row retention and explicit prompt/count contract. Prevents one invalid
+  row from erasing peers. Strict exported validation still rejects any defect;
+  duplicates reject both rows. Risk: real provider defects may exhaust repairs;
+  tested with malformed/foreign/duplicate/type/range/length cases and repairs.
+- `src/volume-recovery/pipeline.ts`: selects all inputs, runs bounded parallel
+  batches, repairs only missing inputs, reconciles unique counts, drains workers
+  on failure and saves the full report. No Ads write or scoring gate changes.
+  Tradeoff: more paid requests and longer jobs; the safety deadline can still
+  yield truthful partial classification. Verified by focused/full tests/build.
+- `src/volume-recovery/analysis.ts`: removes the candidate cutoff so collected
+  exclusions are not lost before classification. Source and detail bounds remain;
+  larger inventories use more memory/CPU. Verified by the 10,025-item flow.
+- `src/volume-recovery.ts`: passes existing concurrency configuration to the
+  recovery pipeline; no new configuration key or provider. At most eight active
+  batches; deployment must align task timeout. Verified by typecheck/build.
+- `src/llm/moonshot-classifier.ts`: adds allowlisted finish reason and output
+  character count to structured-response diagnostics. Normal sweep behavior is
+  unchanged; no raw response is logged. Verified by transport and full tests.
+- `test/recovery-full-inventory.test.ts`: new synthetic regressions for safe
+  rule/field diagnostics, ambiguous duplicate rejection, one-row repair,
+  >10,000 saved/classified rows and concurrency. No live side effects; passed.
+- `test/helpers/recovery-classification.ts`: resolves fake replies from actual
+  requested IDs across concurrent calls and repair subsets. Test-only; it is
+  not a replay of account history. Verified by focused/full tests.
+- `test/volume-recovery-classification.test.ts`: replaces old whole-batch/cap
+  expectations with isolated failures, complete 2,001-input processing, repair
+  usage accounting and the new deadline. Fake model success is not accuracy;
+  all focused/full cases passed.
+- `test/volume-recovery.test.ts`: updates limit/deadline/retry accounting
+  expectations while retaining scope, policy, heartbeat and privacy gates.
+  Test-only; focused/full cases passed.
+- `README.md`: documents full-inventory/repair behavior, diagnostics, costs and
+  recovery timeout requirements. No runtime effect; verified against source.
+- `docs/VOLUME_RECOVERY_IMPLEMENTATION_PLAN.md`: records authority, findings,
+  actual offline proof, per-file effects and pending release evidence. No
+  operational action is established solely by this documentation.

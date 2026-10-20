@@ -28,6 +28,8 @@ export interface StructuredJsonTransportDiagnostics {
 
 export interface StructuredJsonCompletionDiagnostics extends StructuredJsonTransportDiagnostics {
   parseOutcome: "parsed" | "missing_output" | "invalid_json";
+  finishReason?: string | null;
+  outputCharacters?: number;
 }
 
 export class MoonshotKeywordClassifier implements KeywordClassifier {
@@ -149,6 +151,8 @@ export class MoonshotKeywordClassifier implements KeywordClassifier {
     // Normalized zero is useful for existing runtime totals, but is not proof of reported usage/cost.
     const cachedInputTokensReported = usageReported && usage.cachedInputTokens <= usage.inputTokens &&
       [rawUsage.cached_tokens, details.cached_tokens].some(value => nonNegativeNumber(value) && value === usage.cachedInputTokens);
+    const choice = Array.isArray(call.payload.choices) && isRecord(call.payload.choices[0]) ? call.payload.choices[0] : {};
+    const finishReason = typeof choice.finish_reason === "string" && ["stop", "length", "tool_calls", "content_filter"].includes(choice.finish_reason) ? choice.finish_reason : null;
     return {
       value,
       usage,
@@ -156,7 +160,9 @@ export class MoonshotKeywordClassifier implements KeywordClassifier {
       cachedInputTokensReported,
       diagnostics: {
         ...summarizeStructuredJsonAttempts(call.attempts, call.requestId),
-        parseOutcome
+        parseOutcome,
+        finishReason,
+        outputCharacters: responseText?.length ?? 0
       }
     };
   }
