@@ -117,12 +117,15 @@ export function offlineHarness(respond?: (candidates: RecoveryCandidate[], index
     async finish(_request, _execution, status, summary, usage) { terminal = { status, summary: summary as Record<string, unknown>, usage }; }
   };
   // The actual pipeline passes the actual candidates; the fake only chooses its HTTP reply.
-  let batch: RecoveryCandidate[] = [];
-  const model = fakeDispatcher((_body, index) => respond ? respond(batch, index) : completion(reply(batch).reverse()));
+  const knownCandidates = new Map<string, RecoveryCandidate>();
+  const model = fakeDispatcher((body, index) => {
+    const batch = (JSON.parse(body.messages[1]!.content).items as { itemId: string }[]).map(row => knownCandidates.get(row.itemId)!);
+    return respond ? respond(batch, index) : completion(reply(batch).reverse());
+  });
   const classifier = createRecoveryClassifier(config, model.dispatcher);
   const services: RecoveryServices = {
     store, collect: input => collectRecoverySources(source.reader, { ...input, campaignNameContains: null }, now), now: () => now,
-    classify(input, candidates, allowed) { batch = candidates; return classifier.classify(input.accountName, input.snapshot, candidates, allowed); }
+    classify(input, candidates, allowed) { candidates.forEach(candidate => knownCandidates.set(candidate.key, candidate)); return classifier.classify(input.accountName, input.snapshot, candidates, allowed); }
   };
   return { request, services, saved, progress, source, model, terminal: () => terminal! };
 }

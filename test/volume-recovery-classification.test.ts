@@ -64,7 +64,7 @@ test("synthetic advertiser instruction is serialized as data; no prompt or perfo
   assert.equal(result.intents![0]!.confidence, 0);
   assert.equal(JSON.stringify(model.requests).includes(config.apiKey), false);
 });
-test("invalid HTTP completions reject whole batches while retaining reported usage", async t => {
+test("invalid HTTP completions isolate invalid rows and retain exact diagnostics and usage", async t => {
   const candidates = (await inputs()).slice(0, 2);
   const valid = reply(candidates);
   const invalid: [string, unknown][] = [
@@ -82,7 +82,10 @@ test("invalid HTTP completions reject whole batches while retaining reported usa
   for (const [name, items] of invalid) await t.test(name, async () => {
     const model = fakeDispatcher(() => completion(items));
     const response = await createRecoveryClassifier(config, model.dispatcher).classify(fixture.accountName, snapshot, candidates, categories);
-    assert.equal(response.intents, null);
+    assert.deepEqual(response.intents, name === "duplicate ID" ? null : name === "missing ID" ? [valid[0]] : [valid[1]]);
+    assert.equal(response.diagnostics.outcome, "response_schema_invalid");
+    assert.ok(response.diagnostics.validationIssues!.length > 0);
+    assert.throws(() => validateRecoveryIntents({ items }, candidates.map(c => c.key), categories));
     assert.equal(response.usage.totalTokens, 120);
     assert.equal(response.usage.cachedInputTokens, 10);
   });
@@ -177,7 +180,7 @@ test("26 distinct inputs form two real-adapter batches without dropping expanded
 });
 test("partial and all-batch failures keep traffic, safe reasons and reconcilable counts", async t => {
   for (const failAll of [false, true]) await t.test(failAll ? "all fail" : "second fails", async () => {
-    const h = offlineHarness((candidates, index) => failAll || index === 1 ? completion([]) : completion(candidates.flatMap(candidate => candidate.exclusion.text === extra.text ? [{ itemId: candidate.key, category: null, competitorLikelihood: "unknown" as const, confidence: 0.2, reason: "Synthetic extra input." }] : reply([candidate]))), [...fixture.cases, extra]);
+    const h = offlineHarness((candidates, index) => failAll || candidates.some(candidate => candidate.exclusion.text === extra.text) ? completion([]) : completion(candidates.flatMap(candidate => candidate.exclusion.text === extra.text ? [{ itemId: candidate.key, category: null, competitorLikelihood: "unknown" as const, confidence: 0.2, reason: "Synthetic extra input." }] : reply([candidate]))), [...fixture.cases, extra]);
     assert.equal(await runVolumeRecovery(h.request.id, "synthetic-execution", h.services), "partial");
     const accepted = h.saved.filter(row => row.item.semanticConfidence !== null);
     assert.equal(accepted.length, failAll ? 0 : 26);
@@ -189,7 +192,7 @@ test("partial and all-batch failures keep traffic, safe reasons and reconcilable
     }
     assert.equal(h.saved.find(row => row.item.negativeText === "fix my car near me")!.item.metrics.clicks, "2");
     accounting(h, failAll ? "0 evaluated, 26 rejected, 0 not evaluated" : "25 evaluated, 1 rejected, 0 not evaluated");
-    assert.deepEqual(h.terminal().usage, { inputTokens: 200, outputTokens: 40 });
+    assert.deepEqual(h.terminal().usage, { inputTokens: h.model.requests.length * 100, outputTokens: h.model.requests.length * 20 });
   });
 });
 test("a confident classification cannot bypass retain policy or missing business/blocker evidence", async t => {
@@ -222,7 +225,7 @@ test("missing taxonomy and elapsed-time caps never touch the fake provider", asy
       h.request.policyHash = createHash("sha256").update(canonicalRecoveryJson(h.request.snapshot)).digest("hex");
     } else {
       let ticks = 0;
-      h.services.now = () => new Date(now.valueOf() + (ticks++ ? 20 * 60000 : 0));
+      h.services.now = () => new Date(now.valueOf() + (ticks++ ? 90 * 60000 : 0));
     }
     assert.equal(await runVolumeRecovery(h.request.id, "synthetic-execution", h.services), "partial");
     assert.equal(h.model.requests.length, 0);
@@ -232,7 +235,7 @@ test("missing taxonomy and elapsed-time caps never touch the fake provider", asy
     accounting(h, "0 evaluated, 0 rejected, 25 not evaluated");
   });
 });
-test("2001 unique-input cap selects an outcome beyond inventory position 2000 deterministically", async () => {
+test("all 2001 unique inputs are classified with deterministic outcome priority", async () => {
   const h = offlineHarness(candidates => completion(candidates.map(c => ({ itemId: c.key, category: "BODYWORK-NEGATIVE", competitorLikelihood: "unlikely", confidence: 0.9, reason: "Synthetic repair service." }))));
   const data = await h.services.collect(h.request);
   const original = data.exclusions.find(e => e.scope === "campaign")!;
@@ -244,12 +247,11 @@ test("2001 unique-input cap selects an outcome beyond inventory position 2000 de
   const groups = recoveryIntentGroups(data, recoveryCandidates(data));
   assert.equal(groups[0]!.candidate.exclusion.text, "synthetic repair 2000");
   assert.deepEqual(groups.map(g => g.candidate.key), recoveryIntentGroups(data, [...recoveryCandidates(data)].reverse()).map(g => g.candidate.key));
-  assert.equal(await runVolumeRecovery(h.request.id, "synthetic-execution", h.services), "partial");
-  assert.equal(h.model.requests.length, 80);
+  assert.equal(await runVolumeRecovery(h.request.id, "synthetic-execution", h.services), "succeeded");
+  assert.equal(h.model.requests.length, 81);
   assert.equal(h.saved.length, 2001);
   assert.equal(h.saved.find(row => row.item.negativeText === "synthetic repair 2000")!.item.semanticConfidence, 0.9);
   const skipped = h.saved.filter(row => row.item.semanticConfidence === null);
-  assert.equal(skipped.length, 1);
-  assert.match(skipped[0]!.item.explanation, /2,000-unique-input bound/);
-  accounting(h, "2001 keyword findings; 2001 unique model inputs; 2000 evaluated, 0 rejected, 1 not evaluated");
+  assert.equal(skipped.length, 0);
+  accounting(h, "2001 keyword findings; 2001 unique model inputs; 2001 evaluated, 0 rejected, 0 not evaluated");
 });

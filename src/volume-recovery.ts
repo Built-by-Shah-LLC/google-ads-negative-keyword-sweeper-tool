@@ -43,7 +43,8 @@ async function main(root: string, logger: Logger): Promise<void> {
         campaignNameContains: config.campaignNameContains
       }),
       classify: (request, candidates, categories) => classifier.classify(request.accountName, request.snapshot, candidates, categories),
-      logger
+      logger,
+      classificationConcurrency: config.llm.concurrency
     });
     process.stdout.write(JSON.stringify({
       runId,

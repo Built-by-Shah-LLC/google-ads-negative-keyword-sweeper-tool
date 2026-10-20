@@ -8,7 +8,8 @@ import type { RecoveryRequest } from "./persistence.js";
 import type { RecoveryCandidate } from "./analysis.js";
 import {
   RecoveryClassificationFailure,
-  validateRecoveryIntents,
+  inspectRecoveryIntents,
+  RecoveryIntentValidationError,
   type RecoveryClassificationDiagnostics
 } from "./classifier.js";
 import { fraction, negativeMatches, normalizeRecoveryText, sumDecimals } from "./scoring.js";
@@ -66,6 +67,7 @@ export interface RecoveryServices {
     diagnostics?: RecoveryClassificationDiagnostics;
   }>;
   now?: () => Date;
+  classificationConcurrency?: number;
   logger?: Pick<Logger, "info" | "warn" | "error">;
 }
 export async function runVolumeRecovery(runId: string, execution: string, services: RecoveryServices): Promise<"duplicate" | "succeeded" | "partial" | "failed"> {
@@ -135,141 +137,122 @@ export async function runVolumeRecovery(runId: string, execution: string, servic
     const intents: RecoveryIntent[] = [];
     const modelCoverage: RecoveryCoverage[] = [];
     const groups = recoveryIntentGroups(sources, candidates);
-    const selected = groups.slice(0, 2000);
-    const uniqueInputLimitSkipped = Math.max(0, groups.length - selected.length);
     const intentUnavailable = new Map<string, string>();
-    const missing = (members: RecoveryCandidate[], reason: string) => members.forEach(candidate => intentUnavailable.set(candidate.key, reason));
-    let evaluated = 0, rejected = 0;
-    for (const group of groups.slice(2000)) missing(group.members, "Intent not evaluated: the 2,000-unique-input bound was reached. Available traffic is retained for review.");
+    const attempted = new Set<string>();
+    const accepted = new Set<string>();
+    const concurrency = Math.max(1, Math.min(8, Math.floor(services.classificationConcurrency ?? 4)));
+    const timeBudgetMs = 90 * 60000;
+    let nextBatch = 0;
+    let timeLimitReached = false;
     log("info", "recovery_classification_planned", {
-      phase: "classification",
-      keywordFindingCount: candidates.length,
-      uniqueModelInputCount: groups.length,
-      selectedUniqueInputCount: selected.length,
-      uniqueInputLimitSkipped,
-      batchSize: 25,
-      batchCount: Math.ceil(selected.length / 25),
-      taxonomyCategoryCount: categories.length,
-      timeBudgetMs: 20 * 60000
+      phase: "classification", keywordFindingCount: candidates.length,
+      uniqueModelInputCount: groups.length, selectedUniqueInputCount: groups.length,
+      uniqueInputLimitSkipped: 0, batchSize: 25, batchCount: Math.ceil(groups.length / 25),
+      concurrency, taxonomyCategoryCount: categories.length, timeBudgetMs
     }, "Volume Recovery intent classification planned");
-    if (groups.length > 2000) modelCoverage.push({
-      source: "classification_limit",
-      available: false,
-      detail: "Intent is bounded to 2,000 unique inputs, prioritizing observed outcomes, then clicks and impressions. Remaining findings retain traffic and require review."
-    });
-    if (uniqueInputLimitSkipped > 0) log("warn", "recovery_classification_limit_reached", {
-      phase: "classification",
-      reason: "unique_input_limit",
-      uniqueInputLimit: 2000,
-      notEvaluatedUniqueInputCount: uniqueInputLimitSkipped
-    }, "Volume Recovery classification input limit reached");
-    let classificationTimeSkipped = 0;
-    for (let offset = 0; offset < selected.length; offset += 25) {
-      if (heartbeatError) throw new Error("Recovery heartbeat could not be persisted.");
-      const classificationElapsedMs = (services.now?.() ?? new Date()).valueOf() - started;
-      if (classificationElapsedMs >= 20 * 60000) {
-        classificationTimeSkipped = selected.length - offset;
-        for (const group of selected.slice(offset)) missing(group.members, "Intent not evaluated: the classification time budget was reached. Available traffic is retained for review.");
-        modelCoverage.push({
-          source: "classification_time_limit",
-          available: false,
-          detail: "Classification stopped at its time bound; remaining items require review."
-        });
-        log("warn", "recovery_classification_stopped", {
-          phase: "classification",
-          reason: "time_budget",
-          timeBudgetMs: 20 * 60000,
-          classificationElapsedMs,
-          nextUniqueInputOffset: offset,
-          notEvaluatedUniqueInputCount: classificationTimeSkipped
-        }, "Volume Recovery classification time budget reached");
-        break;
-      }
-      stage = "Classifying intent " + String(offset + 1) + "–" + String(Math.min(offset + 25, selected.length)) + " unique inputs";
-      await services.store.progress(request, execution, stage);
-      const batch = selected.slice(offset, offset + 25);
-      const batchNumber = offset / 25 + 1;
-      const batchStarted = performance.now();
-      const batchFindingCount = batch.reduce((count, group) => count + group.members.length, 0);
-      log("info", "recovery_classification_batch_started", {
-        phase: "classification",
-        batchNumber,
-        batchCount: Math.ceil(selected.length / 25),
-        uniqueInputOffset: offset,
-        uniqueInputCount: batch.length,
-        findingCount: batchFindingCount,
-        classificationElapsedMs,
-        timeBudgetRemainingMs: Math.max(0, 20 * 60000 - classificationElapsedMs)
-      }, "Volume Recovery classification batch started");
+    async function classifyBatch(batch: typeof groups, batchNumber: number) {
+      let pending = batch;
       let failure = "Intent unavailable: the provider request did not return an accepted response. Available traffic is retained for review.";
-      let classificationOutcome = "provider_request_failed";
-      let diagnostics: RecoveryClassificationDiagnostics | undefined;
-      try {
-        if (!categories.length) {
-          failure = "Intent not evaluated: no valid policy taxonomy was available. Review the pinned policy.";
-          classificationOutcome = "taxonomy_unavailable";
-          throw new Error("No valid taxonomy categories.");
+      for (let attempt = 1; attempt <= 3 && pending.length; attempt++) {
+        const retry: typeof groups = [];
+        // Isolate invalid output while preserving valid rows; the final retry uses one input per request.
+        const size = attempt === 1 ? 25 : attempt === 2 ? 5 : 1;
+        for (let offset = 0; offset < pending.length; offset += size) {
+          if (heartbeatError) throw new Error("Recovery heartbeat could not be persisted.");
+          if ((services.now?.() ?? new Date()).valueOf() - started >= timeBudgetMs) {
+            timeLimitReached = true;
+            return;
+          }
+          const chunk = pending.slice(offset, offset + size);
+          const chunkStarted = performance.now();
+          const chunkFields = { phase: "classification", batchNumber, attempt, retryChunk: offset / size + 1,
+            uniqueInputCount: chunk.length, findingCount: chunk.reduce((sum, group) => sum + group.members.length, 0) };
+          stage = "Classifying intent " + accepted.size + " of " + groups.length + " unique inputs";
+          await services.store.progress(request!, execution, stage);
+          log("info", "recovery_classification_batch_started", chunkFields, "Volume Recovery classification batch started");
+          chunk.forEach(group => attempted.add(group.candidate.key));
+          let diagnostics: RecoveryClassificationDiagnostics | undefined;
+          let classificationOutcome = "provider_request_failed";
+          let valid: RecoveryIntent[] = [];
+          try {
+            const response = await services.classify(request!, chunk.map(group => group.candidate), categories);
+            diagnostics = response.diagnostics;
+            usage.inputTokens += response.usage.inputTokens;
+            usage.outputTokens += response.usage.outputTokens;
+            failure = "Intent unavailable: the model response failed validation. Available traffic is retained for review.";
+            classificationOutcome = diagnostics?.outcome ?? "response_schema_invalid";
+            if (response.intents) {
+              const result = inspectRecoveryIntents({ items: response.intents }, chunk.map(group => group.candidate.key), categories);
+              valid = result.intents;
+              if (result.issues.length && !diagnostics?.validationIssues?.length) {
+                log("warn", "recovery_pipeline_validation_failed", { ...chunkFields, validationIssues: result.issues }, "Volume Recovery pipeline response validation failed");
+              }
+            }
+          } catch (error) {
+            if (error instanceof RecoveryClassificationFailure) diagnostics = error.diagnostics;
+            failure = "Intent unavailable: the provider request did not return an accepted response. Available traffic is retained for review.";
+            log("warn", "recovery_classification_request_failed", { ...chunkFields, ...safeRecoveryError(error) }, "Volume Recovery classification request failed");
+          }
+          const byId = new Map(valid.map(intent => [intent.itemId, intent]));
+          for (const group of chunk) {
+            const intent = byId.get(group.candidate.key);
+            if (intent) {
+              accepted.add(group.candidate.key);
+              for (const member of group.members) intents.push({ ...intent, itemId: member.key });
+            } else {
+              retry.push(group);
+              for (const member of group.members) intentUnavailable.set(member.key, failure);
+            }
+          }
+          const complete = valid.length === chunk.length;
+          log(complete ? "info" : "warn", complete ? "recovery_classification_batch_accepted" : "recovery_classification_batch_rejected", {
+            ...chunkFields, acceptedUniqueInputCount: valid.length, rejectedUniqueInputCount: chunk.length - valid.length,
+            willRetry: !complete && attempt < 3, durationMs: elapsedMs(chunkStarted),
+            ...classificationDiagnosticsFields(diagnostics, complete ? "accepted" : classificationOutcome)
+          }, complete ? "Volume Recovery classification batch accepted" : "Volume Recovery classification batch needs repair");
         }
-        const response = await services.classify(request, batch.map(group => group.candidate), categories);
-        diagnostics = response.diagnostics;
-        usage.inputTokens += response.usage.inputTokens;
-        usage.outputTokens += response.usage.outputTokens;
-        failure = "Intent unavailable: the model response failed validation. Available traffic is retained for review.";
-        classificationOutcome = diagnostics?.outcome ?? "response_schema_invalid";
-        if (!response.intents) throw new Error("Invalid classification output.");
-        classificationOutcome = "pipeline_schema_invalid";
-        const validated = validateRecoveryIntents({ items: response.intents }, batch.map(group => group.candidate.key), categories);
-        for (const intent of validated) for (const member of batch.find(group => group.candidate.key === intent.itemId)!.members) intents.push({ ...intent, itemId: member.key });
-        evaluated += batch.length;
-        classificationOutcome = "accepted";
-        log("info", "recovery_classification_batch_accepted", {
-          phase: "classification",
-          batchNumber,
-          uniqueInputCount: batch.length,
-          findingCount: batchFindingCount,
-          durationMs: elapsedMs(batchStarted),
-          inputTokens: response.usage.inputTokens,
-          outputTokens: response.usage.outputTokens,
-          ...classificationDiagnosticsFields(diagnostics, classificationOutcome)
-        }, "Volume Recovery classification batch accepted");
-      } catch (error) {
-        if (error instanceof RecoveryClassificationFailure) {
-          diagnostics = error.diagnostics;
-          classificationOutcome = error.diagnostics.outcome;
-        }
-        if (categories.length) rejected += batch.length;
-        for (const group of batch) missing(group.members, failure);
-        modelCoverage.push({
-          source: "intent_batch_" + String(batchNumber),
-          available: false,
-          detail: failure
-        });
-        log("warn", "recovery_classification_batch_rejected", {
-          phase: "classification",
-          batchNumber,
-          uniqueInputCount: batch.length,
-          findingCount: batchFindingCount,
-          durationMs: elapsedMs(batchStarted),
-          classificationOutcome,
-          ...classificationDiagnosticsFields(diagnostics, classificationOutcome),
-          ...safeRecoveryError(error)
-        }, "Volume Recovery classification batch was not accepted");
+        pending = retry;
       }
     }
-    const notEvaluated = groups.length - evaluated - rejected;
+    if (categories.length) {
+      const workers = await Promise.allSettled(Array.from({ length: Math.min(concurrency, Math.ceil(groups.length / 25)) }, async () => {
+        while (nextBatch * 25 < groups.length && !timeLimitReached && !heartbeatError) {
+          const batchNumber = ++nextBatch;
+          try {
+            await classifyBatch(groups.slice((batchNumber - 1) * 25, batchNumber * 25), batchNumber);
+          } catch (error) {
+            heartbeatError = true;
+            throw error;
+          }
+        }
+      }));
+      const failed = workers.find(worker => worker.status === "rejected");
+      if (failed?.status === "rejected") throw failed.reason;
+      if (heartbeatError) throw new Error("Recovery heartbeat could not be persisted.");
+    }
+    const evaluated = accepted.size;
+    const rejected = attempted.size - evaluated;
+    const notEvaluated = groups.length - attempted.size;
+    for (const group of groups) if (!accepted.has(group.candidate.key)) {
+      const reason = !categories.length
+        ? "Intent not evaluated: no valid policy taxonomy was available. Review the pinned policy."
+        : !attempted.has(group.candidate.key)
+          ? "Intent not evaluated: the classification time budget was reached. Available traffic is retained for review."
+          : intentUnavailable.get(group.candidate.key) ?? "Intent unavailable: the model response failed validation. Available traffic is retained for review.";
+      for (const member of group.members) intentUnavailable.set(member.key, reason);
+    }
+    if (timeLimitReached) {
+      modelCoverage.push({ source: "classification_time_limit", available: false, detail: "The 90-minute classification safety budget was reached; remaining findings require review." });
+      log("warn", "recovery_classification_stopped", { phase: "classification", reason: "time_budget", timeBudgetMs, notEvaluatedUniqueInputCount: notEvaluated }, "Volume Recovery classification safety budget reached");
+    }
+    if (!categories.length) modelCoverage.push({ source: "classification_taxonomy", available: false, detail: "No valid policy taxonomy was available; intent was not evaluated." });
+    if (rejected) modelCoverage.push({ source: "classification_rejected", available: false, detail: `${rejected} unique inputs still lack accepted intent after three classification attempts. See batch diagnostics for exact validation or provider failures.` });
     modelCoverage.push({ source: "classification_summary", available: true, detail: `${candidates.length} keyword findings; ${groups.length} unique model inputs; ${evaluated} evaluated, ${rejected} rejected, ${notEvaluated} not evaluated. Identical inputs share intent, never campaign metrics.` });
-    log(notEvaluated > 0 || rejected > 0 ? "warn" : "info", "recovery_classification_completed", {
-      phase: "classification",
-      keywordFindingCount: candidates.length,
-      uniqueModelInputCount: groups.length,
-      evaluatedUniqueInputCount: evaluated,
-      rejectedUniqueInputCount: rejected,
-      notEvaluatedUniqueInputCount: notEvaluated,
-      uniqueInputLimitSkipped,
-      classificationTimeSkipped,
-      acceptedFindingIntentCount: intents.length,
-      inputTokens: usage.inputTokens,
-      outputTokens: usage.outputTokens
+    log(notEvaluated || rejected ? "warn" : "info", "recovery_classification_completed", {
+      phase: "classification", keywordFindingCount: candidates.length, uniqueModelInputCount: groups.length,
+      evaluatedUniqueInputCount: evaluated, rejectedUniqueInputCount: rejected, notEvaluatedUniqueInputCount: notEvaluated,
+      uniqueInputLimitSkipped: 0, classificationTimeSkipped: timeLimitReached ? notEvaluated : 0,
+      acceptedFindingIntentCount: intents.length, inputTokens: usage.inputTokens, outputTokens: usage.outputTokens
     }, "Volume Recovery intent classification completed");
     sources.coverage.push(...modelCoverage);
     stage = "Ranking and saving report";
@@ -284,17 +267,12 @@ export async function runVolumeRecovery(runId: string, execution: string, servic
       readiness: report.readiness,
       unavailableCoverageSourceCount: report.coverage.filter(source => !source.available).length
     }, "Volume Recovery report analysis completed");
-    const items = report.items.slice(0, 10000);
-    if (report.items.length > 10000) report.coverage.push({
-      source: "report_item_limit",
-      available: false,
-      detail: "The 10,000-item report bound was reached; this inventory is partial."
-    });
+    const items = report.items;
     log("info", "recovery_persistence_started", {
       phase: "persistence",
       reportItemCount: items.length,
       sourceReportItemCount: report.items.length,
-      reportItemLimitReached: report.items.length > 10000,
+      reportItemLimitReached: false,
       batchSize: 100,
       batchCount: Math.ceil(items.length / 100)
     }, "Volume Recovery report persistence started");
@@ -369,11 +347,15 @@ function classificationDiagnosticsFields(diagnostics: RecoveryClassificationDiag
     httpDurationMs: diagnostics.httpDurationMs,
     classifierDurationMs: diagnostics.durationMs,
     usageReported: diagnostics.usageReported,
-    cachedInputTokensReported: diagnostics.cachedInputTokensReported
+    cachedInputTokensReported: diagnostics.cachedInputTokensReported,
+    validationIssues: diagnostics.validationIssues ?? [],
+    finishReason: diagnostics.finishReason ?? null,
+    outputCharacters: diagnostics.outputCharacters ?? null
   };
 }
 
 function safeRecoveryError(error: unknown): Record<string, unknown> {
+  if (error instanceof RecoveryIntentValidationError) return { errorType: error.name, errorCode: "RECOVERY_RESPONSE_VALIDATION_FAILED", validationIssues: error.issues };
   if (error instanceof RecoveryClassificationFailure) return {
     errorType: error.name,
     errorCode: "RECOVERY_CLASSIFICATION_PROVIDER_REQUEST_FAILED"
