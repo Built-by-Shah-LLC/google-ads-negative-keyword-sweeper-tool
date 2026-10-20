@@ -26,6 +26,36 @@ release state separately from offline test evidence. It uses
 to those campaign names case-insensitively, while an explicitly empty value
 opts that job into all campaign names.
 
+### Volume Recovery observability
+
+The worker emits structured JSON logs at the default `info` level for claim,
+snapshot validation, source collection, classification planning and each model
+batch, analysis, report persistence, finalization, and store shutdown. Every
+record has a `recoveryEvent` and phase; run-scoped records also have the opaque
+`runId` and Cloud Run `execution`.
+Classification records distinguish an accepted response from provider-request,
+missing-output, invalid-JSON, response-schema, pipeline-schema, missing-taxonomy,
+unique-input-limit, and time-budget outcomes. Safe diagnostics include provider
+and model names, opaque provider request ID, HTTP status, attempt/retry counts,
+timeout flag, durations, reported-usage flags, token counts, and aggregate input
+and finding counts.
+
+The classification summary uses two different populations. `keywordFindingCount`
+is the campaign-expanded report population; `uniqueModelInputCount` deduplicates
+identical negative text, scope, and match type before paid classification.
+`evaluatedUniqueInputCount`, `rejectedUniqueInputCount`, and
+`notEvaluatedUniqueInputCount` reconcile to that unique-input count. Only the
+accepted intent is shared back across identical inputs. Campaign metrics and
+recommendations remain attached to their original findings.
+
+Logs deliberately omit Google Ads customer IDs, account/search-term text,
+negative text, prompts, model responses, provider response bodies, credentials,
+database URLs, and raw exception messages or stacks. Filter Cloud Logging by the
+opaque report `runId`, then inspect `recovery_classification_batch_rejected` and
+`recovery_classification_completed` before using a separately approved fresh
+review to test a fix. Logging itself does not call Google Ads or the model and
+does not repair an existing immutable report.
+
 ### Offline classification verification
 
 The [classification verification plan](docs/VOLUME_RECOVERY_CLASSIFICATION_VERIFICATION_PLAN.md)
