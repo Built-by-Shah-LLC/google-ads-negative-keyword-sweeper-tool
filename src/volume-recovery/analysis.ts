@@ -5,6 +5,8 @@ import { decimal, divide, fraction, monday, negativeMatches, recoveryScore, sumD
 import { exclusionDetails, recoveryBlockers, type BlockerLookup } from "./blockers.js";
 export interface RecoveryIntent {
   itemId: string;
+  negativeText: string;
+  decision: "KEEP" | "NEGATIVE" | "UNKNOWN";
   category: string | null;
   competitorLikelihood: RecoveryItem["competitorLikelihood"];
   confidence: number;
@@ -156,7 +158,7 @@ export function analyzeRecovery(sources: RecoverySources, policy: RecoveryPolicy
       completedConversionWeeks: weeks.size
     }) : null;
     const category = intent?.category ?? null;
-    const action = category ? policy.categoryActions[category] ?? (/COMPETITOR|AMBIGUOUS/.test(category) ? "review" : "retain") : "review";
+    const action = category ? policy.categoryActions[category] ?? (category.endsWith("-KEEP") || /COMPETITOR|AMBIGUOUS/.test(category) ? "review" : "retain") : "review";
     let recommendation: RecoveryItem["recommendation"] = action === "retain" ? "retain" : facts.length ? "manual_review" : "insufficient_evidence";
     const suitableMeasurement = selected?.kind === "qualified_lead" || selected?.kind === "revenue" && meaningfulValue && appliedRoas !== null;
     if (action === "consider" && valueClass === "A" && suitableMeasurement && readiness === "green" && complete && !detailsTruncated && conversionsAvailable && available(sources, (channel ?? "") + "_traffic") && blockerResult.known === 0 && exclusion.scope === "campaign" && exclusion.matchType === "EXACT" && intent && intent.confidence >= 0.8 && facts.length) recommendation = "potential_pilot";

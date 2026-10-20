@@ -4,17 +4,18 @@ import { inspectRecoveryIntents, RecoveryIntentValidationError, validateRecovery
 import { runVolumeRecovery } from "../src/volume-recovery/pipeline.js";
 import { completion, offlineHarness, reply } from "./helpers/recovery-classification.js";
 
-const row = { itemId: "a", category: null, competitorLikelihood: "unknown", confidence: 0.4, reason: "Uncertain synthetic intent." };
+const row = { itemId: "a", negativeText: "synthetic input", decision: "UNKNOWN", category: null, competitorLikelihood: "unknown", confidence: 0.4, reason: "Uncertain synthetic intent." };
+const inputs = ["a", "b"].map(itemId => ({ itemId, negativeText: row.negativeText }));
 test("validation diagnostics identify the exact rule and row without logging values", () => {
-  const result = inspectRecoveryIntents({ items: [row, { ...row, itemId: "b", confidence: "private-value", reason: "private-reason".repeat(100) }] }, ["a", "b"], []);
+  const result = inspectRecoveryIntents({ items: [row, { ...row, itemId: "b", confidence: "private-value", reason: "private-reason".repeat(100) }] }, inputs, []);
   assert.deepEqual(result.intents, [row]);
   assert.deepEqual(result.issues, [
     { code: "confidence_not_number", field: "confidence", rowIndex: 1, actualType: "string" },
     { code: "reason_too_long", field: "reason", rowIndex: 1, actualLength: 1400, maximumLength: 1000 }
   ]);
   assert.equal(JSON.stringify(result.issues).includes("private"), false);
-  assert.throws(() => validateRecoveryIntents({ items: [row, row] }, ["a", "b"], []), RecoveryIntentValidationError);
-  assert.equal(inspectRecoveryIntents({ items: [row, row] }, ["a", "b"], []).intents.length, 0, "Neither duplicate may win arbitrarily");
+  assert.throws(() => validateRecoveryIntents({ items: [row, row] }, inputs, []), RecoveryIntentValidationError);
+  assert.equal(inspectRecoveryIntents({ items: [row, row] }, inputs, []).intents.length, 0, "Neither duplicate may win arbitrarily");
 });
 
 test("one invalid row preserves 24 accepted inputs and retries only the missing input", async () => {
@@ -32,7 +33,7 @@ test("one invalid row preserves 24 accepted inputs and retries only the missing 
 });
 
 test("more than 10000 findings and 2000 inputs are all classified and saved with bounded concurrency", async () => {
-  const h = offlineHarness(candidates => completion(candidates.map(candidate => ({ ...row, itemId: candidate.key }))));
+  const h = offlineHarness(candidates => completion(candidates.map(candidate => ({ ...row, itemId: candidate.key, negativeText: candidate.exclusion.text }))));
   const sources = await h.services.collect(h.request);
   const original = sources.exclusions.find(exclusion => exclusion.scope === "campaign")!;
   sources.exclusions = Array.from({ length: 10025 }, (_, i) => ({ ...original, resource: `synthetic/${i}`, text: `synthetic repair ${i}` }));

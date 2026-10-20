@@ -74,7 +74,7 @@ async function fixture(options: {
   return { data, calls };
 }
 function analyze(data: RecoverySources, configured = policy) {
-  return analyzeRecovery(data, configured, recoveryCandidates(data).map(c => ({ itemId: c.key, category: "COMPETITOR-NEGATIVE", competitorLikelihood: "likely", confidence: 0.95, reason: "Synthetic commercial intent" })), "85");
+  return analyzeRecovery(data, configured, recoveryCandidates(data).map(c => ({ itemId: c.key, negativeText: c.exclusion.text, decision: "NEGATIVE", category: "COMPETITOR-NEGATIVE", competitorLikelihood: "likely", confidence: 0.95, reason: "Synthetic commercial intent" })), "85");
 }
 test("context keeps account-calendar comparisons, budget, bidding, goals and sanitized recent changes", async () => {
   const { data, calls } = await fixture({ portfolio: true });

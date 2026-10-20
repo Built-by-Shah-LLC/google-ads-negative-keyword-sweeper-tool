@@ -4,7 +4,74 @@ Latest release handoff: [20 October Built-by-Shah Dev rollout](#27-d-122-authori
 Earlier integration verification: [19 October integration and review](#20-integration-and-verification-handoff--19-october-2026).
 Main publication authorization: [code-only checkpoint](#21-code-only-main-publication--19-october-2026).
 
-**Status:** Approved for local implementation on 15 October 2026
+**Status:** Initial implementation released to Dev; semantic correction authorized on 21 October 2026, implementation and verification in progress
+
+## 31 D-125 semantic classification correction — 21 October 2026
+
+Review findings first: the retained full-inventory run contains 438 unknown
+findings from 256 distinct model inputs, all with null category and confidence
+zero. Recovery excluded six pinned KEEP rules and accepted policy fallback
+abstentions. One retained explanation describes a different input. Structural
+acceptance did not establish semantic correctness.
+
+Shah authorized KEEP categories, policy fallback and semantic validation fixes,
+main publication, Dev deployment, full same-account BBS reruns, and iteration
+reports. DEV-52/DEV-53 were read as Work in progress; no Jira change is authorized.
+The primary dirty checkouts remain untouched. Work uses fresh branches from
+fetched origin/main in the existing isolated temporary clones.
+
+Plan and boundaries:
+
+1. Change recovery classifier/pipeline only: include KEEP/NEGATIVE headings;
+   make the pinned business policy authoritative without trusting advertiser
+   instructions; require exact input-text attribution and explicit intent
+   disposition, category/disposition agreement, usable confidence and policy
+   fallback compliance. Never invent a category or confidence in application
+   code or maintain a second deterministic business-intent classifier.
+2. Preserve valid peers and bounded 25/5/1 repair. Forward exact failed check
+   codes on repair and record KEEP/negative/fallback/unknown and validation
+   counts separately. Exhausted checks retain an explicit unavailable reason.
+3. Default KEEP findings to review while respecting explicit account policy;
+   a KEEP label is not removal permission. Preserve evidence/pilot gates, BBS
+   campaign scope, immutable reports and the Google Ads read-only graph.
+4. Add regression cases for missing KEEP labels, fallback abstentions, wrong
+   input attribution, contradictory decision/category/competitor/confidence,
+   mixed batches, repair feedback and full-inventory capacity. Verify report
+   and CSV compatibility in Ads Manager without a new schema or UI surface.
+5. Run typecheck, targeted/full tests, build and policy integrity checks;
+   inspect the final diff. Publish and merge only passing coherent changes.
+   Build the exact merged worker source, pin its immutable image to the existing
+   Dev recovery Job, preserve every other runtime setting and read it back.
+6. Start one explicit same-account full BBS review through the existing
+   authorized flow. Reconcile scoped logs and retained report/CSV totals, all
+   remaining unknown/unavailable and zero-confidence inputs, campaign scope,
+   and clear KEEP/fallback reference meanings. Report each iteration with
+   evidence. A structural pass is not a semantic-accuracy guarantee.
+
+Offline iteration evidence: worker typecheck/build, 83 focused checks and the
+full suite (272 passed, one existing optional PostgreSQL integration skip)
+passed. `rules:check` and `git diff --check` passed. Ads Manager typechecks and
+1,016 tests, all workspace builds, documentation checks and diff whitespace
+checks passed. Its initial new render expectation used sentence case rather
+than the existing title-case label; the expectation was corrected, with no UI
+runtime change. These checks exercise contracts and synthetic responses, not
+live model quality or deployed persistence.
+
+Final source review found no remaining blocking issue. It tightened failure
+reporting so provider failures retain their cause after earlier semantic
+failures; retained validation notes identify batch/attempt, bound their code
+summary, and leave full code/field/row detail in logs. Competitor uncertainty
+remains permitted under the aggressive policy instead of forcing a likely
+claim. Main publication, immutable-image deployment and the full live report
+audit remain pending at this source checkpoint.
+
+No migration, report rewrite, Google Ads mutation, credential/IAM/schedule
+change, portfolio launch or staging/production promotion is included. Rollback
+restores the previous recovery image; prior immutable reports remain available.
+The existing contract v1 report accepts the new category strings; the expanded
+model-only contract does not cross the persistence/browser boundary. Model
+confidence remains self-reported and uncalibrated. Existing blocker/context and
+CSV byte bounds remain explicit limitations.
 
 **Prepared:** 15 October 2026
 
