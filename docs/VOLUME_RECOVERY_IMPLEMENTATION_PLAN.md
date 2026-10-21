@@ -1,10 +1,10 @@
 # Volume Recovery implementation plan
 
-Latest release handoff: [20 October Built-by-Shah Dev rollout](#27-d-122-authorized-main-publication-and-dev-rollout--20-october-2026).
+Latest release handoff: [21 October semantic correction](#31-d-125-semantic-classification-correction--21-october-2026).
 Earlier integration verification: [19 October integration and review](#20-integration-and-verification-handoff--19-october-2026).
 Main publication authorization: [code-only checkpoint](#21-code-only-main-publication--19-october-2026).
 
-**Status:** Initial implementation released to Dev; semantic correction authorized on 21 October 2026, implementation and verification in progress
+**Status:** D-125 merged and deployed to Dev; full BBS classification, saved-report audit and CSV verification passed
 
 ## 31 D-125 semantic classification correction — 21 October 2026
 
@@ -72,6 +72,191 @@ The existing contract v1 report accepts the new category strings; the expanded
 model-only contract does not cross the persistence/browser boundary. Model
 confidence remains self-reported and uncalibrated. Existing blocker/context and
 CSV byte bounds remain explicit limitations.
+
+### D-125 main publication and Dev deployment
+
+Worker [PR #17](https://github.com/Built-by-Shah-LLC/google-ads-negative-keyword-sweeper-tool/pull/17)
+merged as `849ff4dadb7e15858394d32f1058815cd20ecb78` after policy-release CI
+passed. A fresh fetch and diff proved runtime build inputs match the tested
+head `32fdfd5ab1fa1fbb91f5abf85177b395a32101cd`. Standard Cloud Build
+`e27ecf01-0383-493a-a5d6-93e3b32ff8ce` succeeded. The existing Dev recovery
+Job is Ready at generation eight with immutable digest
+`sha256:c9cf955c306cc9a8a14d22f7e9ccdba9cbbc6fb53ea526208e6379ad89004fe2`.
+Before/after full spec comparison is equal when only image and the generated
+client nonce are normalized. Concurrency six, timeout 7,200 seconds, zero task
+retries, one CPU/1 GiB, Built by Shah campaign scope and disabled Ads mutations
+remain unchanged. Execution history was unchanged before the explicit new review.
+
+Portal [PR #50](https://github.com/Built-by-Shah-LLC/built-ads-manager/pull/50)
+merged as `7c3fde9db55443a905de91cf3fa55be5d93cfec6`; its tree matches tested
+head `52fe1bcbdb6fcf27b0ad6afcde53282c39c24c2b`. The manually approved
+web-only [deployment](https://github.com/Built-by-Shah-LLC/built-ads-manager/actions/runs/39518273464)
+succeeded from that exact merge. Ready revision `bam-dev-web-00111-klj` serves
+100% with digest
+`sha256:b0edcf423dc3e41f3e4a42fe9651fb9f942b9ab582e4948f74ebda8fb85c1c34`.
+Direct database-backed health returned ok. Its full runtime spec equals the
+baseline after normalizing only image and generated client nonce. The existing
+Google-action Node.js deprecation annotation is non-blocking.
+
+The user explicitly requested one full same-account BBS review. Execution
+`negative-keyword-sweeper-recovery-7jpk9` uses the new immutable worker image;
+initial collection contains 6,874 unique inputs and 10,130 keyword findings,
+275 initial batches at size 25/concurrency six. This inventory is three inputs
+and five findings larger than the prior snapshot, rather than truncated to old
+counts. The completed retained report and export reconcile those same totals.
+
+### D-125 full live iteration and remaining-unknown audit
+
+The explicit review `57e13c31-16a1-42e6-89cc-e42416d2dce9`, requested
+20 October 23:52 UTC, completed on 21 October at 00:17 UTC (05:17
+Asia/Karachi). Execution `negative-keyword-sweeper-recovery-7jpk9` has
+Completed=True and one succeeded task; application duration was 1,453,741 ms
+(about 24m14s). All 6,874 unique model inputs were accepted and all 10,130
+keyword finding intents were saved. Rejected, unevaluated, input/time-skipped,
+unknown and zero-confidence final counts are zero. Unique inputs comprise
+123 KEEP and 6,751 NEGATIVE, including 1,591 policy fallback; fan-out yields
+139 KEEP and 2,596 fallback findings. These are different counting units.
+
+There were 275 first attempts and four second attempts; no third attempt was
+needed. Four mixed responses initially rejected six inputs. Exact diagnostics
+identify four `duplicate_item_id` row issues and three
+`semantic_decision_category_mismatch` issues, including one overlapping row.
+Each was HTTP 200 with finish reason stop rather than transport truncation;
+logs retain row/field, request ID, output size, duration and willRetry. Valid
+peers survived; all six inputs were accepted on repair. No raw model response,
+advertiser text or credentials were logged. Token accounting reported 3,876,834
+input and 738,280 output tokens; this is usage, not a billed-cost assertion.
+
+A separate account/org/run-scoped PostgreSQL audit asserted read-only
+transactions and projected scalar report fields, then rolled back and closed
+the connection/owned proxy. It performed no data repair. It reconciled all
+10,130 saved rows and 6,874 input groups, with zero null/unknown/unavailable,
+zero-confidence, out-of-taxonomy/invalid semantic fields or conflicting shared
+input groups. Every one of the prior 256 unknown input signatures is present:
+all 438 former unknown finding rows now have accepted categories and positive
+confidence. The pinned policy/rules are unchanged from the prior report;
+rules SHA-256 remains
+`9e45d10c41d24cb51c67ee7f219696cdffd3beeff8c1f7658101adff6bc9c181`.
+All 24 clear KEEP/fallback reference terms passed across 27 retained rows, and
+their explanations were inspected against their own input. This is reference
+evidence, not exhaustive semantic certification of every model judgment.
+
+The same audit and complete authorized CSV contain exactly two distinct
+campaigns, both matching Built by Shah, and zero nonmatching campaign rows.
+Shared-list attachment fan-out explains the existing “Affects 2 campaigns”
+display; it is no Ads mutation. The authenticated deployed report displays a
+formerly unknown geographic body-shop example with intent Geo Local,
+confidence 0.9 and Needs review, with its own explanation and separate metrics
+on each scoped campaign row.
+
+The actual complete CSV downloaded from the new selected review contains
+10,130 data rows, all with that review ID, Accepted intent status and finite
+positive confidence at most one. Category totals match the database audit;
+zero unavailable/invalid/non-BBS rows. Size: 7,842,801 bytes. SHA-256:
+`ad11bc67f0910dd0144261bfe0a4ee3178ae8411e92d8483ae567ac1130193a0`.
+Finder copied only this generated download into the private temporary task
+folder for parsing; client report/audit files remain outside Git.
+All exported intent notes are the fixed safe sentence, with no raw model
+reason. Confidence ranges from 0.1 to 0.98, without application-side inflation.
+The formerly mismatched short-token explanations now correctly describe their
+own input and preserve appropriately low confidence.
+
+The run remains honestly partial for conversion diagnostics, campaign context
+detail limits, the two-million blocker-comparison bound and retained detail
+bounds. These are not missing classifications, and affected findings remain
+review-only. No further classification iteration was required after this full
+live audit. Confidence remains self-reported and uncalibrated; future provider
+failures can still exhaust bounded repair. The 10 MiB CSV byte bound remains.
+
+Rollback targets: restore recovery digest
+`sha256:bee243538a7058ad3aacd49ea1c01bd4a4b0313779c9b3497fb013bfcd07f6ce`
+while preserving current runtime settings; web can restore compatible revision
+`bam-dev-web-00110-tv9`. No rollback occurred. No Ads mutation, migration, data
+repair, credential/IAM/schedule change, Jira write or portfolio launch occurred.
+Only Dev was deployed; no staging/production promotion is claimed.
+
+### D-125 complete file-by-file source handoff
+
+Review found and corrected the omitted KEEP taxonomy, fallback abstentions,
+unbound input attribution and contradictory model fields. No blocking source
+finding remains after the scoped review. Automated checks cover the exercised
+contracts and synthetic provider responses; they do not certify all real model
+judgments. Operational proof is recorded separately from these code changes.
+
+- `README.md`: documents the full taxonomy, model semantic checks, bounded repair
+  feedback and separate acceptance/meaning metrics so operators interpret the new
+  logs correctly. Documentation only; confidence is still uncalibrated and
+  consistency is not accuracy. Verified against the implementation and passing
+  check/build/rule checks; no configuration or compatibility change.
+- `docs/VOLUME_RECOVERY_IMPLEMENTATION_PLAN.md`: records the approved D-125 plan,
+  actual source/release evidence, boundaries and this per-file handoff. It keeps
+  older release checkpoints as history rather than rewriting prior reports.
+  Documentation only; immutable IDs and counts must match actual readbacks.
+  Verified by source review, diff checks and reconciliation with release evidence.
+- `src/volume-recovery.ts`: forwards the optional repair attempt/check codes to
+  the existing classifier, so live retries receive the same context as tested
+  services. No new entry point, provider or Ads permission. Risk is an internal
+  signature mismatch; typecheck/build and adapter/pipeline regressions cover it.
+- `src/volume-recovery/analysis.ts`: extends the internal model intent with exact
+  input text and disposition, and defaults KEEP categories to review while
+  preserving explicit account overrides and evidence/pilot gates. This prevents
+  a KEEP classification from implying permission to remove an exclusion. The
+  persisted v1 report is unchanged; internal fixtures/callers require the new
+  fields. Verified by semantic/analysis, evidence and full-suite checks.
+- `src/volume-recovery/classifier.ts`: parses all pinned KEEP/NEGATIVE headings,
+  rejects duplicate rules, makes pinned business policy authoritative, binds
+  each returned ID to exact text, requires category/disposition/confidence and
+  competitor consistency, and enforces the policy fallback only when present.
+  The seven-field model response is internal; old persisted reports remain
+  readable. Stronger rejection may require more provider calls or yield honest
+  unavailable intent after exhaustion. Low positive confidence and ambiguous
+  competitor likelihood remain valid; free-prose truth is not mechanically
+  proved. Verified by adapter/request/schema/semantic tests and full suite.
+- `src/volume-recovery/pipeline.ts`: preserves accepted peers, passes failed
+  codes through bounded 25/5/1 repair, retains safe batch/attempt failure notes
+  and logs KEEP/negative/fallback/unknown, zero-confidence and issue histograms.
+  This exposes the cause of failures without raw prompts/model values. Existing
+  time/concurrency bounds remain; retries cost tokens and cannot guarantee a
+  provider answer. Duplicate IDs never arbitrarily select a winning row. Verified
+  by mixed-response/repair, failure-cause, capacity and full-suite regressions.
+- `test/helpers/recovery-classification.ts`: updates shared fake responses and
+  taxonomy extraction to the seven-field contract and forwards repair context.
+  Test-only; no live provider behavior changes. Shared helpers can conceal a
+  faulty assumption, so direct malformed-response and real-report checks remain
+  separate. Verified by focused and full suites.
+- `test/recovery-classifier-validation.test.ts`: updates input bindings and
+  response fixtures for the new fields while preserving malformed-response
+  rejection coverage. Test-only; proves exercised validation cases, not arbitrary
+  semantic accuracy. Verified in the focused and full suites.
+- `test/recovery-full-inventory.test.ts`: aligns fixtures without reducing the
+  10,025-input/finding capacity and bounded-concurrency regression. Test-only;
+  synthetic scale does not predict latency or provider reliability. Verified in
+  the focused and full suites; the live inventory is audited separately.
+- `test/recovery-semantic.test.ts`: adds canonical 6 KEEP/24 NEGATIVE parsing,
+  duplicate/meta headings, exact text binding, inconsistent disposition,
+  fallback/zero-confidence/competitor conflicts, low confidence, no-fallback
+  unknowns, repair feedback and KEEP review/override gate cases. It also proves
+  exhaustion does not fabricate fallback. Test-only; deliberately checks logical
+  boundaries rather than claiming a second business classifier. All new checks
+  passed within the 83 focused checks and full suite.
+- `test/volume-recovery-classification.test.ts`: updates model fixtures and
+  validator inputs to keep classification, partial acceptance and diagnostics
+  tests exercising the real contract. Test-only; no runtime compatibility effect.
+  Verified in focused/full suites, with live repairs checked separately.
+- `test/volume-recovery-evidence.test.ts`: updates model-intent fixture fields so
+  existing evidence/ranking guards still run after the internal type change.
+  No scoring or measurement rule changes; mocked evidence is not causal proof.
+  Verified in focused/full suites.
+- `test/volume-recovery.test.ts`: updates pipeline fixtures and explicit input
+  validation calls to preserve lifecycle/persistence coverage. Test-only; no
+  migration or real database rehearsal is implied. Verified in focused/full
+  suites; the existing optional PostgreSQL integration check stayed skipped.
+
+Source verification totals: 83 focused checks; full worker suite 272 passed and
+one existing optional PostgreSQL integration skip; typecheck, build,
+`rules:check` and diff whitespace checks passed. GitHub policy-release CI also
+passed for PR #17. The matching Ads Manager compatibility and operational
+documentation changes have their per-file handoff in its canonical Status.
 
 **Prepared:** 15 October 2026
 
