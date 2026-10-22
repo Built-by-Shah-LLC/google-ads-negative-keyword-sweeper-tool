@@ -336,10 +336,12 @@ candidate's item ID, search term, campaign name, ad-group name, matched keyword,
 match type. Raw IDs, dates, status, channel, and performance metrics remain in local
 audit artifacts and are not sent to the LLM.
 
-The Cloud Run Job deployment in `scripts/deploy/deploy-gcloud.ps1` creates a daily Cloud
-Scheduler trigger and runs with `--all-organizations` (still restricted to eligible
-master-list companies by the 30-day gate above). See `docs/DEPLOYMENT.md`; only one
-production scheduler should be enabled to avoid duplicate daily runs.
+The Cloud Run Job deployment in `scripts/deploy/deploy-gcloud.ps1` creates one
+timezone-neutral Cloud Scheduler trigger every 30 minutes. That trigger runs only the
+schedule coordinator. The coordinator claims due rows from PostgreSQL and starts the same
+Cloud Run Job with an opaque occurrence ID; the worker then processes only the immutable
+account cohort saved for that occurrence. Daily, weekly, biweekly, and monthly wall-clock
+schedules are calculated in each schedule's IANA timezone. See `docs/DEPLOYMENT.md`.
 
 Search-term collection first reads campaign status metadata without metrics. It then fetches
 search-term data only for campaigns whose advertiser status is `ENABLED` and whose Google Ads
@@ -360,7 +362,7 @@ npm run sweep:manual -- --customer 8402372674 --start-date 2026-09-01 --end-date
 It is a separate entry point (`src/manual-sweep.ts`) and a separate Cloud Run
 job (`negative-keyword-sweeper-manual`, image tag `sweeper:manual-latest`) that
 refuses any mutation mode other than `disabled`, never accepts the production
-execution flag, and has no scheduler. The daily sweeper job above is unchanged.
+execution flag, and has no scheduler. The shared scheduled sweeper job remains separate.
 See [docs/MANUAL_SWEEPER.md](docs/MANUAL_SWEEPER.md) for the safety model,
 deployment, and the designed-but-inactive future daily scheduling mode.
 
@@ -374,9 +376,12 @@ timeouts and retry budgets (`LLM_REQUEST_TIMEOUT_MS`, `LLM_MAX_ATTEMPTS`); exhau
 timeouts are recorded against the relevant organization and batch and appear in its worksheet.
 
 Run workbooks are delivered by Resend using `RESEND_API_KEY`, `RUN_REPORT_EMAIL_TO`, and
-`RUN_REPORT_EMAIL_FROM`. Delivery uses a run-scoped idempotency key and configurable retry
-settings (`RESEND_REQUEST_TIMEOUT_MS`, `RESEND_MAX_ATTEMPTS`). Delivery status is written to
-`report-email.json`; a delivery failure is logged and recorded without discarding the local workbook.
+`RUN_REPORT_EMAIL_FROM`. For configurable schedules, the occurrence's internal/manual
+recipients are intersected with `SCHEDULED_REPORT_RECIPIENT_ALLOWLIST`; an empty deployment
+allowlist sends nothing. Active internal users and their verified primary email are resolved
+again immediately before the run. Delivery uses a run-scoped idempotency key and configurable
+retry settings (`RESEND_REQUEST_TIMEOUT_MS`, `RESEND_MAX_ATTEMPTS`). Provider status is written
+to `report-email.json`, PostgreSQL, and the occurrence delivery audit.
 
 Runtime output uses structured Pino logging rather than direct `console.log` calls. Set
 `LOG_LEVEL` to `trace`, `debug`, `info`, `warn`, `error`, `fatal`, or `silent`.

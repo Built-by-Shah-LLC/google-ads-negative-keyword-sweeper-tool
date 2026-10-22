@@ -1,7 +1,8 @@
 # Deploying to Google Cloud
 
-The sweeper is a batch CLI, so it deploys as a **Cloud Run Job** triggered daily by
-**Cloud Scheduler**. Secrets (Google Ads tokens, LLM-provider keys, Resend key, SMTP password) live in
+The sweeper is a batch CLI, so it deploys as one shared **Cloud Run Job**. A
+**Cloud Scheduler** coordinator trigger runs every 30 minutes. Secrets (Google Ads tokens,
+LLM-provider keys, Resend key, SMTP password) live in
 **Secret Manager**; allowlisted non-secret settings become job environment variables.
 The Job runs in `us-west1` on the Built Ads Manager private VPC and writes to
 the same private Cloud SQL PostgreSQL database.
@@ -9,10 +10,14 @@ the same private Cloud SQL PostgreSQL database.
 ## Architecture
 
 ```text
-Cloud Scheduler (daily cron)
-        |  HTTPS POST :run (OIDC via sweeper-runner service account)
+Cloud Scheduler (every 30 minutes, UTC)
+        |  HTTPS POST :run with --schedule-coordinator
         v
 Cloud Run Job: negative-keyword-sweeper
+        |  claims due PostgreSQL schedules and creates durable occurrences
+        |  POST :run with --occurrence-id <uuid>
+        v
+Same Cloud Run Job: negative-keyword-sweeper
         |
         +-- Google Ads API (read-only GAQL plus separately gated exact-negative mutations)
         +-- Moonshot/Kimi API by default (OpenAI/Gemini remain selectable)
@@ -64,9 +69,10 @@ powershell -File scripts/deploy/deploy-gcloud.ps1 `
 ```
 
 The script is idempotent; re-run it after code changes to rebuild and redeploy.
-Optional parameters `-Schedule "0 6 * * *"` and `-ScheduleTimeZone "America/Los_Angeles"`
-control the daily trigger — the default fires at **6:00 AM Pacific** (PST/PDT). The job
-defaults to `--all-organizations`.
+Optional parameters `-Schedule` and `-ScheduleTimeZone` control the coordinator only;
+the safe defaults are `*/30 * * * *` and `Etc/UTC`. User schedules own their frequency,
+30-minute wall-clock slot, and IANA timezone in PostgreSQL. The job defaults to
+`--schedule-coordinator`, not to an account sweep.
 
 Run scope is controlled by two `.env` settings (uploaded as plain job env vars):
 
@@ -74,26 +80,34 @@ Run scope is controlled by two `.env` settings (uploaded as plain job env vars):
   (case-insensitive) are handled. Defaults to `Built by Shah`; set it empty to disable.
 - `ACCOUNT_ALLOWLIST` — comma-separated customer IDs (dashes optional) or account-name
   fragments. Empty means every enabled leaf account under the MCC.
+- `SCHEDULED_REPORT_RECIPIENT_ALLOWLIST` — deployment ceiling for scheduled email.
+  Empty means no scheduled recipient is sent a report.
+- `SCHEDULED_AUTOMATIC_MUTATION_ENABLED` — deployment-wide mutation gate. Keep false
+  unless an explicitly reviewed rollout enables it.
+- `SCHEDULED_MUTATION_CUSTOMER_ALLOWLIST` — customer IDs permitted for scheduled
+  mutation; every account in an occurrence must be listed or the run is forced read-only.
 
 ## Operate
 
 ```powershell
-# Trigger a run immediately
-gcloud run jobs execute negative-keyword-sweeper --region us-west1 --project built-ads-manager-dev
-
-# One-off exact processing date for one organization
+# Trigger the coordinator immediately (it dispatches only due database occurrences)
 gcloud run jobs execute negative-keyword-sweeper --region us-west1 --project built-ads-manager-dev `
-  --update-args "--date 2026-08-25,--organization-limit,1"
+  --args=--schedule-coordinator
+
+# Retry a durable occurrence without exposing account IDs to the scheduler
+gcloud run jobs execute negative-keyword-sweeper --region us-west1 --project built-ads-manager-dev `
+  --args=--occurrence-id,OCCURRENCE_UUID
 
 # View logs
 gcloud logging read "resource.type=cloud_run_job AND resource.labels.job_name=negative-keyword-sweeper" `
   --project YOUR_PROJECT_ID --limit 50
 ```
 
-An explicit `--date` is the exact date queried. Scheduled runs use the single calendar
-date 48 hours before execution in `RUN_TIME_ZONE`, shared by every organization.
+Scheduled runs use the calendar date two days before the occurrence in that schedule's
+timezone. The occurrence snapshots the selected accounts, schedule revision, recipients,
+and mutation request before dispatch.
 
-## Pause / resume the daily trigger
+## Pause / resume automatic schedule dispatch
 
 To stop the automatic daily run without undeploying anything (the Cloud Run Job stays
 deployed and can still be executed manually):
@@ -101,11 +115,11 @@ deployed and can still be executed manually):
 ```powershell
 powershell -File scripts/deploy/pause-scheduler.ps1 -ProjectId built-ads-manager-dev -Region us-west1
 
-# Re-enable the daily trigger later:
+# Re-enable the coordinator later:
 powershell -File scripts/deploy/pause-scheduler.ps1 -ProjectId built-ads-manager-dev -Region us-west1 -Resume
 ```
 
-This only pauses the Cloud Scheduler job `negative-keyword-sweeper-daily`; nothing is
+This only pauses the Cloud Scheduler job `negative-keyword-sweeper-coordinator`; nothing is
 deleted.
 
 ## Optional diagnostic artifact retention
@@ -133,4 +147,6 @@ gcloud run jobs update negative-keyword-sweeper --region us-west1 --project YOUR
 - The database login uses forced organization RLS, has no schema/role ownership,
   and can update only sweep lifecycle tables. Built Ads Manager's normal app
   role is SELECT-only on the sweep schema.
-- The pipeline remains read-only against Google Ads.
+- A checked schedule does not by itself permit mutation. The deployment switch, complete
+  customer allowlist, existing production-mode confirmation, validation, and read-back
+  verification must all pass. Otherwise the occurrence is forced read-only and audited.

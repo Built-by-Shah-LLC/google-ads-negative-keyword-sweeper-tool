@@ -116,6 +116,22 @@ declaration constraints. Both runs retain rules, protections, manifest, database
 evidence, and decisions. The offline reviewer rejects account/date/bound drift and
 requires every changed decision to be classified before an Owner go/no-go.
 
+## Configurable schedule dispatch
+
+The system uses one shared Cloud Run Job, not one Cloud resource per user schedule.
+Cloud Scheduler invokes `--schedule-coordinator` every 30 minutes. The coordinator uses
+tenant RLS plus `FOR UPDATE SKIP LOCKED` to claim due schedules, inserts a unique durable
+occurrence, advances the recurrence in the schedule's IANA timezone, and invokes the same
+job with only `--occurrence-id <uuid>`. The occurrence owns an immutable snapshot and is
+the idempotency boundary for persistence and retries.
+
+Internal recipients are stored as user IDs and resolved to an active user's current
+verified primary email immediately before execution. Manual emails remain occurrence
+data. Both are intersected with a deployment allowlist; the default empty allowlist sends
+nothing. Scheduled mutation is fail-closed behind the saved checkbox, a deployment switch,
+a complete customer-ID allowlist, the existing production confirmation, and the writer's
+validate-before-write/read-after-write controls.
+
 ## Legacy implementation
 
 The historical JavaScript is evidence and reference code, not the product specification. Components should be reused only after independent review.

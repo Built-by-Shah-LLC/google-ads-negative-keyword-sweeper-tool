@@ -1,9 +1,9 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-  Pauses or resumes the daily Cloud Scheduler trigger for the sweeper WITHOUT
+  Pauses or resumes the 30-minute coordinator trigger for the sweeper WITHOUT
   undeploying anything. The Cloud Run Job stays deployed and can still be run
-  manually; only the automatic daily trigger is disabled/enabled.
+  manually; only automatic schedule dispatch is disabled/enabled.
 
 .EXAMPLE
   powershell -File scripts/deploy/pause-scheduler.ps1 -ProjectId my-project
@@ -11,7 +11,7 @@
 #>
 param(
   [Parameter(Mandatory = $true)][string]$ProjectId,
-  [string]$Region = "us-central1",
+  [string]$Region = "us-west1",
   [string]$JobName = "negative-keyword-sweeper",
   [switch]$Resume
 )
@@ -22,7 +22,7 @@ if (-not (Get-Command gcloud -ErrorAction SilentlyContinue) -and (Test-Path $loc
   $env:PATH = "$localGcloudBin;$env:PATH"
 }
 
-$schedulerName = "$JobName-daily"
+$schedulerName = "$JobName-coordinator"
 $action = if ($Resume) { "resume" } else { "pause" }
 
 gcloud scheduler jobs $action $schedulerName --location $Region --project $ProjectId

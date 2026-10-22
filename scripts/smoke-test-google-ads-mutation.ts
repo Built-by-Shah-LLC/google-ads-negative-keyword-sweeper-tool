@@ -3,6 +3,10 @@ import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { loadGoogleAdsConnectionConfig } from "../src/config/env.js";
 import { GoogleAdsClient } from "../src/google-ads/client.js";
+import {
+  campaignPassesSweepFilter,
+  campaignSweepFilterContext
+} from "../src/google-ads/campaign-filter.js";
 import { createLiveProductionNegativeKeywordWriter } from "../src/google-ads/negative-keyword-writer.prod.js";
 import {
   runTestAccountMutationSmoke,
@@ -128,13 +132,19 @@ async function selectOneTestTarget(
     const campaigns = await googleAds.searchStream(customerId, `
       SELECT
         campaign.id,
-        campaign.status
+        campaign.status,
+        campaign.primary_status,
+        campaign.primary_status_reasons
       FROM campaign
       WHERE campaign.status != REMOVED
       ORDER BY campaign.id
     `);
     const campaign = campaigns.map((row) => recordValue(row.campaign))
-      .find((item) => /^\d+$/u.test(String(item?.id ?? "")));
+      .find((item) => {
+        const campaignId = String(item?.id ?? "");
+        return /^\d+$/u.test(campaignId)
+          && campaignPassesSweepFilter(campaignSweepFilterContext(campaignId, item));
+      });
     if (campaign) return { customerId, campaignId: String(campaign.id) };
   }
   throw new Error("The isolated Google Ads test hierarchy has no test client with an active campaign.");

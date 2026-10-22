@@ -30,6 +30,7 @@
     "typescript": "^5.9.0"
   },
   "dependencies": {
+    "@js-temporal/polyfill": "^0.5.1",
     "exceljs": "^4.4.0",
     "nodemailer": "^9.0.5",
     "pg": "^8.23.0",

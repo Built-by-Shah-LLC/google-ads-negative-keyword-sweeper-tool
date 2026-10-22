@@ -112,10 +112,14 @@ test("rejects incomplete enabled email configuration", async () => {
 
 test("focused logging configuration does not depend on email settings", async () => {
   const directory = await mkdtemp(join(tmpdir(), "sweeper-logging-config-"));
+  const inheritedLogLevel = process.env.LOG_LEVEL;
   try {
+    delete process.env.LOG_LEVEL;
     await writeFile(join(directory, ".env"), "LOG_LEVEL=warn\nERROR_EMAIL_ENABLED=true\n", "utf8");
     assert.deepEqual(await loadLoggingConfig(directory), { level: "warn" });
   } finally {
+    if (inheritedLogLevel === undefined) delete process.env.LOG_LEVEL;
+    else process.env.LOG_LEVEL = inheritedLogLevel;
     await rm(directory, { recursive: true, force: true });
   }
 });

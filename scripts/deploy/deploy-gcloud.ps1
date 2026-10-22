@@ -2,7 +2,7 @@
 <#
 .SYNOPSIS
   Deploys the Google Ads Negative Keyword Sweeper to Google Cloud as a
-  Cloud Run Job triggered daily by Cloud Scheduler.
+  shared Cloud Run Job with a 30-minute schedule coordinator.
 
 .DESCRIPTION
   Steps performed (idempotent — safe to re-run):
@@ -12,7 +12,7 @@
     4. Create/update Secret Manager secrets from the local .env file.
     5. Create a dedicated service account with secret access.
     6. Create or update the Cloud Run Job.
-    7. Create or update the daily Cloud Scheduler trigger.
+    7. Create or update the 30-minute Cloud Scheduler coordinator trigger.
 
   Note: gcloud writes normal progress output to stderr, so this script does not
   use $ErrorActionPreference = "Stop"; every gcloud call checks $LASTEXITCODE.
@@ -38,9 +38,9 @@ param(
   [string]$OrganizationSecretName = "bam-dev-organization-id",
   [string]$Network = "default",
   [string]$Subnet = "default",
-  [string]$Schedule = "0 6 * * *",
-  # 6:00 AM Pacific Time (America/Los_Angeles handles PST/PDT automatically).
-  [string]$ScheduleTimeZone = "America/Los_Angeles"
+  [string]$Schedule = "*/30 * * * *",
+  # The coordinator is timezone-neutral; each database schedule owns its IANA zone.
+  [string]$ScheduleTimeZone = "Etc/UTC"
 )
 
 $ProjectRoot = Resolve-Path (Join-Path $PSScriptRoot "..\..")
@@ -87,7 +87,9 @@ $PlainEnvironmentKeys = @(
   "LOG_LEVEL", "ERROR_EMAIL_ENABLED", "ERROR_EMAIL_TO", "ERROR_EMAIL_FROM",
   "ERROR_EMAIL_SUBJECT_PREFIX", "SMTP_HOST", "SMTP_PORT", "SMTP_SECURE", "SMTP_USER",
   "ALERT_HANDLED_ERROR_CODES", "ALERT_HANDLED_ERROR_STAGES",
-  "PERSIST_RUNS_TO_DATABASE", "DATABASE_POOL_MAX", "DATABASE_MAX_PAYLOAD_BYTES"
+  "PERSIST_RUNS_TO_DATABASE", "DATABASE_POOL_MAX", "DATABASE_MAX_PAYLOAD_BYTES",
+  "SCHEDULED_REPORT_RECIPIENT_ALLOWLIST", "SCHEDULED_AUTOMATIC_MUTATION_ENABLED",
+  "SCHEDULED_MUTATION_CUSTOMER_ALLOWLIST"
 )
 
 function Read-DotEnv([string]$Path) {
@@ -214,6 +216,9 @@ foreach ($key in $PlainEnvironmentKeys) {
   if (-not $config[$key]) { continue }
   $plainEnvPairs += "$key=$($config[$key])"
 }
+$plainEnvPairs += "GOOGLE_CLOUD_PROJECT=$ProjectId"
+$plainEnvPairs += "CLOUD_RUN_REGION=$Region"
+$plainEnvPairs += "SCHEDULED_SWEEPER_JOB_NAME=$JobName"
 # Values may contain commas (RUN_REPORT_EMAIL_TO, ACCOUNT_ALLOWLIST), so use ';' as
 # the gcloud list delimiter via the ^;^ escape prefix instead of the default comma.
 $plainEnvVarsArg = "^;^" + ($plainEnvPairs -join ";")
@@ -233,7 +238,7 @@ $jobArgs = @(
   "--task-timeout", "21600",
   "--max-retries", "1",
   "--memory", "1Gi",
-  "--args=--all-organizations"
+  "--args=--schedule-coordinator"
 )
 if (Test-GcloudResource @("run", "jobs", "describe", $JobName, "--region", $Region, "--project", $ProjectId)) {
   $jobArgs[2] = "update"
@@ -246,9 +251,38 @@ Invoke-Gcloud @("run", "jobs", "add-iam-policy-binding", $JobName,
   "--member", "serviceAccount:$ServiceAccountEmail",
   "--role", "roles/run.invoker") "Failed to grant run.invoker on the job."
 
-Write-Host "==> Creating/updating Cloud Scheduler trigger (daily: $Schedule [$ScheduleTimeZone])"
-$schedulerName = "$JobName-daily"
+$overrideRole = "builtAdsScheduledSweeperInvoker"
+if (-not (Test-GcloudResource @("iam", "roles", "describe", $overrideRole, "--project", $ProjectId))) {
+  Invoke-Gcloud @("iam", "roles", "create", $overrideRole, "--project", $ProjectId,
+    "--title", "Built Ads scheduled sweeper invoker",
+    "--description", "May execute the shared sweeper job with an opaque occurrence argument",
+    "--permissions", "run.jobs.run,run.jobs.runWithOverrides",
+    "--stage", "GA") "Failed to create the scheduled sweeper override role."
+} else {
+  Invoke-Gcloud @("iam", "roles", "update", $overrideRole, "--project", $ProjectId,
+    "--title", "Built Ads scheduled sweeper invoker",
+    "--description", "May execute the shared sweeper job with an opaque occurrence argument",
+    "--permissions", "run.jobs.run,run.jobs.runWithOverrides",
+    "--stage", "GA") "Failed to update the scheduled sweeper override role."
+}
+Invoke-Gcloud @("projects", "add-iam-policy-binding", $ProjectId,
+  "--member", "serviceAccount:$ServiceAccountEmail",
+  "--role", "projects/$ProjectId/roles/$overrideRole") "Failed to grant the scheduled sweeper override role."
+Invoke-Gcloud @("iam", "service-accounts", "add-iam-policy-binding", $ServiceAccountEmail,
+  "--project", $ProjectId,
+  "--member", "serviceAccount:$ServiceAccountEmail",
+  "--role", "roles/iam.serviceAccountUser") "Failed to grant the runner permission to act as its own job identity."
+
+Write-Host "==> Isolating the legacy direct daily scheduler before coordinator activation"
+$legacySchedulerName = "$JobName-daily"
+if (Test-GcloudResource @("scheduler", "jobs", "describe", $legacySchedulerName, "--location", $Region, "--project", $ProjectId)) {
+  Invoke-Gcloud @("scheduler", "jobs", "pause", $legacySchedulerName, "--location", $Region, "--project", $ProjectId) "Failed to pause the legacy daily scheduler."
+}
+
+Write-Host "==> Creating/updating Cloud Scheduler coordinator trigger ($Schedule [$ScheduleTimeZone])"
+$schedulerName = "$JobName-coordinator"
 $runUri = "https://$Region-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/$ProjectId/jobs/$($JobName):run"
+$schedulerBody = '{"overrides":{"containerOverrides":[{"args":["--schedule-coordinator"]}]}}'
 $schedulerArgs = @(
   "scheduler", "jobs", "create", "http", $schedulerName,
   "--location", $Region,
@@ -257,7 +291,9 @@ $schedulerArgs = @(
   "--time-zone", $ScheduleTimeZone,
   "--uri", $runUri,
   "--http-method", "POST",
-  "--oauth-service-account-email", $ServiceAccountEmail
+  "--oauth-service-account-email", $ServiceAccountEmail,
+  "--headers", "Content-Type=application/json",
+  "--message-body", $schedulerBody
 )
 if (Test-GcloudResource @("scheduler", "jobs", "describe", $schedulerName, "--location", $Region, "--project", $ProjectId)) {
   $schedulerArgs[2] = "update"
@@ -266,6 +302,6 @@ Invoke-Gcloud $schedulerArgs "Cloud Scheduler setup failed."
 
 Write-Host ""
 Write-Host "Deployment complete."
-Write-Host "  Run once now:   gcloud run jobs execute $JobName --region $Region --project $ProjectId"
+Write-Host "  Run coordinator once: gcloud run jobs execute $JobName --region $Region --project $ProjectId --args=--schedule-coordinator"
 Write-Host "  View logs:      gcloud logging read `"resource.type=cloud_run_job AND resource.labels.job_name=$JobName`" --project $ProjectId --limit 50"
 Write-Host "  Note: runs/ artifacts are ephemeral inside the job. See docs/DEPLOYMENT.md for optional Cloud Storage mounting."

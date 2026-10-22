@@ -31,15 +31,20 @@ export class RunReportEmailService {
     private readonly fetchImplementation: typeof fetch = fetch
   ) {}
 
-  async send(message: RunReportMessage): Promise<RunReportDelivery> {
+  async send(message: RunReportMessage, recipientOverride?: readonly string[]): Promise<RunReportDelivery> {
     if (!this.config.enabled) {
       this.logger.info({ runId: message.runId }, "Run report email skipped because it is disabled");
       return { status: "DISABLED", messageId: null, attemptCount: 0, sentAt: null };
     }
 
+    const recipients = recipientOverride === undefined ? this.config.recipients : [...recipientOverride];
+    if (recipients.length === 0) {
+      this.logger.info({ runId: message.runId }, "Run report email skipped because no eligible recipients remain");
+      return { status: "DISABLED", messageId: null, attemptCount: 0, sentAt: null };
+    }
     const payload = {
       from: this.config.from,
-      to: this.config.recipients,
+      to: recipients,
       subject: `${this.config.subjectPrefix} ${message.status} — ${message.runId}`,
       text: renderRunReportEmailText(message),
       html: renderRunReportEmailHtml(message),
@@ -107,7 +112,7 @@ export class RunReportEmailService {
         this.logger.info({
           runId: message.runId,
           messageId: result.messageId,
-          recipients: this.config.recipients,
+          recipientCount: recipients.length,
           attemptCount: result.attemptCount
         }, "Run report email sent");
         return result;

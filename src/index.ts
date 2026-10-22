@@ -169,4 +169,23 @@ async function bootstrap(): Promise<void> {
   }
 }
 
-void bootstrap();
+async function dispatchEntrypoint(): Promise<void> {
+  const arguments_ = process.argv.slice(2);
+  if (arguments_.length === 1 && arguments_[0] === "--schedule-coordinator") {
+    const { runScheduleCoordinator } = await import("./scheduled/runtime.js");
+    await runScheduleCoordinator();
+    return;
+  }
+  if (arguments_.length === 2 && arguments_[0] === "--occurrence-id" && /^[0-9a-f-]{36}$/iu.test(arguments_[1] ?? "")) {
+    const { runScheduledOccurrence } = await import("./scheduled/runtime.js");
+    const rootDirectory = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+    await runScheduledOccurrence(arguments_[1]!, rootDirectory);
+    return;
+  }
+  await bootstrap();
+}
+
+void dispatchEntrypoint().catch((error: unknown) => {
+  process.stderr.write(`${JSON.stringify({ event: "scheduled_entrypoint_failed", errorType: error instanceof Error ? error.name : "unknown" })}\n`);
+  process.exitCode = 1;
+});

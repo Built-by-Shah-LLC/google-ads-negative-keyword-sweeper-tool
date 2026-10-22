@@ -54,6 +54,8 @@ export interface SweepOptions {
   rootDirectory: string;
   date: string | null;
   customerId: string | null;
+  /** Trusted multi-account cohort loaded from an immutable occurrence. */
+  customerIds?: readonly string[];
   organizationLimit: number | null;
   allOrganizations: boolean;
   candidateLimitPerOrganization: number | null;
@@ -86,6 +88,8 @@ export interface SweepServices {
   logger?: Logger;
   emailAlerts?: EmailAlertService;
   runReportEmail?: RunReportEmailService;
+  /** Trusted occurrence-scoped addresses resolved by the scheduled worker. */
+  runReportRecipients?: readonly string[];
   persistence?: SweepPersistence;
   /** Test seam. Runtime selection comes from GOOGLE_ADS_MUTATION_MODE. */
   negativeKeywordWriter?: NegativeKeywordWriter;
@@ -219,7 +223,14 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
       organizationsEligible: eligible.length
     }, "Google Ads organization discovery completed");
     let selected = eligible;
-    if (options.customerId) {
+    if (options.customerIds !== undefined) {
+      const requested = new Set(options.customerIds.map((value) => value.replaceAll("-", "")));
+      selected = eligible.filter((organization) => requested.has(organization.customerId));
+      if (selected.length !== requested.size) {
+        await persistence.recordDiscovery(discoveredCount, eligible.length, selected.length);
+        throw new PipelineError("One or more occurrence accounts were not found as enabled eligible leaf accounts.", { stage: "ORGANIZATION_SELECTION", code: "ORGANIZATION_NOT_FOUND", retryable: false });
+      }
+    } else if (options.customerId) {
       const customerId = options.customerId.replaceAll("-", "");
       selected = eligible.filter((organization) => organization.customerId === customerId);
       if (selected.length === 0) {
@@ -359,6 +370,7 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
       classifier.model,
       services.emailAlerts,
       services.runReportEmail,
+      services.runReportRecipients,
       persistence
     );
     logger.info({ status, organizationsSelected: selectedCount }, "Sweep run completed");
@@ -380,6 +392,7 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
       classifier.model,
       services.emailAlerts,
       services.runReportEmail,
+      services.runReportRecipients,
       persistence,
       errorMessage(error)
     );
@@ -460,6 +473,7 @@ async function finalizeRun(
   model: string,
   emailAlerts?: EmailAlertService,
   runReportEmail?: RunReportEmailService,
+  runReportRecipients?: readonly string[],
   persistence: SweepPersistence = new DisabledSweepPersistence(),
   fatalError?: string
 ): Promise<"SUCCEEDED" | "PARTIAL" | "FAILED"> {
@@ -554,7 +568,7 @@ async function finalizeRun(
       inputTokens: telemetrySnapshot.tokenUsage.inputTokens,
       outputTokens: telemetrySnapshot.tokenUsage.outputTokens,
       accountOverviews: classificationReport.accountOverviews
-    });
+    }, runReportRecipients);
     reportDelivery = delivery ?? reportDelivery;
     await artifacts.write("report-email.json", reportDelivery);
   } catch (error) {
@@ -891,6 +905,7 @@ function accountSelectionMode(
   options: SweepOptions
 ): "all" | "allowlist" | "customer" | "limited" {
   if (options.customerId) return "customer";
+  if (options.customerIds !== undefined) return "allowlist";
   if (config.accountAllowlist.length > 0) return "allowlist";
   if (options.allOrganizations) return "all";
   return "limited";
