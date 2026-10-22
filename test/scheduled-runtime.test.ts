@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { invokeOccurrence, isScheduledMutationAuthorized } from "../src/scheduled/runtime.js";
+import { invokeOccurrence, isScheduledMutationAuthorized, normalizeScheduledReportingDate } from "../src/scheduled/runtime.js";
+
+test("scheduled reporting dates are normalized when PostgreSQL returns a Date", () => {
+  assert.equal(normalizeScheduledReportingDate(new Date("2026-10-20T00:00:00.000Z")), "2026-10-20");
+  assert.equal(normalizeScheduledReportingDate("2026-10-20"), "2026-10-20");
+  assert.equal(normalizeScheduledReportingDate("2026-10-20T00:00:00.000Z"), "2026-10-20");
+  assert.throws(() => normalizeScheduledReportingDate("Tue Oct 20 2026"), /invalid reporting date/);
+});
 
 test("occurrence dispatch invokes the shared Cloud Run Job with only the occurrence id", async () => {
   const previousProject = process.env.GOOGLE_CLOUD_PROJECT;

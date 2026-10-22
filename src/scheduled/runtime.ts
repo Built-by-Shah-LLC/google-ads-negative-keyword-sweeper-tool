@@ -16,7 +16,7 @@ interface DueRow {
   readonly accounts:readonly {id:string;googleCustomerId:string;name:string}[];
   readonly recipients:readonly {kind:"internal"|"manual";userId:string|null;email:string}[];
 }
-interface OccurrenceRow { readonly id:string; readonly organization_id:string; readonly status:string; readonly scheduled_for:Date; readonly reporting_date:string; readonly mutation_requested:boolean; readonly snapshot:{timeZone:string;accounts:readonly {id:string;googleCustomerId:string;name:string}[];recipients:readonly {kind:"internal"|"manual";userId:string|null;email:string}[]}; }
+interface OccurrenceRow { readonly id:string; readonly organization_id:string; readonly status:string; readonly scheduled_for:Date; readonly reporting_date:string|Date; readonly mutation_requested:boolean; readonly snapshot:{timeZone:string;accounts:readonly {id:string;googleCustomerId:string;name:string}[];recipients:readonly {kind:"internal"|"manual";userId:string|null;email:string}[]}; }
 
 function required(name:string):string{const value=process.env[name]?.trim();if(!value)throw new Error(`${name} is required for scheduled sweeps.`);return value;}
 function organizations():readonly string[]{return (process.env.COORDINATOR_ORGANIZATION_IDS??required("ORGANIZATION_ID")).split(",").map(value=>value.trim()).filter(Boolean);}
@@ -137,7 +137,12 @@ function occurrenceDeliveryStatus(
   if (delivery?.status === "failed") return "failed";
   return "skipped";
 }
-function scheduledOptions(rootDirectory:string,occurrence:OccurrenceRow,mutationAuthorized:boolean):SweepOptions{return {rootDirectory,date:occurrence.reporting_date,customerId:null,customerIds:occurrence.snapshot.accounts.map(item=>item.googleCustomerId),organizationLimit:null,allOrganizations:false,candidateLimitPerOrganization:null,productionMutationAuthorized:mutationAuthorized,thirtyDayMode:false,allPending:false,ignoreThirtyDayCheck:false,triggerKind:"scheduled",requestedDateSource:"AUTOMATIC_48_HOURS_BACK",accountPolicies:{},policyMode:"effective",pilot:null};}
+export function normalizeScheduledReportingDate(value:string|Date):string{
+  if(value instanceof Date){if(Number.isNaN(value.getTime()))throw new Error("Scheduled occurrence has an invalid reporting date.");return value.toISOString().slice(0,10);}
+  const match=/^(\d{4}-\d{2}-\d{2})/.exec(value);if(match?.[1]!==undefined)return match[1];
+  throw new Error("Scheduled occurrence has an invalid reporting date.");
+}
+function scheduledOptions(rootDirectory:string,occurrence:OccurrenceRow,mutationAuthorized:boolean):SweepOptions{return {rootDirectory,date:normalizeScheduledReportingDate(occurrence.reporting_date),customerId:null,customerIds:occurrence.snapshot.accounts.map(item=>item.googleCustomerId),organizationLimit:null,allOrganizations:false,candidateLimitPerOrganization:null,productionMutationAuthorized:mutationAuthorized,thirtyDayMode:false,allPending:false,ignoreThirtyDayCheck:false,triggerKind:"scheduled",requestedDateSource:"AUTOMATIC_48_HOURS_BACK",accountPolicies:{},policyMode:"effective",pilot:null};}
 export function isScheduledMutationAuthorized(input:{readonly mutationRequested:boolean;readonly deploymentEnabled:boolean;readonly customerIds:readonly string[];readonly allowedCustomerIds:ReadonlySet<string>}):boolean{return input.mutationRequested&&input.deploymentEnabled&&input.customerIds.length>0&&input.customerIds.every(id=>input.allowedCustomerIds.has(id.replaceAll("-","")));}
 function occurrenceConfig(config:AppConfig,occurrence:OccurrenceRow):{config:AppConfig;mutationAuthorized:boolean;mutationStatus:"not_attempted"|"gated"|"running"}{
   const customers=occurrence.snapshot.accounts.map(item=>item.googleCustomerId);const gate=isScheduledMutationAuthorized({mutationRequested:occurrence.mutation_requested,deploymentEnabled:enabled("SCHEDULED_AUTOMATIC_MUTATION_ENABLED"),customerIds:customers,allowedCustomerIds:customerAllowlist()});
