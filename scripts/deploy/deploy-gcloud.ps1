@@ -283,6 +283,8 @@ Write-Host "==> Creating/updating Cloud Scheduler coordinator trigger ($Schedule
 $schedulerName = "$JobName-coordinator"
 $runUri = "https://$Region-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/$ProjectId/jobs/$($JobName):run"
 $schedulerBody = '{"overrides":{"containerOverrides":[{"args":["--schedule-coordinator"]}]}}'
+$schedulerBodyPath = Join-Path ([System.IO.Path]::GetTempPath()) "built-ads-scheduler-$([guid]::NewGuid().ToString('N')).json"
+[System.IO.File]::WriteAllText($schedulerBodyPath, $schedulerBody, [System.Text.UTF8Encoding]::new($false))
 $schedulerArgs = @(
   "scheduler", "jobs", "create", "http", $schedulerName,
   "--location", $Region,
@@ -293,12 +295,17 @@ $schedulerArgs = @(
   "--http-method", "POST",
   "--oauth-service-account-email", $ServiceAccountEmail,
   "--headers", "Content-Type=application/json",
-  "--message-body", $schedulerBody
+  "--message-body-from-file", $schedulerBodyPath
 )
-if (Test-GcloudResource @("scheduler", "jobs", "describe", $schedulerName, "--location", $Region, "--project", $ProjectId)) {
-  $schedulerArgs[2] = "update"
+try {
+  if (Test-GcloudResource @("scheduler", "jobs", "describe", $schedulerName, "--location", $Region, "--project", $ProjectId)) {
+    $schedulerArgs[2] = "update"
+    $schedulerArgs[[Array]::IndexOf($schedulerArgs, "--headers")] = "--update-headers"
+  }
+  Invoke-Gcloud $schedulerArgs "Cloud Scheduler setup failed."
+} finally {
+  Remove-Item -LiteralPath $schedulerBodyPath -Force -ErrorAction SilentlyContinue
 }
-Invoke-Gcloud $schedulerArgs "Cloud Scheduler setup failed."
 
 Write-Host ""
 Write-Host "Deployment complete."
