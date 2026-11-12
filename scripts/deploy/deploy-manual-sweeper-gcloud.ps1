@@ -254,7 +254,7 @@ $jobArgs = @(
   "--set-secrets", ($secretEnvMappings -join ","),
   "--set-env-vars", $plainEnvVarsArg,
   "--task-timeout", "21600",
-  "--max-retries", "1",
+  "--max-retries", "0",
   "--memory", "1Gi",
   "--command=node",
   "--args=dist/src/manual-sweep.js"

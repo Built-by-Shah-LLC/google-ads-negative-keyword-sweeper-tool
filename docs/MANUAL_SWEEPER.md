@@ -144,3 +144,5 @@ A browser request for an active account absent from the older master file failed
 Manual entrypoint email alerts and run reports are always disabled, even if inherited runtime configuration enables them. The manual deployment script pins both flags false. All manual results belong in the in-app retained evidence.
 
 Validation: typecheck, full unit suite and build; Dev UI/worker verification recorded in the Ads Manager release log. No Google Ads mutation is authorized by this repair.
+
+Manual Cloud Run task retries are disabled (maxRetries=0). A failed execution is terminal, so the UI can safely offer an explicit retry without a hidden task retry racing it.
