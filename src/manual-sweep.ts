@@ -11,6 +11,7 @@ import { EmailAlertService } from "./notifications/email-alerts.js";
 import { RunReportEmailService } from "./notifications/run-report-email.js";
 import {
   assertManualSweepReadOnly,
+  applyManualUiAccountSelection,
   buildManualSweepOptions,
   parseManualSweepCliArguments
 } from "./manual-sweep-options.js";
@@ -41,7 +42,8 @@ import { createLogger, type Logger } from "./observability/logger.js";
  *     npm run sweep:manual -- --all-organizations [--date 2026-09-27]
  *
  * Both scopes keep the standard campaign-name filter (CAMPAIGN_NAME_CONTAINS,
- * default "Built by Shah") and the sweep accounts master file. The 30-day
+ * default "Built by Shah"). UI single-account scope uses active database policy;
+ * direct/all-company scope keeps the master file. The 30-day
  * completion gate is deliberately bypassed here: a manual invocation naming a
  * company and date range is itself the explicit authorization, and the future
  * scheduled mode is defined to cover every master-list company under the MCC.
@@ -66,6 +68,7 @@ async function main(
   const options = buildManualSweepOptions(cli, rootDirectory, config.processingTimeZone);
   const policy = await loadPolicyFromDatabase(config.persistence);
   options.accountPolicies = policy.accountPolicies;
+  applyManualUiAccountSelection(config, options, policy.accountPolicies);
 
   logger.info({
     scope: options.customerId
@@ -98,8 +101,9 @@ async function bootstrap(): Promise<void> {
   try {
     const operationalConfig = await loadOperationalConfig(rootDirectory);
     logger = createLogger(operationalConfig.logging);
-    emailAlerts = new EmailAlertService(operationalConfig.emailAlerts, logger);
-    runReportEmail = new RunReportEmailService(operationalConfig.runReportEmail, logger);
+    // Manual UI requests authorize in-app evidence, not email delivery.
+    emailAlerts = new EmailAlertService(disabledAlerts, logger);
+    runReportEmail = new RunReportEmailService(disabledRunReports, logger);
     await main(rootDirectory, logger, emailAlerts, runReportEmail);
   } catch (error) {
     const serialized = serializeError(error, {

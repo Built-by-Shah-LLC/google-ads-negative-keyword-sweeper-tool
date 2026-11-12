@@ -4,12 +4,33 @@ import type { AppConfig } from "../src/config/env.js";
 import {
   assertBoundedManualDateRange,
   assertManualSweepReadOnly,
+  applyManualUiAccountSelection,
   buildManualSweepOptions,
   currentDateInTimeZone,
   MAX_MANUAL_SWEEP_RANGE_DAYS,
   parseManualSweepCliArguments
 } from "../src/manual-sweep-options.js";
 import { assertValidDateRange, resolveActiveDateRange } from "../src/pipeline/run-sweeper.js";
+import { selectEligibleOrganizations } from "../src/pipeline/run-sweeper.js";
+import type { AccountPolicyConfig } from "../src/config/account-policy-compiler.js";
+import { createLogger } from "../src/observability/logger.js";
+
+test("UI manual account selection uses the active policy without broadening to other accounts", () => {
+  const config: Pick<AppConfig, "googleAdsMutation" | "sweepAccounts" | "accountAllowlist"> = { ...configWithMutationMode("disabled"), accountAllowlist: [], sweepAccounts: { source: "master-file", accounts: [], filePath: "old.json" } };
+  const options = buildManualSweepOptions(parseManualSweepCliArguments(["--customer", "8847499121", "--start-date", "2026-09-01", "--end-date", "2026-09-10", "--request-source", "built-ads-manager-ui"]), ".", "UTC", new Date("2026-09-29"));
+  assert.throws(() => applyManualUiAccountSelection(config, options, {}), /no active database policy/);
+  applyManualUiAccountSelection(config, options, { "8847499121": {} as AccountPolicyConfig });
+  assert.equal(config.sweepAccounts.source, "database-policy");
+  const organizations = [{ customerId: "8847499121", descriptiveName: "Selected" }, { customerId: "8402372674", descriptiveName: "Other" }] as Parameters<typeof selectEligibleOrganizations>[1];
+  assert.deepEqual(selectEligibleOrganizations(config, organizations, createLogger()).map((account) => account.customerId), ["8847499121"]);
+  assert.deepEqual(selectEligibleOrganizations(config, [], createLogger()), []);
+  const original = { source: "master-file" as const, accounts: [], filePath: "old.json" };
+  config.sweepAccounts = original;
+  applyManualUiAccountSelection(config, { ...options, requestedDateSource: "COMMAND_LINE" }, {});
+  assert.equal(config.sweepAccounts, original);
+  config.googleAdsMutation = configWithMutationMode("production").googleAdsMutation;
+  assert.throws(() => applyManualUiAccountSelection(config, options, { "8847499121": {} as AccountPolicyConfig }), /read-only/);
+});
 
 const TIME_ZONE = "Europe/Moscow";
 const NOW = new Date("2026-09-29T12:00:00Z");
