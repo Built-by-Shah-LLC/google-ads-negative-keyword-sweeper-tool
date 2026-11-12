@@ -17,6 +17,10 @@ import { validateDecisions } from "./validation.js";
 
 const RETRYABLE_STATUS = new Set([408, 409, 429, 500, 502, 503, 504]);
 
+// Restate the mechanical validator contract without echoing untrusted model
+// output/errors or changing the authoritative classification rules.
+const VALIDATION_RETRY_INSTRUCTION = `The previous response failed output validation. Regenerate the complete batch using the same authoritative rules and input. Return exactly one decision for each supplied itemId and no other items. Use only supplied rule IDs, without duplicates. KEEP must cite at least one rule ending in -KEEP and no -NEGATIVE or metadata rules; its negativeText must be null. NEGATIVE_EXACT must cite at least one rule ending in -NEGATIVE and no -KEEP rules; its negativeText must exactly preserve the complete original search term. POL-FULL-QUERY-EXACT may support NEGATIVE_EXACT only; never KEEP or the sole rule. Put explanations of rejected alternatives in reason, not in ruleIds. Return only the required JSON. Do not change the policy, invent citations or perform any external action.`;
+
 export interface StructuredJsonTransportDiagnostics {
   providerRequestId: string | null;
   httpAttemptCount: number;
@@ -66,7 +70,14 @@ export class MoonshotKeywordClassifier implements KeywordClassifier {
     for (let validationAttempt = 1; validationAttempt <= 2; validationAttempt += 1) {
       let call: MoonshotCallResult;
       try {
-        call = await this.callEndpoint("/chat/completions", request, "LLM_REQUEST");
+        const attemptRequest = validationAttempt === 1 ? request : {
+          ...request,
+          messages: [
+            ...(request.messages as Array<Record<string, unknown>>),
+            { role: "user", content: VALIDATION_RETRY_INSTRUCTION }
+          ]
+        };
+        call = await this.callEndpoint("/chat/completions", attemptRequest, "LLM_REQUEST");
       } catch (error) {
         const requestError = error instanceof MoonshotRequestError ? error : null;
         attempts.push({
