@@ -157,3 +157,7 @@ validation. Repeated invalid output still yields Partial/Failed evidence. Only
 the manual job is redeployed for this release.
 
 When the validator identifies incompatible rule citations, the correction also names the submitted item ID. Feedback recognizes only exact application-owned validation messages for that ID; no raw model response, search query, or arbitrary exception is echoed.
+
+Moonshot structured responses also separate KEEP and NEGATIVE_EXACT schema branches, restricting each branch to compatible rule IDs and negativeText shape. The existing validator still checks complete coverage, exact text, duplicate/unknown citations and the requirement for a real negative rule when metadata is present. Other providers retain their existing schema. Fixed-input counting uses the same Moonshot schema as classification. No intent rule is changed.
+
+The branch composition uses the provider-documented anyOf/items/null subset: https://github.com/MoonshotAI/walle/blob/main/docs/mfjs-spec.md. Provider schema guidance never replaces local validation.

@@ -67,7 +67,7 @@ export class MoonshotKeywordClassifier implements KeywordClassifier {
     if (context.searchTerms.length === 0) throw new Error("Cannot classify an empty search-term batch.");
     const request = createRequest(this.config, context, createResponseSchema(
       context.searchTerms.map((term) => term.itemId),
-      context.rules.ruleIds
+      context.rules.ruleIds, true
     ));
     const attempts: LlmGenerationAttempt[] = [];
     let accumulatedUsage = emptyTokenUsage();
@@ -188,7 +188,7 @@ export class MoonshotKeywordClassifier implements KeywordClassifier {
   async countFixedInputTokens(
     context: Omit<ClassificationContext, "searchTerms">
   ): Promise<FixedInputTokenCount> {
-    const request = createRequest(this.config, { ...context, searchTerms: [] }, createResponseSchema([], context.rules.ruleIds));
+    const request = createRequest(this.config, { ...context, searchTerms: [] }, createResponseSchema([], context.rules.ruleIds, true));
     const countRequest = { model: request.model, messages: request.messages };
     let call: MoonshotCallResult;
     try {

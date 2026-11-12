@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildClassifierPrompt, buildSystemInstruction, FIXED_INPUT_DEFINITION } from "../src/llm/prompt.js";
+import { buildClassifierPrompt, buildSystemInstruction, createResponseSchema, FIXED_INPUT_DEFINITION } from "../src/llm/prompt.js";
 import type { ClassificationContext } from "../src/llm/classifier.js";
 import type { RuleSet } from "../src/types.js";
 
@@ -11,6 +11,30 @@ const rules: RuleSet = {
   markdown: "# Rules\n\n### `POL-COLLISION-KEEP` — Keep collision",
   ruleIds: ["POL-COLLISION-KEEP"]
 };
+
+test("Moonshot schema prevents cross-action citations without changing the shared provider contract", () => {
+  const ids = ["POL-COLLISION-KEEP", "POL-MECHANICAL-ONLY-NEGATIVE", "POL-FULL-QUERY-EXACT"];
+  const schema = createResponseSchema(["item-1"], ids, true) as any;
+  const decisions = schema.properties.decisions;
+  assert.equal(decisions.minItems, 1);
+  assert.equal(decisions.maxItems, 1);
+  const [keep, negative] = decisions.items.anyOf;
+  assert.deepEqual(keep.properties.decision.enum, ["KEEP"]);
+  assert.deepEqual(keep.properties.ruleIds.items.enum, ["POL-COLLISION-KEEP"]);
+  assert.equal(keep.properties.negativeText.type, "null");
+  assert.deepEqual(negative.properties.decision.enum, ["NEGATIVE_EXACT"]);
+  assert.deepEqual(negative.properties.ruleIds.items.enum, ["POL-MECHANICAL-ONLY-NEGATIVE", "POL-FULL-QUERY-EXACT"]);
+  assert.equal(negative.properties.negativeText.type, "string");
+  for (const variant of [keep, negative]) {
+    assert.equal(variant.properties.ruleIds.minItems, 1);
+    assert.equal(variant.additionalProperties, false);
+    assert.deepEqual(variant.properties.itemId.enum, ["item-1"]);
+  }
+  const keepOnly = createResponseSchema([], ["POL-COLLISION-KEEP"], true) as any;
+  assert.equal(keepOnly.properties.decisions.items.anyOf.length, 1);
+  assert.throws(() => createResponseSchema([], ["POL-FULL-QUERY-EXACT"], true));
+  assert.equal((createResponseSchema(["item-1"], ids) as any).properties.decisions.items.anyOf, undefined);
+});
 
 test("system instruction is the operational guardrails only", () => {
   const instruction = buildSystemInstruction();

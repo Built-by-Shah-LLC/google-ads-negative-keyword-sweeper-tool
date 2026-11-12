@@ -123,6 +123,7 @@ test("Moonshot adapter uses structured output and normalizes per-request tokens"
   assert.equal(fixed.totalTokens, 777);
   assert.equal(requests[0]?.url, "https://api.moonshot.ai/v1/chat/completions");
   assert.equal(requests[0]?.body.response_format.type, "json_schema");
+  assert.equal(requests[0]?.body.response_format.json_schema.schema.properties.decisions.items.anyOf[0].properties.decision.enum[0], "KEEP");
   assert.equal(requests[0]?.body.thinking.type, "enabled");
   assert.equal(requests[0]?.body.max_tokens, 32_768);
   assert.equal(requests[1]?.url, "https://api.moonshot.ai/v1/tokenizers/estimate-token-count");
