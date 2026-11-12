@@ -9,6 +9,8 @@ import { parseRuleSet } from "./rule-set.js";
 export const STATIC_RULE_SET_SOURCE = "db:negative_keyword_static_rule_sets";
 
 export interface DatabasePolicy {
+  /** Configured non-archived accounts authorized for bounded UI requests. */
+  activeCustomerIds: string[];
   /** Agency-wide static rules plus agency-wide phrase protections. */
   rules: RuleSet;
   /** Dynamic per-account policy, keyed by canonical ten-digit customer ID. */
@@ -124,7 +126,12 @@ export async function loadPolicyFromDatabase(
         ORDER BY customer_id
       `, [config.organizationId]);
 
+      const activeAccounts = await client.query<{ google_customer_id: string }>(`
+        SELECT google_customer_id FROM client_accounts
+        WHERE organization_id=$1 AND onboarding_status <> 'archived'
+      `, [config.organizationId]);
       return {
+        activeCustomerIds: activeAccounts.rows.map((account) => account.google_customer_id),
         rules,
         accountPolicies: buildAccountPolicies(
           accountRulesResult.rows,

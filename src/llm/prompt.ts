@@ -81,7 +81,7 @@ function describePositiveKeyword(criterion: PositiveKeywordCriterion): Record<st
   };
 }
 
-export function createResponseSchema(itemIds: string[], ruleIds: string[]): Record<string, unknown> {
+export function createResponseSchema(itemIds: string[], ruleIds: string[], enforceRuleActions = false): Record<string, unknown> {
   const itemIdSchema: Record<string, unknown> = { type: "string" };
   if (itemIds.length > 0) itemIdSchema.enum = itemIds;
   const decisionsSchema: Record<string, unknown> = {
@@ -100,6 +100,24 @@ export function createResponseSchema(itemIds: string[], ruleIds: string[]): Reco
       required: ["itemId", "decision", "negativeText", "ruleIds", "reason", "confidence"]
     }
   };
+  if (enforceRuleActions) {
+    const item = decisionsSchema.items as { properties: Record<string, unknown> } & Record<string, unknown>;
+    const keepIds = ruleIds.filter((id) => id.endsWith("-KEEP"));
+    const negativeIds = ruleIds.filter((id) => id.endsWith("-NEGATIVE"));
+    const variants: Record<string, unknown>[] = [];
+    if (keepIds.length > 0) variants.push({ ...item, properties: {
+      ...item.properties, decision: { type: "string", enum: ["KEEP"] },
+      negativeText: { type: "null" },
+      ruleIds: { type: "array", minItems: 1, items: { type: "string", enum: keepIds } }
+    } });
+    if (negativeIds.length > 0) variants.push({ ...item, properties: {
+      ...item.properties, decision: { type: "string", enum: ["NEGATIVE_EXACT"] },
+      negativeText: { type: "string" },
+      ruleIds: { type: "array", minItems: 1, items: { type: "string", enum: [...negativeIds, ...ruleIds.filter((id) => id === "POL-FULL-QUERY-EXACT")] } }
+    } });
+    if (variants.length === 0) throw new Error("Classifier rules must declare at least one KEEP or NEGATIVE action.");
+    decisionsSchema.items = { anyOf: variants };
+  }
   if (itemIds.length > 0) {
     decisionsSchema.minItems = itemIds.length;
     decisionsSchema.maxItems = itemIds.length;

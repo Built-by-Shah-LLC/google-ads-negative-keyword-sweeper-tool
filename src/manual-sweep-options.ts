@@ -1,6 +1,15 @@
 import type { AppConfig } from "./config/env.js";
 import type { SweepOptions } from "./pipeline/run-sweeper.js";
 
+/** UI authorization names one configured account; enabled MCC discovery and policy compilation still fail closed. */
+export function applyManualUiAccountSelection(config: Pick<AppConfig, "sweepAccounts" | "googleAdsMutation">, options: SweepOptions, activeCustomerIds: readonly string[]): void {
+  if (options.requestedDateSource !== "BUILT_ADS_MANAGER_UI" || !options.customerId) return;
+  assertManualSweepReadOnly(config);
+  const customerId = options.customerId.replaceAll("-", "");
+  if (!activeCustomerIds.includes(customerId)) throw new Error("The requested account is not configured or is archived.");
+  config.sweepAccounts = { source: "database-account", filePath: "db:client_accounts", accounts: [{ customerId, name: customerId }] };
+}
+
 /**
  * DEV-9 bounded manual keyword sweeper — argument parsing, range validation,
  * and read-only enforcement. Pure functions only (no I/O, no bootstrap) so the

@@ -95,9 +95,9 @@ $PlainEnvironmentKeys = @(
   "LLM_BATCH_SIZE", "GOOGLE_FETCH_CONCURRENCY", "LLM_CONCURRENCY",
   "LLM_REQUEST_TIMEOUT_MS", "LLM_MAX_ATTEMPTS", "RUN_TIME_ZONE",
   "CAMPAIGN_NAME_CONTAINS", "ACCOUNT_ALLOWLIST",
-  "RUN_REPORT_EMAIL_ENABLED", "RUN_REPORT_EMAIL_TO", "RUN_REPORT_EMAIL_FROM",
+  "RUN_REPORT_EMAIL_TO", "RUN_REPORT_EMAIL_FROM",
   "RUN_REPORT_EMAIL_SUBJECT_PREFIX", "RESEND_REQUEST_TIMEOUT_MS", "RESEND_MAX_ATTEMPTS",
-  "LOG_LEVEL", "ERROR_EMAIL_ENABLED", "ERROR_EMAIL_TO", "ERROR_EMAIL_FROM",
+  "LOG_LEVEL", "ERROR_EMAIL_TO", "ERROR_EMAIL_FROM",
   "ERROR_EMAIL_SUBJECT_PREFIX", "SMTP_HOST", "SMTP_PORT", "SMTP_SECURE", "SMTP_USER",
   "ALERT_HANDLED_ERROR_CODES", "ALERT_HANDLED_ERROR_STAGES",
   "PERSIST_RUNS_TO_DATABASE", "DATABASE_POOL_MAX", "DATABASE_MAX_PAYLOAD_BYTES"
@@ -233,6 +233,8 @@ foreach ($key in $PlainEnvironmentKeys) {
 # DEV-9 hard gate: the manual job is read-only. Force the disabled mode and
 # never upload a production confirmation value, regardless of local .env.
 $plainEnvPairs += "GOOGLE_ADS_MUTATION_MODE=disabled"
+$plainEnvPairs += "RUN_REPORT_EMAIL_ENABLED=false"
+$plainEnvPairs += "ERROR_EMAIL_ENABLED=false"
 # LLM is Moonshot-only for this job, regardless of local .env provider choice.
 $plainEnvPairs += "LLM_PROVIDER=moonshot"
 # Values may contain commas (RUN_REPORT_EMAIL_TO, ACCOUNT_ALLOWLIST), so use ';' as
@@ -252,7 +254,7 @@ $jobArgs = @(
   "--set-secrets", ($secretEnvMappings -join ","),
   "--set-env-vars", $plainEnvVarsArg,
   "--task-timeout", "21600",
-  "--max-retries", "1",
+  "--max-retries", "0",
   "--memory", "1Gi",
   "--command=node",
   "--args=dist/src/manual-sweep.js"

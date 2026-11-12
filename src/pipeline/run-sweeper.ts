@@ -666,11 +666,11 @@ async function finalizeRun(
  * when it loads; otherwise the legacy env allowlist remains the fallback.
  */
 export function selectEligibleOrganizations(
-  config: AppConfig,
+  config: Pick<AppConfig, "sweepAccounts" | "accountAllowlist">,
   discovered: Organization[],
   logger: Logger
 ): Organization[] {
-  if (config.sweepAccounts.source !== "master-file") {
+  if (config.sweepAccounts.source === "env-allowlist") {
     logger.info({
       progressEvent: "account_selection_source",
       source: "env-allowlist",
@@ -682,11 +682,11 @@ export function selectEligibleOrganizations(
   const eligible = filterOrganizationsBySweepAccounts(discovered, config.sweepAccounts.accounts);
   logger.info({
     progressEvent: "account_selection_source",
-    source: "master-file",
+    source: config.sweepAccounts.source,
     file: config.sweepAccounts.filePath,
     masterListCompanies: config.sweepAccounts.accounts.length,
     matchedEnabledAccounts: eligible.length
-  }, "Sweep accounts master file is the active account filter");
+  }, "Sweep account selection is the active account filter");
   const discoveredIds = new Set(discovered.map((organization) => organization.customerId));
   const notDiscovered = config.sweepAccounts.accounts.filter((account) => !discoveredIds.has(account.customerId));
   if (notDiscovered.length > 0) {
