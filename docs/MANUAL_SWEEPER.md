@@ -161,3 +161,27 @@ When the validator identifies incompatible rule citations, the correction also n
 Moonshot structured responses also separate KEEP and NEGATIVE_EXACT schema branches, restricting each branch to compatible rule IDs and negativeText shape. The existing validator still checks complete coverage, exact text, duplicate/unknown citations and the requirement for a real negative rule when metadata is present. Other providers retain their existing schema. Fixed-input counting uses the same Moonshot schema as classification. No intent rule is changed.
 
 The branch composition uses the provider-documented anyOf/items/null subset: https://github.com/MoonshotAI/walle/blob/main/docs/mfjs-spec.md. Provider schema guidance never replaces local validation.
+
+## November 12 Dev release evidence
+
+Manual code `1bb557e89fbc494cfcb1c9dc63be68cde86bff5e` is deployed to
+`negative-keyword-sweeper-manual` in `built-ads-manager-dev/us-west1`.
+Cloud Build `c5bd59ee-186a-4a3d-8b31-67de1ded06d7` succeeded. No daily or
+recovery job was changed. Typecheck/build and rule integrity passed; the unit
+suite passed 280 tests with one skip. Independent source review passed.
+
+The UI-requested ten-day execution `negative-keyword-sweeper-manual-vdjwq`
+succeeded in 2m39s for 10X AUTO GROUP INC, 11/01/26 through 11/10/26: 170 raw
+terms, 148 eligible unique terms, 148 decisions (55 keep, 93 negative exact
+suggestions). The browser refreshed automatically to Succeeded. Read-only
+PostgreSQL verification confirmed exact UI execution correlation, one selected
+account, Built by Shah campaign scope, read_only=true, no classification errors
+and google_ads_mutation_performed=false. Earlier one-day UI execution `nsqfw`
+completed all 19 terms for 3J Collision Center (10 keep, 9 negative suggestions).
+
+The pre-existing worker automatically sent two failure-report emails during the
+initial failed execution before its legacy notification configuration was
+discovered. Both manual email paths are now disabled in code and configuration;
+subsequent executions skipped delivery. Those original emails cannot be
+recalled. No Google Ads mutation or data deletion occurred. Task tracking stays
+in chat under the user's explicit instruction; no Jira changes were made.
