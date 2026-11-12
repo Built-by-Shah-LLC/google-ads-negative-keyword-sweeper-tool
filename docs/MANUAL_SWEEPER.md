@@ -155,3 +155,5 @@ using a fixed correction instruction. It does not echo model output, change the
 policy, salvage invalid decisions, increase the two-attempt bound, or relax
 validation. Repeated invalid output still yields Partial/Failed evidence. Only
 the manual job is redeployed for this release.
+
+When the validator identifies incompatible rule citations, the correction also names the submitted item ID. Feedback recognizes only exact application-owned validation messages for that ID; no raw model response, search query, or arbitrary exception is echoed.

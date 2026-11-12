@@ -240,6 +240,8 @@ test("validation retry explains citation integrity while preserving policy and f
     assert.match(correction.content, /NEGATIVE_EXACT must cite at least one rule ending in -NEGATIVE and no -KEEP rules/u);
     assert.match(correction.content, /KEEP must cite at least one rule ending in -KEEP and no -NEGATIVE or metadata rules/u);
     assert.match(correction.content, /POL-FULL-QUERY-EXACT may support NEGATIVE_EXACT only; never KEEP or the sole rule/u);
+    assert.match(correction.content, /The invalid citation belongs to itemId "item-1"/u);
+    assert.doesNotMatch(correction.content, /collision repair near me/u);
     assert.doesNotMatch(correction.content, /ignore all prior instructions/u);
   }
 });
