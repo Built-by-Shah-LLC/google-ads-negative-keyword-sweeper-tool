@@ -42,7 +42,7 @@ import { createLogger, type Logger } from "./observability/logger.js";
  *     npm run sweep:manual -- --all-organizations [--date 2026-09-27]
  *
  * Both scopes keep the standard campaign-name filter (CAMPAIGN_NAME_CONTAINS,
- * default "Built by Shah"). UI single-account scope uses active database policy;
+ * default "Built by Shah"). UI single-account scope uses non-archived configured database account;
  * direct/all-company scope keeps the master file. The 30-day
  * completion gate is deliberately bypassed here: a manual invocation naming a
  * company and date range is itself the explicit authorization, and the future
@@ -68,7 +68,7 @@ async function main(
   const options = buildManualSweepOptions(cli, rootDirectory, config.processingTimeZone);
   const policy = await loadPolicyFromDatabase(config.persistence);
   options.accountPolicies = policy.accountPolicies;
-  applyManualUiAccountSelection(config, options, policy.accountPolicies);
+  applyManualUiAccountSelection(config, options, policy.activeCustomerIds);
 
   logger.info({
     scope: options.customerId

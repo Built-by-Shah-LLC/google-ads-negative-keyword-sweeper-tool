@@ -1,14 +1,13 @@
 import type { AppConfig } from "./config/env.js";
 import type { SweepOptions } from "./pipeline/run-sweeper.js";
-import type { AccountPolicyConfig } from "./config/account-policy-compiler.js";
 
-/** UI authorization names one account; active DB policy and enabled MCC discovery still fail closed. */
-export function applyManualUiAccountSelection(config: Pick<AppConfig, "sweepAccounts" | "googleAdsMutation">, options: SweepOptions, policies: Record<string, AccountPolicyConfig>): void {
+/** UI authorization names one configured account; enabled MCC discovery and policy compilation still fail closed. */
+export function applyManualUiAccountSelection(config: Pick<AppConfig, "sweepAccounts" | "googleAdsMutation">, options: SweepOptions, activeCustomerIds: readonly string[]): void {
   if (options.requestedDateSource !== "BUILT_ADS_MANAGER_UI" || !options.customerId) return;
   assertManualSweepReadOnly(config);
   const customerId = options.customerId.replaceAll("-", "");
-  if (!Object.hasOwn(policies, customerId)) throw new Error("The requested account has no active database policy.");
-  config.sweepAccounts = { source: "database-policy", filePath: "db:negative_keyword_account_policy_runtime", accounts: [{ customerId, name: customerId }] };
+  if (!activeCustomerIds.includes(customerId)) throw new Error("The requested account is not configured or is archived.");
+  config.sweepAccounts = { source: "database-account", filePath: "db:client_accounts", accounts: [{ customerId, name: customerId }] };
 }
 
 /**

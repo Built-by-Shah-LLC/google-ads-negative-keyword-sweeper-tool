@@ -14,7 +14,7 @@ export interface SweepAccount {
 
 export interface SweepAccountSelection {
   /** master-file = config/sweep-accounts.json replaced ACCOUNT_ALLOWLIST; env-allowlist = legacy fallback. */
-  source: "master-file" | "env-allowlist" | "database-policy";
+  source: "master-file" | "env-allowlist" | "database-account";
   filePath: string;
   accounts: SweepAccount[];
 }

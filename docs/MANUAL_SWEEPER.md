@@ -19,7 +19,7 @@ entries **D-060** (Jira **DEV-9**) and **D-061** (browser-started wiring). The d
 | Reader | The only Google Ads client used is the shared read-only client; `assertReadOnlyGoogleAdsPath`/`assertReadOnlyGoogleAdsQuery` block every non-`searchStream`, non-`SELECT` call. |
 | Deployment | The manual job forces `GOOGLE_ADS_MUTATION_MODE=disabled` in its environment and never receives `GOOGLE_ADS_PRODUCTION_MUTATION_CONFIRMATION`. |
 | LLM provider | Moonshot-only: the job pins `LLM_PROVIDER=moonshot` and its environment contains no other provider's API key or model setting. `MOONSHOT_THINKING=disabled` is required: with thinking active (explicit or default), `kimi-k2.6` ignores the strict `json_schema` response format and free-forms, which the local validator rejects fail-closed (probe-verified 2026-09-29). |
-| Scope | One company per run (10-digit customer ID). Browser requests require an active database policy for that exact customer and enabled MCC leaf discovery; direct CLI/all-company runs retain the committed master-file gate; persistence fails closed without an active `client_accounts` mapping. |
+| Scope | One company per run (10-digit customer ID). Browser requests require an non-archived configured database account for that exact customer and enabled MCC leaf discovery; direct CLI/all-company runs retain the committed master-file gate; persistence fails closed without an active `client_accounts` mapping. |
 | Bounded input | `--start-date`/`--end-date` are required, real calendar dates, start ≤ end, span ≤ **31 days**, and the end date may not be in the future (`RUN_TIME_ZONE`). |
 | Campaign filter | Unchanged: `CAMPAIGN_NAME_CONTAINS` (default `Built by Shah`), applied to fetched search-term rows and to the positive-keyword inventory query. |
 | Policy | Unchanged: the database-owned effective policy (static rule set + account revision + phrase protections) with `effective_sha256` fail-closed parity is compiled per account before any LLM spend. |
@@ -61,7 +61,7 @@ Local runs use the repo `.env` and require the same guards:
 mode disabled.
 
 The Built Ads Manager gateway appends the reserved
-`--request-source built-ads-manager-ui` argument. This records the origin and uses the exact requested active database policy account rather than the older static master list; it cannot enable a writer. Operators should
+`--request-source built-ads-manager-ui` argument. This records the origin and uses the exact requested non-archived configured database account account rather than the older static master list; it cannot enable a writer. Operators should
 omit the flag for direct terminal runs.
 
 ### Inspecting results
@@ -139,7 +139,7 @@ It creates no scheduler. The job environment is Moonshot-only for LLM calls
 
 ## November 12 manual UI verification repair
 
-A browser request for an active account absent from the older master file failed before account rows existed. UI-origin single-account requests now derive their one-account selection from the active database policy and still intersect enabled MCC discovery. Database mapping, policy hash validation, bounded dates, Built by Shah campaign filtering and disabled mutation remain enforced. Direct CLI and daily scheduler selection are unchanged.
+A browser request for an active account absent from the older master file failed before account rows existed. UI-origin single-account requests now derive their one-account selection from the non-archived configured database account and still intersect enabled MCC discovery. Database mapping, policy hash validation, bounded dates, Built by Shah campaign filtering and disabled mutation remain enforced. Direct CLI and daily scheduler selection are unchanged.
 
 Manual entrypoint email alerts and run reports are always disabled, even if inherited runtime configuration enables them. The manual deployment script pins both flags false. All manual results belong in the in-app retained evidence.
 
