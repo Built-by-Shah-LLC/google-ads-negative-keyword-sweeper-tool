@@ -63,6 +63,7 @@ export interface OrganizationSummary {
   mutation: NegativeKeywordMutationSummary;
   errorCount: number;
   error?: string;
+  errorCode?: string;
 }
 
 export interface PositiveKeywordSummary {
@@ -93,6 +94,9 @@ interface ProcessOrganizationDependencies {
   persistence?: SweepPersistence;
   negativeKeywordWriter?: NegativeKeywordWriter;
   mutationChunkSize?: number;
+  admittedAccountId?: string;
+  assertArchiveEligible?: () => Promise<void>;
+  withLiveArchiveFence?: <T>(send: () => Promise<T>) => Promise<T>;
   /** Explicit search-term window; overrides the requestedDate/48-hour derivation. */
   dateRange?: DateRange;
 }
@@ -133,6 +137,7 @@ export async function processOrganization(
   }, "Organization processing started");
 
   try {
+    await dependencies.assertArchiveEligible?.();
     const fetchStarted = performance.now();
     dependencies.logger?.info({
       progressEvent: "organization_search_terms_fetch_started",
@@ -252,6 +257,7 @@ export async function processOrganization(
     });
 
     await dependencies.persistence?.prepareAccount({
+      ...(dependencies.admittedAccountId ? { admittedAccountId: dependencies.admittedAccountId } : {}),
       organization,
       dateRange,
       startedAt: organizationStartedAt,
@@ -535,7 +541,8 @@ export async function processOrganization(
   } catch (error) {
     const alreadyTracked = dependencies.telemetry.errorsForOrganization(organization.customerId)
       .some((item) => item.message === errorMessage(error));
-    if (!alreadyTracked) dependencies.telemetry.error(error, { stage: "ORGANIZATION_PIPELINE", ...errorContext });
+    const errorCode = safeErrorCode(error);
+    if (!alreadyTracked && errorCode !== "ACCOUNT_ARCHIVED") dependencies.telemetry.error(error, { stage: "ORGANIZATION_PIPELINE", ...errorContext });
     const summary: OrganizationSummary = {
       customerId: organization.customerId,
       descriptiveName: organization.descriptiveName,
@@ -551,7 +558,8 @@ export async function processOrganization(
       batchTokenUsage: [...batchTokenUsage].sort(compareBatchUsage),
       mutation,
       errorCount: dependencies.telemetry.errorsForOrganization(organization.customerId).length,
-      error: errorMessage(error)
+      error: errorMessage(error),
+      errorCode
     };
     if (persistencePrepared) {
       await dependencies.persistence?.finishAccount(summaryRecord(summary));
@@ -819,13 +827,15 @@ async function runMutationStage(
     negativeDecisionCount: summary.decisions.NEGATIVE_EXACT ?? 0
   }, "Organization negative-keyword mutation stage started");
   try {
+    await dependencies.assertArchiveEligible?.();
     const result = await applyNegativeExactDecisions({
       googleAds: dependencies.googleAds,
       writer,
       customerId: organization.customerId,
       candidates,
       decisions,
-      chunkSize: dependencies.mutationChunkSize ?? 500
+      chunkSize: dependencies.mutationChunkSize ?? 500,
+      ...(dependencies.withLiveArchiveFence ? { withLiveArchiveFence: dependencies.withLiveArchiveFence } : {})
     });
     const fields = {
       progressEvent: "organization_mutation_completed",
@@ -849,6 +859,9 @@ async function runMutationStage(
     }
     return result;
   } catch (error) {
+    if (safeErrorCode(error) === "ACCOUNT_ARCHIVED") {
+      return { ...skippedMutationSummary(writer, "The account was archived before this change could start."), archiveBlocked: true };
+    }
     dependencies.telemetry.error(error, {
       stage: "GOOGLE_ADS_MUTATION",
       code: "GOOGLE_ADS_MUTATION_STAGE_FAILED",

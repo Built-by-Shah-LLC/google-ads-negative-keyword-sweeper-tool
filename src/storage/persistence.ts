@@ -36,6 +36,7 @@ export interface SweepRunStart {
 }
 
 export interface SweepAccountInputs {
+  readonly admittedAccountId?: string;
   organization: Organization;
   dateRange: DateRange;
   startedAt: string;

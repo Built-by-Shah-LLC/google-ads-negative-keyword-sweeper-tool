@@ -1,3 +1,4 @@
+import { archivedBeforeStart, lockArchiveAccounts, type ArchiveAccount } from "./archive-fence.js";
 import { createHash } from "node:crypto";
 import { Pool, type PoolClient, type QueryResultRow } from "pg";
 import type { DatabasePersistenceConfig } from "../../config/env.js";
@@ -199,6 +200,29 @@ export class PostgresSweepPersistence implements SweepPersistence {
     });
   }
 
+  async accountArchiveRevisions(): Promise<ReadonlyMap<string, ArchiveAccount>> {
+    return this.transaction(async (client) => {
+      const result = await client.query<{ id: string; customer_id: string; revision: string }>(`
+        SELECT id::text, google_customer_id::text AS customer_id, archive_revision::text AS revision
+        FROM client_accounts WHERE organization_id=$1 AND onboarding_status <> 'archived'
+      `, [this.organizationId]);
+      return new Map(result.rows.map((row) => [row.customer_id, { id: row.id, customerId: row.customer_id, revision: row.revision }]));
+    });
+  }
+
+  async withArchiveFence<T>(account: ArchiveAccount, operation: () => Promise<T>): Promise<T> {
+    return this.transaction(async (client) => {
+      await lockArchiveAccounts(client, this.organizationId, [account.id]);
+      const result = await client.query(`
+        SELECT 1 FROM client_accounts
+        WHERE organization_id=$1 AND id=$2::uuid AND google_customer_id=$3
+          AND archive_revision=$4::bigint AND onboarding_status <> 'archived'
+      `, [this.organizationId, account.id, account.customerId, account.revision]);
+      if (result.rowCount !== 1) throw archivedBeforeStart();
+      return operation();
+    });
+  }
+
   async prepareAccount(input: SweepAccountInputs): Promise<void> {
     const runId = this.requiredRunId();
     await this.transaction(async (client) => {
@@ -215,8 +239,8 @@ export class PostgresSweepPersistence implements SweepPersistence {
         FROM client_accounts
         WHERE organization_id = $1
           AND google_customer_id = $2
-          AND onboarding_status <> 'archived'
-      `, [this.organizationId, input.organization.customerId],
+          AND (onboarding_status <> 'archived' OR id=$3::uuid)
+      `, [this.organizationId, input.organization.customerId, input.admittedAccountId ?? null],
       "Selected Google Ads customer is not an active Built Ads Manager client account");
 
       const accountRunResult = await client.query<IdRow>(`

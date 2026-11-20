@@ -1,3 +1,4 @@
+import { PipelineError } from "../observability/errors.js";
 import { createHash } from "node:crypto";
 import type { ClassificationCandidate, ClassificationDecision } from "../types.js";
 import type { GoogleAdsClient } from "./client.js";
@@ -32,6 +33,7 @@ export interface NegativeKeywordChunkResult {
 
 export interface NegativeKeywordWriteOptions {
   /** Invoked after validation and immediately before a writer sends a live mutation. */
+  withLiveArchiveFence?: <T>(send: () => Promise<T>) => Promise<T>;
   beforeLiveMutation?: (operations: readonly NegativeKeywordCreate[]) => Promise<void>;
 }
 
@@ -76,6 +78,7 @@ export interface NegativeKeywordMutationSummary {
     results: NegativeKeywordWriteResult[];
   }>;
   skippedReason: string | null;
+  archiveBlocked?: boolean;
 }
 
 export function disabledMutationSummary(): NegativeKeywordMutationSummary {
@@ -121,6 +124,7 @@ export async function applyNegativeExactDecisions(input: {
   candidates: ClassificationCandidate[];
   decisions: ClassificationDecision[];
   chunkSize: number;
+  withLiveArchiveFence?: <T>(send: () => Promise<T>) => Promise<T>;
 }): Promise<NegativeKeywordMutationSummary> {
   const customerId = sanitizeId(input.customerId, "customer ID");
   if (!Number.isSafeInteger(input.chunkSize) || input.chunkSize < 1 || input.chunkSize > 500) {
@@ -169,6 +173,7 @@ export async function applyNegativeExactDecisions(input: {
   }
 
   const chunks: NegativeKeywordMutationSummary["chunks"] = [];
+  const archiveBlocked = new Set<string>();
   for (let offset = 0; offset < pending.length; offset += input.chunkSize) {
     const operationsInChunk = pending.slice(offset, offset + input.chunkSize);
     const chunkId = String(chunks.length + 1).padStart(4, "0");
@@ -181,6 +186,7 @@ export async function applyNegativeExactDecisions(input: {
     );
     try {
       const result = await input.writer.writeChunk(customerId, operationsInChunk, {
+        ...(input.withLiveArchiveFence ? { withLiveArchiveFence: input.withLiveArchiveFence } : {}),
         beforeLiveMutation: async (operationsToMutate) => {
           await assertCampaignsStillPassSweepFilter(
             input.googleAds,
@@ -198,13 +204,17 @@ export async function applyNegativeExactDecisions(input: {
       });
     } catch (error) {
       if (error instanceof CampaignSweepFilterError) throw error;
+      const rejectedByArchive = isArchiveRejection(error);
+      if (rejectedByArchive) {
+        for (const operation of operationsInChunk) archiveBlocked.add(operationKey(operation));
+      }
       chunks.push({
         chunkId,
         requestId: null,
         operationCount: operationsInChunk.length,
         results: operationsInChunk.map((operation) => ({
           ...operation,
-          status: input.writer.mode === "production" ? "UNKNOWN" : "FAILED",
+          status: input.writer.mode === "production" && !rejectedByArchive ? "UNKNOWN" : "FAILED",
           resourceName: null,
           error: safeErrorMessage(error)
         }))
@@ -217,10 +227,11 @@ export async function applyNegativeExactDecisions(input: {
   const validatedCount = results.filter((result) => result.status === "VALIDATED").length;
   let verifiedCount = 0;
   let verificationError: string | null = null;
-  if (input.writer.mode === "production") {
+  if (input.writer.mode === "production" && results.length > archiveBlocked.size) {
     try {
       const existingAfter = await fetchExistingCampaignExactNegatives(input.googleAds, customerId);
       for (const result of results) {
+        if (archiveBlocked.has(operationKey(result))) continue;
         if (existingAfter.has(operationKey(result))) {
           verifiedCount += 1;
           result.status = "APPLIED";
@@ -254,7 +265,7 @@ export async function applyNegativeExactDecisions(input: {
     positiveKeywordConflictCount: positiveKeywordConflicts.length,
     positiveKeywordConflicts,
     existingCount,
-    attemptedCount: pending.length,
+    attemptedCount: pending.length - archiveBlocked.size,
     mockedCount,
     validatedCount,
     appliedCount,
@@ -265,7 +276,8 @@ export async function applyNegativeExactDecisions(input: {
     outcomeAmbiguous: unknownCount > 0,
     googleAdsMutationPerformed: input.writer.mode === "production" && appliedCount > 0,
     chunks,
-    skippedReason: null
+    skippedReason: null,
+    ...(archiveBlocked.size ? { archiveBlocked: true } : {})
   };
 }
 
@@ -384,4 +396,8 @@ function recordValue(value: unknown): Record<string, unknown> | null {
 function safeErrorMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   return message.slice(0, 500);
+}
+
+function isArchiveRejection(error: unknown): boolean {
+  return error instanceof PipelineError && error.context.code === "ACCOUNT_ARCHIVED";
 }

@@ -202,3 +202,13 @@ test("30-day mode still resolves its lookback range when no explicit range is se
   const thirtyDay = { startDate: "2026-08-17", endDate: "2026-09-15" };
   assert.deepEqual(resolveActiveDateRange({ thirtyDayMode: true, dateRange: null }, thirtyDay), thirtyDay);
 });
+
+test("BAM commands pin the archive revision while legacy queued commands use revision zero", () => {
+  const command = [
+    "--customer", "123-456-7890", "--start-date", "2026-09-01", "--end-date", "2026-09-03",
+    "--request-source", "built-ads-manager-ui"
+  ];
+  assert.deepEqual(buildManualSweepOptions(parseManualSweepCliArguments(command), ".", TIME_ZONE, NOW).expectedArchiveRevisions, { "1234567890": "0" });
+  assert.deepEqual(buildManualSweepOptions(parseManualSweepCliArguments([...command, "--archive-revision", "2"]), ".", TIME_ZONE, NOW).expectedArchiveRevisions, { "1234567890": "2" });
+  assert.throws(() => parseManualSweepCliArguments([...command, "--archive-revision", "02"]), /valid account archive revision/);
+});

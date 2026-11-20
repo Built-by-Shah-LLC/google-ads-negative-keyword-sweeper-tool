@@ -1,3 +1,4 @@
+import { lockArchiveAccounts } from "../storage/postgres/archive-fence.js";
 import { Pool, type PoolClient } from "pg";
 import { createHash } from "node:crypto";
 import { canonicalRecoveryJson, parseRecoveryItem, validateRecoveryPolicy, type RecoveryPolicy } from "./contract.js";
@@ -58,16 +59,23 @@ export class PostgresRecoveryStore implements RecoveryStore {
   }
   async claim(runId: string, execution: string): Promise<RecoveryRequest | null> {
     return this.transaction(execution, async client => {
+      const candidate = await client.query<{ account_id: string }>(
+        "SELECT account_id::text FROM volume_recovery_runs WHERE organization_id=$1 AND id=$2::uuid AND status='pending'",
+        [this.organizationId, runId]
+      );
+      const accountId = candidate.rows[0]?.account_id;
+      if (!accountId) return null;
+      await lockArchiveAccounts(client, this.organizationId, [accountId]);
       const result = await client.query(`UPDATE volume_recovery_runs run SET status='running',stage='Validating request',execution_name=$3,started_at=clock_timestamp(),heartbeat_at=clock_timestamp()
         FROM client_accounts account WHERE run.organization_id=$1 AND run.id=$2::uuid AND run.status='pending'
-          AND account.organization_id=run.organization_id AND account.id=run.account_id AND account.onboarding_status<>'archived'
+          AND account.organization_id=run.organization_id AND account.id=run.account_id AND account.onboarding_status<>'archived' AND account.archive_revision=run.account_archive_revision
         RETURNING run.*,account.google_customer_id,account.client_name`, [this.organizationId, runId, execution]);
       const row = result.rows[0];
       if (!row) {
         await client.query(`UPDATE volume_recovery_runs run SET status='failed',stage='Account archived',completed_at=clock_timestamp(),
           error_code='ACCOUNT_ARCHIVED',error_message='The account was archived before this review started.'
           FROM client_accounts account WHERE run.organization_id=$1 AND run.id=$2::uuid AND run.status='pending'
-          AND account.organization_id=run.organization_id AND account.id=run.account_id AND account.onboarding_status='archived'`,[this.organizationId,runId]);
+          AND account.organization_id=run.organization_id AND account.id=run.account_id AND (account.onboarding_status='archived' OR account.archive_revision<>run.account_archive_revision)`,[this.organizationId,runId]);
         return null;
       }
       return {

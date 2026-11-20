@@ -78,7 +78,8 @@ export class ProductionNegativeKeywordWriter implements NegativeKeywordWriter {
     }
 
     await options?.beforeLiveMutation?.(validOperations);
-    const mutation = await this.transport.post(path, campaignCriterionMutationRequest(cleanCustomerId, validOperations, false));
+    const sendMutation = () => this.transport.post(path, campaignCriterionMutationRequest(cleanCustomerId, validOperations, false));
+    const mutation = await (options?.withLiveArchiveFence ? options.withLiveArchiveFence(sendMutation) : sendMutation());
     assertMutationHttpSuccess(mutation, cleanCustomerId, false);
     const mutationErrors = parsePartialFailureErrors(mutation.payload);
     const results = responseResults(mutation.payload);

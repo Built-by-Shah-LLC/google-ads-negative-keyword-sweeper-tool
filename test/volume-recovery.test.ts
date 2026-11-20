@@ -307,12 +307,20 @@ test("duplicate executions exit before collection or model calls", async () => {
 test("an archived account is terminalized when its pending worker cannot claim",async()=>{
   const store=new PostgresRecoveryStore("postgresql://mock:mock@127.0.0.1:1/mock","00000000-0000-4000-8000-000000000001");
   const statements:string[]=[];
-  store.transaction=async(_execution,operation)=>operation({async query(sql:string){statements.push(sql);return {rows:[],rowCount:0};}} as unknown as PoolClient);
+  store.transaction=async(_execution,operation)=>operation({async query(sql:string){
+    statements.push(sql);
+    const rows = sql.includes("SELECT account_id::text") ? [{ account_id: runId }] : [];
+    return { rows, rowCount: rows.length };
+  }} as unknown as PoolClient);
   try {
     assert.equal(await store.claim(runId,"recovery-abc"),null);
-    assert.equal(statements.length,2);assert.ok(statements[1]!.includes("run.status='pending'"));
-    assert.ok(statements[1]!.includes("account.onboarding_status='archived'"));
-    assert.ok(statements[1]!.includes("error_code='ACCOUNT_ARCHIVED'"));
+    assert.equal(statements.length,4);
+    assert.ok(statements[1]!.includes("pg_advisory_xact_lock_shared"));
+    assert.ok(statements[2]!.includes("account.archive_revision=run.account_archive_revision"));
+    assert.ok(statements[3]!.includes("run.status='pending'"));
+    assert.ok(statements[3]!.includes("account.onboarding_status='archived'"));
+    assert.ok(statements[3]!.includes("account.archive_revision<>run.account_archive_revision"));
+    assert.ok(statements[3]!.includes("error_code='ACCOUNT_ARCHIVED'"));
   }finally{await store.close();}
 });
 test("offline worker writes a report only after claim and validates its pinned policy", async () => {
