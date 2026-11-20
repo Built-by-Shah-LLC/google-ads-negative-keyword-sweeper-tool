@@ -153,6 +153,6 @@ gcloud run jobs update negative-keyword-sweeper --region us-west1 --project YOUR
 
 ### DEV-181 account archive compatibility
 
-Install Built Ads Manager schema migration 0067 before deploying these workers. Scheduled occurrences pin eligible account revisions and retain the original mutation authorization scope. A skipped occurrence stays in the schedule history and does not send a report. Manual requests may pass a server-captured archive revision. Requests created before the change can run only while the account is still on revision zero. Volume Recovery also checks the revision at claim.
+Install Built Ads Manager schema migration `0069_account_archive` before deploying these workers. Scheduled occurrences pin eligible account revisions and retain the original mutation authorization scope. A skipped occurrence stays in the schedule history and does not send a report. Manual requests may pass a server-captured archive revision. Requests created before the change can run only while the account is still on revision zero. Volume Recovery also checks the revision at claim.
 
 Drain earlier worker executions and verify the scheduled, standalone manual, and Volume Recovery revisions before enabling Archive in Built Ads Manager. If the UI is disabled during rollback, keep the archive-aware workers while archive history exists.
