@@ -598,3 +598,48 @@ test("a longer competitor query matched by a positive phrase remains mutation el
   assert.equal(summary.attemptedCount, 1);
   assert.equal(summary.status, "MOCKED");
 });
+
+test("provider verification cannot turn an archive-blocked write into an applied result", async () => {
+  const { archivedBeforeStart } = await import("../src/storage/postgres/archive-fence.js");
+  const items = [candidate(), candidate({ itemId: "item-2", campaignId: "101", searchTerm: "second test term" })];
+  let negativeReads = 0;
+  let livePosts = 0;
+  let fences = 0;
+  const writer = new ProductionNegativeKeywordWriter(true, {
+    async post(_path, body) {
+      if (body.validateOnly) return { ok: true, status: 200, requestId: "validation", payload: {} };
+      livePosts += 1;
+      return { ok: true, status: 200, requestId: "mutation", payload: { results: [{ resourceName: "fake-resource" }] } };
+    },
+  });
+  const summary = await applyNegativeExactDecisions({
+    googleAds: {
+      async searchStream(_customerId, query) {
+        if (/FROM campaign\b/u.test(query)) return items.map(currentlyEligibleCampaign);
+        negativeReads += 1;
+        return negativeReads === 1 ? [] : items.map((item) => ({
+          campaign: { id: item.campaignId },
+          campaignCriterion: { negative: true, keyword: { text: item.searchTerm, matchType: "EXACT" } }
+        }));
+      },
+    },
+    writer,
+    customerId: "1234567890",
+    candidates: items,
+    decisions: items.map(negative),
+    chunkSize: 1,
+    async withLiveArchiveFence(send) {
+      fences += 1;
+      if (fences === 2) throw archivedBeforeStart();
+      return send();
+    },
+  });
+  assert.equal(negativeReads, 2);
+  assert.equal(livePosts, 1);
+  assert.equal(summary.archiveBlocked, true);
+  assert.equal(summary.status, "PARTIAL");
+  assert.equal(summary.attemptedCount, 1);
+  assert.equal(summary.appliedCount, 1);
+  assert.equal(summary.failedCount, 1);
+  assert.equal(summary.verifiedCount, 1);
+});

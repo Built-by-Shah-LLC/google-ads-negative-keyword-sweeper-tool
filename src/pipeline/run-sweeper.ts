@@ -1,3 +1,4 @@
+import { archivedBeforeStart } from "../storage/postgres/archive-fence.js";
 import { createHash } from "node:crypto";
 import type { AppConfig } from "../config/env.js";
 import {
@@ -56,6 +57,7 @@ export interface SweepOptions {
   customerId: string | null;
   /** Trusted multi-account cohort loaded from an immutable occurrence. */
   customerIds?: readonly string[];
+  expectedArchiveRevisions?: Readonly<Record<string, string>>;
   organizationLimit: number | null;
   allOrganizations: boolean;
   candidateLimitPerOrganization: number | null;
@@ -98,7 +100,8 @@ export interface SweepServices {
 export async function runSweeper(config: AppConfig, rules: RuleSet, options: SweepOptions, services: SweepServices = {}): Promise<{
   runId: string;
   runDirectory: string;
-  status: "SUCCEEDED" | "PARTIAL" | "FAILED";
+  status: "SUCCEEDED" | "PARTIAL" | "FAILED" | "SKIPPED";
+  archiveBlockedMutation?: true;
 }> {
   assertProductionMutationAuthorized(config, options);
   const persistence = services.persistence
@@ -184,6 +187,16 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
       ...(thirtyDayDateRange === null ? {} : { thirtyDayDateRange }),
       ...(options.dateRange == null ? {} : { requestedDateRange: options.dateRange })
     }, "Sweep run started");
+    const archivePersistence = persistence instanceof PostgresSweepPersistence ? persistence : null;
+    const archiveAccounts = await archivePersistence?.accountArchiveRevisions();
+    const expectedRevisions = options.expectedArchiveRevisions;
+    const eligibleArchiveAccounts = archiveAccounts && new Map([...archiveAccounts].filter(([customerId, account]) =>
+      expectedRevisions === undefined || expectedRevisions[customerId] === account.revision
+    ));
+    const occurrenceCustomers = options.customerIds?.filter((id) => !eligibleArchiveAccounts || eligibleArchiveAccounts.has(id.replaceAll("-", "")));
+    if (occurrenceCustomers?.length === 0) {
+      return { runId: artifacts.runId, runDirectory: artifacts.runDirectory, status: "SKIPPED" };
+    }
     await persistence.startRun({
       runId: artifacts.runId,
       executionKey: config.persistence.enabled ? config.persistence.executionKey : null,
@@ -210,11 +223,18 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
     logger.info({
       progressEvent: "organization_discovery_started"
     }, "Discovering enabled Google Ads organizations");
+    if (eligibleArchiveAccounts) {
+      const target = options.customerId?.replaceAll("-", "");
+      const account = target ? eligibleArchiveAccounts.get(target) : null;
+      if ((target && !account) || eligibleArchiveAccounts.size === 0) throw archivedBeforeStart();
+      if (account) await archivePersistence?.withArchiveFence(account, async () => undefined);
+    }
     const discovered = await telemetry.track("ORGANIZATION_DISCOVERY", {}, () =>
       fetchOrganizations(googleAds, config.googleAds.loginCustomerId)
     );
     discoveredCount = discovered.length;
     let eligible = selectEligibleOrganizations(config, discovered, logger);
+    if (eligibleArchiveAccounts) eligible = eligible.filter(({ customerId }) => eligibleArchiveAccounts.has(customerId));
     eligible = await applyThirtyDayGate(config, options, eligible, logger);
     eligibleCount = eligible.length;
     logger.info({
@@ -223,8 +243,8 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
       organizationsEligible: eligible.length
     }, "Google Ads organization discovery completed");
     let selected = eligible;
-    if (options.customerIds !== undefined) {
-      const requested = new Set(options.customerIds.map((value) => value.replaceAll("-", "")));
+    if (occurrenceCustomers !== undefined) {
+      const requested = new Set(occurrenceCustomers.map((value) => value.replaceAll("-", "")));
       selected = eligible.filter((organization) => requested.has(organization.customerId));
       if (selected.length !== requested.size) {
         await persistence.recordDiscovery(discoveredCount, eligible.length, selected.length);
@@ -315,6 +335,7 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
         organizationPosition: index + 1,
         organizationTotal: selectedCount
       });
+      const admitted = eligibleArchiveAccounts?.get(organization.customerId);
       const summary = await processOrganization(
         organization,
         processingDate,
@@ -330,6 +351,11 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
           llmLimit,
           logger: organizationLogger,
           persistence,
+          ...(admitted && archivePersistence ? {
+            admittedAccountId: admitted.id,
+            assertArchiveEligible: () => archivePersistence.withArchiveFence(admitted, async () => undefined),
+            withLiveArchiveFence: <T>(send: () => Promise<T>) => archivePersistence.withArchiveFence(admitted, send)
+          } : {}),
           ...(negativeKeywordWriter === undefined ? {} : { negativeKeywordWriter }),
           mutationChunkSize: config.googleAdsMutation.chunkSize,
           ...(activeDateRange === null ? {} : { dateRange: activeDateRange })
@@ -355,6 +381,7 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
       await recordThirtyDayCompletions(config, artifacts.runId, summaries, telemetry, logger);
     }
 
+    const skippedByArchive = occurrenceCustomers !== undefined && summaries.every((summary) => summary.errorCode === "ACCOUNT_ARCHIVED");
     const classificationStatus = runStatus(summaries);
     const status = await finalizeRun(
       artifacts,
@@ -369,15 +396,19 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
       classifier.provider,
       classifier.model,
       services.emailAlerts,
-      services.runReportEmail,
+      skippedByArchive ? undefined : services.runReportEmail,
       services.runReportRecipients,
       persistence
     );
     logger.info({ status, organizationsSelected: selectedCount }, "Sweep run completed");
-    return { runId: artifacts.runId, runDirectory: artifacts.runDirectory, status };
+    return {
+      runId: artifacts.runId, runDirectory: artifacts.runDirectory, status: skippedByArchive ? "SKIPPED" : status,
+      ...(summaries.some((summary) => summary.mutation.archiveBlocked) ? { archiveBlockedMutation: true as const } : {})
+    };
   } catch (error) {
     const alreadyTracked = telemetry.snapshot().errors.some((item) => item.message === errorMessage(error));
-    if (!alreadyTracked) telemetry.error(error, { stage: "RUN_PIPELINE" });
+    const rejectedByArchive = error instanceof PipelineError && error.context.code === "ACCOUNT_ARCHIVED";
+    if (!alreadyTracked && !rejectedByArchive) telemetry.error(error, { stage: "RUN_PIPELINE" });
     await finalizeRun(
       artifacts,
       telemetry,
@@ -391,7 +422,7 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
       classifier.provider,
       classifier.model,
       services.emailAlerts,
-      services.runReportEmail,
+      rejectedByArchive ? undefined : services.runReportEmail,
       services.runReportRecipients,
       persistence,
       errorMessage(error)

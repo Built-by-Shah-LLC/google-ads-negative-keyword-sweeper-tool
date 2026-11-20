@@ -23,6 +23,7 @@ export interface ManualSweepCliOptions {
   endDate: string | null;
   date: string | null;
   candidateLimitPerOrganization: number | null;
+  archiveRevision?: string;
   requestSource: "command_line" | "built_ads_manager_ui";
 }
 
@@ -54,6 +55,7 @@ export function parseManualSweepCliArguments(argumentsList: string[]): ManualSwe
       || argument === "--date"
       || argument === "--candidate-limit-per-organization"
       || argument === "--request-source"
+      || argument === "--archive-revision"
     ) {
       const value = argumentsList[index + 1];
       if (!value) throw new Error(`${argument} requires a value.`);
@@ -61,6 +63,11 @@ export function parseManualSweepCliArguments(argumentsList: string[]): ManualSwe
       if (argument === "--customer") {
         if (!/^[\d-]+$/u.test(value)) throw new Error("--customer must be a Google Ads customer ID.");
         options.customerId = value;
+      } else if (argument === "--archive-revision") {
+        if (options.archiveRevision !== undefined || !/^(0|[1-9]\d{0,18})$/.test(value) || BigInt(value) > 9_223_372_036_854_775_807n) {
+          throw new Error("Use one valid account archive revision.");
+        }
+        options.archiveRevision = value;
       } else if (argument === "--start-date") {
         options.startDate = assertIsoDate(value, "--start-date");
       } else if (argument === "--end-date") {
@@ -167,6 +174,9 @@ export function buildManualSweepOptions(
   processingTimeZone: string,
   now = new Date()
 ): SweepOptions {
+  if (cli.archiveRevision !== undefined && cli.requestSource !== "built_ads_manager_ui") {
+    throw new Error("--archive-revision is only supported for a Built Ads Manager request.");
+  }
   if (cli.customerId && cli.allOrganizations) {
     throw new Error("Use either --customer or --all-organizations, not both.");
   }
@@ -204,6 +214,7 @@ export function buildManualSweepOptions(
     return {
       ...base,
       customerId: cli.customerId,
+      ...(cli.requestSource === "built_ads_manager_ui" ? { expectedArchiveRevisions: { [cli.customerId.replaceAll("-", "")]: cli.archiveRevision ?? "0" } } : {}),
       dateRange,
       // The run's requested date is the range end (inclusive), recorded as
       // an explicit command-line request.
