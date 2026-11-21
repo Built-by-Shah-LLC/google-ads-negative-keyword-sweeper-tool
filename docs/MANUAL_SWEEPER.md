@@ -19,7 +19,7 @@ entries **D-060** (Jira **DEV-9**) and **D-061** (browser-started wiring). The d
 | Reader | The only Google Ads client used is the shared read-only client; `assertReadOnlyGoogleAdsPath`/`assertReadOnlyGoogleAdsQuery` block every non-`searchStream`, non-`SELECT` call. |
 | Deployment | The manual job forces `GOOGLE_ADS_MUTATION_MODE=disabled` in its environment and never receives `GOOGLE_ADS_PRODUCTION_MUTATION_CONFIRMATION`. |
 | LLM provider | Moonshot-only: the job pins `LLM_PROVIDER=moonshot` and its environment contains no other provider's API key or model setting. `MOONSHOT_THINKING=disabled` is required: with thinking active (explicit or default), `kimi-k2.6` ignores the strict `json_schema` response format and free-forms, which the local validator rejects fail-closed (probe-verified 2026-09-29). |
-| Scope | One company per run (10-digit customer ID), resolved against the committed sweep-accounts master file and enabled MCC leaf accounts; persistence fails closed without an active `client_accounts` mapping. |
+| Scope | One company per run (10-digit customer ID). Browser requests require a non-archived configured database account for that exact customer and enabled MCC leaf discovery; direct CLI/all-company runs retain the committed master-file gate; persistence fails closed without an active `client_accounts` mapping. |
 | Bounded input | `--start-date`/`--end-date` are required, real calendar dates, start ≤ end, span ≤ **31 days**, and the end date may not be in the future (`RUN_TIME_ZONE`). |
 | Campaign filter | Unchanged: `CAMPAIGN_NAME_CONTAINS` (default `Built by Shah`), applied to fetched search-term rows and to the positive-keyword inventory query. |
 | Policy | Unchanged: the database-owned effective policy (static rule set + account revision + phrase protections) with `effective_sha256` fail-closed parity is compiled per account before any LLM spend. |
@@ -61,8 +61,7 @@ Local runs use the repo `.env` and require the same guards:
 mode disabled.
 
 The Built Ads Manager gateway appends the reserved
-`--request-source built-ads-manager-ui` argument. This affects retained origin
-metadata only; it does not broaden scope or enable a writer. Operators should
+`--request-source built-ads-manager-ui` argument. This records the origin and uses the exact requested non-archived configured database account rather than the older static master list; it cannot enable a writer. Operators should
 omit the flag for direct terminal runs.
 
 ### Inspecting results
@@ -137,3 +136,52 @@ It creates no scheduler. The job environment is Moonshot-only for LLM calls
   here; Cloud Run task retries are idempotent through `execution_key`).
 - No rollback/removal workflow. Any future apply or removal workflow requires
   its own approved task per DEV-9.
+
+## November 12 manual UI verification repair
+
+A browser request for an active account absent from the older master file failed before account rows existed. UI-origin single-account requests now derive their one-account selection from the non-archived configured database account and still intersect enabled MCC discovery. Database mapping, policy hash validation, bounded dates, Built by Shah campaign filtering and disabled mutation remain enforced. Direct CLI and daily scheduler selection are unchanged.
+
+Manual entrypoint email alerts and run reports are always disabled, even if inherited runtime configuration enables them. The manual deployment script pins both flags false. All manual results belong in the in-app retained evidence.
+
+Validation: typecheck, full unit suite and build; Dev UI/worker verification recorded in the Ads Manager release log. No Google Ads mutation is authorized by this repair.
+
+Manual Cloud Run task retries are disabled (maxRetries=0). A failed execution is terminal, so the UI can safely offer an explicit retry without a hidden task retry racing it.
+
+## November 12 retry validation
+
+Dev ten-day testing exposed invalid mixed KEEP/NEGATIVE rule citations. The
+existing second Moonshot validation attempt now restates the output contract
+using a fixed correction instruction. It does not echo model output, change the
+policy, salvage invalid decisions, increase the two-attempt bound, or relax
+validation. Repeated invalid output still yields Partial/Failed evidence. Only
+the manual job is redeployed for this release.
+
+When the validator identifies incompatible rule citations, the correction also names the submitted item ID. Feedback recognizes only exact application-owned validation messages for that ID; no raw model response, search query, or arbitrary exception is echoed.
+
+Moonshot structured responses also separate KEEP and NEGATIVE_EXACT schema branches, restricting each branch to compatible rule IDs and negativeText shape. The existing validator still checks complete coverage, exact text, duplicate/unknown citations and the requirement for a real negative rule when metadata is present. Other providers retain their existing schema. Fixed-input counting uses the same Moonshot schema as classification. No intent rule is changed.
+
+The branch composition uses the provider-documented anyOf/items/null subset: https://github.com/MoonshotAI/walle/blob/main/docs/mfjs-spec.md. Provider schema guidance never replaces local validation.
+
+## November 12 Dev release evidence
+
+Manual code `1bb557e89fbc494cfcb1c9dc63be68cde86bff5e` is deployed to
+`negative-keyword-sweeper-manual` in `built-ads-manager-dev/us-west1`.
+Cloud Build `c5bd59ee-186a-4a3d-8b31-67de1ded06d7` succeeded. No daily or
+recovery job was changed. Typecheck/build and rule integrity passed; the unit
+suite passed 280 tests with one skip. Independent source review passed.
+
+The UI-requested ten-day execution `negative-keyword-sweeper-manual-vdjwq`
+succeeded in 2m39s for 10X AUTO GROUP INC, 11/01/26 through 11/10/26: 170 raw
+terms, 148 eligible unique terms, 148 decisions (55 keep, 93 negative exact
+suggestions). The browser refreshed automatically to Succeeded. Read-only
+PostgreSQL verification confirmed exact UI execution correlation, one selected
+account, Built by Shah campaign scope, read_only=true, no classification errors
+and google_ads_mutation_performed=false. Earlier one-day UI execution `nsqfw`
+completed all 19 terms for 3J Collision Center (10 keep, 9 negative suggestions).
+
+The pre-existing worker automatically sent two failure-report emails during the
+initial failed execution before its legacy notification configuration was
+discovered. Both manual email paths are now disabled in code and configuration;
+subsequent executions skipped delivery. Those original emails cannot be
+recalled. No Google Ads mutation or data deletion occurred. Task tracking stays
+in chat under the user's explicit instruction; no Jira changes were made.
