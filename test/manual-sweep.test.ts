@@ -9,7 +9,8 @@ import {
   MAX_MANUAL_SWEEP_RANGE_DAYS,
   parseManualSweepCliArguments
 } from "../src/manual-sweep-options.js";
-import { assertValidDateRange, resolveActiveDateRange } from "../src/pipeline/run-sweeper.js";
+import { createLogger } from "../src/observability/logger.js";
+import { assertValidDateRange, resolveActiveDateRange, selectEligibleOrganizations } from "../src/pipeline/run-sweeper.js";
 
 const TIME_ZONE = "Europe/Moscow";
 const NOW = new Date("2026-09-29T12:00:00Z");
@@ -50,6 +51,31 @@ test("browser-started manual sweeps retain their semantic origin", () => {
   const options = buildManualSweepOptions(cli, ".", TIME_ZONE, NOW);
   assert.equal(options.triggerKind, "manual");
   assert.equal(options.requestedDateSource, "BUILT_ADS_MANAGER_UI");
+});
+
+test("only a bounded browser sweep accepts one opaque manual request ID", () => {
+  const requestId = "00000000-0000-4000-8000-00000000000b";
+  const direct = ["--customer", "1234567890", "--start-date", "2026-09-01", "--end-date", "2026-09-15", "--manual-request-id", requestId];
+  const browser = [...direct, "--request-source", "built-ads-manager-ui"];
+  assert.throws(() => buildManualSweepOptions(parseManualSweepCliArguments(direct), ".", TIME_ZONE, NOW), /only supported for a bounded/);
+  const parsed = parseManualSweepCliArguments(browser);
+  assert.equal(parsed.manualRequestId, requestId);
+  assert.doesNotThrow(() => buildManualSweepOptions(parsed, ".", TIME_ZONE, NOW));
+  assert.throws(() => parseManualSweepCliArguments([...browser, "--manual-request-id", requestId]), /one valid manual request ID/);
+});
+
+test("browser sweeps select their discovered account before legacy list filtering", () => {
+  const target = { customerId: "1234567890", descriptiveName: "Requested", timeZone: "UTC", currencyCode: "USD" };
+  const other = { ...target, customerId: "2345678901" };
+  const config = {
+    accountAllowlist: [other.customerId],
+    sweepAccounts: { source: "master-file", filePath: "fixture.json", accounts: [{ customerId: other.customerId, name: "Other" }] }
+  } as AppConfig;
+  const logger = createLogger({ level: "fatal" });
+
+  assert.deepEqual(selectEligibleOrganizations(config, [target, other], logger, "123-456-7890"), [target]);
+  assert.deepEqual(selectEligibleOrganizations(config, [other], logger, target.customerId), []);
+  assert.deepEqual(selectEligibleOrganizations(config, [target, other], logger), [other]);
 });
 
 test("manual sweep requires an explicit scope", () => {

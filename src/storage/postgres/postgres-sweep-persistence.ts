@@ -2,6 +2,9 @@ import { archivedBeforeStart, lockArchiveAccounts, type ArchiveAccount } from ".
 import { createHash } from "node:crypto";
 import { Pool, type PoolClient, type QueryResultRow } from "pg";
 import type { DatabasePersistenceConfig } from "../../config/env.js";
+import type { ManualSweepReportSender } from "../../notifications/manual-sweep-report-email.js";
+import type { RunReportMessage } from "../../notifications/run-report-email.js";
+import { PipelineError } from "../../observability/errors.js";
 import { chunksOf } from "../../util/concurrency.js";
 import type {
   ClassificationCandidate,
@@ -210,7 +213,7 @@ export class PostgresSweepPersistence implements SweepPersistence {
     });
   }
 
-  async withArchiveFence<T>(account: ArchiveAccount, operation: () => Promise<T>): Promise<T> {
+  async withArchiveFence<T>(account: ArchiveAccount, operation: (client: PoolClient) => Promise<T>): Promise<T> {
     return this.transaction(async (client) => {
       await lockArchiveAccounts(client, this.organizationId, [account.id]);
       const result = await client.query(`
@@ -219,8 +222,76 @@ export class PostgresSweepPersistence implements SweepPersistence {
           AND archive_revision=$4::bigint AND onboarding_status <> 'archived'
       `, [this.organizationId, account.id, account.customerId, account.revision]);
       if (result.rowCount !== 1) throw archivedBeforeStart();
-      return operation();
+      return operation(client);
     });
+  }
+
+  async bindManualSweepReport(requestId: string, account: ArchiveAccount, range: { startDate: string; endDate: string }): Promise<boolean> {
+    const runId = this.requiredRunId();
+    return this.withArchiveFence(account, async (client) => {
+      const result = await client.query(`
+        UPDATE manual_keyword_sweep_requests request SET sweep_run_id = $3::uuid
+        FROM negative_keyword_sweep_runs run
+        WHERE request.organization_id = $1 AND request.id = $2::uuid AND run.organization_id = request.organization_id
+          AND run.id = $3::uuid AND run.trigger_kind = 'manual' AND run.requested_date_source = 'built_ads_manager_ui'
+          AND run.read_only AND NOT run.google_ads_mutation_performed
+          AND request.account_id = $4::uuid AND request.archive_revision = $5::bigint
+          AND request.start_date = $6::date AND request.end_date = $7::date AND request.dispatch_state <> 'rejected'
+          AND (request.execution_name IS NULL OR request.execution_name = split_part(run.execution_key, ':attempt:', 1))
+          AND request.created_at > now() - interval '45 minutes' AND request.sweep_run_id IS NULL
+      `, [this.organizationId, requestId, runId, account.id, account.revision, range.startDate, range.endDate]);
+      return result.rowCount === 1;
+    });
+  }
+
+  async deliverManualSweepReport(account: ArchiveAccount, sender: ManualSweepReportSender, message: RunReportMessage | null): Promise<void> {
+    const runId = this.requiredRunId();
+    const candidates = await this.transaction((client) => client.query<{ user_id: string }>(`
+      SELECT recipient.user_id::text FROM manual_keyword_sweep_request_recipients recipient
+      JOIN manual_keyword_sweep_requests request ON request.organization_id = recipient.organization_id
+        AND request.id = recipient.request_id
+      JOIN negative_keyword_sweep_runs run ON run.organization_id = request.organization_id AND run.id = request.sweep_run_id
+      WHERE recipient.organization_id = $1 AND recipient.request_id = $2::uuid AND run.id = $3::uuid
+        AND request.dispatch_state <> 'rejected' AND run.completed_at IS NOT NULL AND recipient.status = 'pending'
+      ORDER BY recipient.user_id
+    `, [this.organizationId, sender.requestId, runId]));
+    for (const candidate of candidates.rows) {
+      const identity = [this.organizationId, sender.requestId, candidate.user_id];
+      if (message === null || sender.allowlist.length === 0) {
+        await this.transaction((client) => client.query(`
+          UPDATE manual_keyword_sweep_request_recipients SET status = 'skipped', finished_at = clock_timestamp()
+          WHERE organization_id = $1 AND request_id = $2::uuid AND user_id = $3::uuid AND status = 'pending'
+        `, identity));
+        continue;
+      }
+      const claim = await this.transaction((client) => client.query(`
+        UPDATE manual_keyword_sweep_request_recipients recipient SET status = 'sending', claimed_at = clock_timestamp()
+        FROM manual_keyword_sweep_requests request
+        JOIN negative_keyword_sweep_runs run ON run.organization_id = request.organization_id AND run.id = request.sweep_run_id
+        WHERE recipient.organization_id = $1 AND recipient.request_id = $2::uuid AND recipient.user_id = $3::uuid
+          AND recipient.status = 'pending' AND request.organization_id = recipient.organization_id AND request.id = recipient.request_id
+          AND request.dispatch_state <> 'rejected' AND run.id = $4::uuid AND run.completed_at >= now() - interval '45 minutes'
+      `, [...identity, runId]));
+      if (claim.rowCount !== 1) continue;
+
+      let outcome: "sent" | "failed" | "skipped" | "uncertain";
+      try {
+        outcome = await this.withArchiveFence(account, async (client) => {
+          const result = await client.query<{ email: string }>(`
+            SELECT eligible.email FROM manual_sweep_email_eligible($1, $2::uuid) eligible
+            WHERE eligible.user_id = $3::uuid AND eligible.email = ANY($4::text[])
+          `, [this.organizationId, account.id, candidate.user_id, sender.allowlist]);
+          const email = result.rows[0]?.email;
+          return email ? sender.send(message, email, candidate.user_id) : "skipped";
+        });
+      } catch (error) {
+        outcome = error instanceof PipelineError && error.context.code === "ACCOUNT_ARCHIVED" ? "skipped" : "uncertain";
+      }
+      await this.transaction((client) => client.query(`
+        UPDATE manual_keyword_sweep_request_recipients SET status = $4, finished_at = clock_timestamp()
+        WHERE organization_id = $1 AND request_id = $2::uuid AND user_id = $3::uuid AND status = 'sending'
+      `, [...identity, outcome]));
+    }
   }
 
   async prepareAccount(input: SweepAccountInputs): Promise<void> {

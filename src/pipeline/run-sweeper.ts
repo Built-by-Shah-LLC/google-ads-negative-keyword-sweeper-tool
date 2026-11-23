@@ -26,7 +26,8 @@ import type { NegativeKeywordWriter } from "../google-ads/negative-keyword-write
 import { fetchOrganizations, filterOrganizationsByAllowlist } from "../google-ads/organizations.js";
 import { createKeywordClassifier } from "../llm/classifier-factory.js";
 import type { EmailAlertService } from "../notifications/email-alerts.js";
-import type { RunReportEmailService } from "../notifications/run-report-email.js";
+import type { ManualSweepReportSender } from "../notifications/manual-sweep-report-email.js";
+import type { RunReportEmailService, RunReportMessage } from "../notifications/run-report-email.js";
 import { PipelineError } from "../observability/errors.js";
 import { createLogger, type Logger } from "../observability/logger.js";
 import { emptyTokenUsage, RunTelemetry, type TokenTotals } from "../observability/run-telemetry.js";
@@ -92,6 +93,7 @@ export interface SweepServices {
   runReportEmail?: RunReportEmailService;
   /** Trusted occurrence-scoped addresses resolved by the scheduled worker. */
   runReportRecipients?: readonly string[];
+  manualReport?: ManualSweepReportSender;
   persistence?: SweepPersistence;
   /** Test seam. Runtime selection comes from GOOGLE_ADS_MUTATION_MODE. */
   negativeKeywordWriter?: NegativeKeywordWriter;
@@ -159,7 +161,7 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
     filters: {
       campaignNameContains: config.campaignNameContains,
       campaignEligibility: CAMPAIGN_SWEEP_FILTER,
-      accountSelectionSource: config.sweepAccounts.source,
+      accountSelectionSource: requestedDateSource === "BUILT_ADS_MANAGER_UI" ? "database-account" : config.sweepAccounts.source,
       sweepAccountCount: config.sweepAccounts.accounts.length,
       accountAllowlistEntries: config.accountAllowlist.length,
       thirtyDayMode: options.thirtyDayMode,
@@ -179,6 +181,7 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
   let selectedCount = 0;
   let organizationsCompleted = 0;
   let summaries: OrganizationSummary[] = [];
+  let deliverManualReport: ((message: RunReportMessage | null) => Promise<void>) | undefined;
   try {
     logger.info({
       ruleVersion: rules.version,
@@ -228,14 +231,32 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
       const account = target ? eligibleArchiveAccounts.get(target) : null;
       if ((target && !account) || eligibleArchiveAccounts.size === 0) throw archivedBeforeStart();
       if (account) await archivePersistence?.withArchiveFence(account, async () => undefined);
+      const manualReport = services.manualReport;
+      if (manualReport && archivePersistence && account && activeDateRange && requestedDateSource === "BUILT_ADS_MANAGER_UI") {
+        try {
+          if (await archivePersistence.bindManualSweepReport(manualReport.requestId, account, activeDateRange)) {
+            deliverManualReport = async (message) => {
+              try {
+                await archivePersistence.deliverManualSweepReport(account, manualReport, message);
+              } catch {
+                logger.warn({ event: "manual_sweep_email_evidence_unavailable" }, "Manual report delivery could not finish");
+              }
+            };
+          }
+        } catch {
+          logger.warn({ event: "manual_sweep_email_request_unavailable" }, "Manual report request could not be matched");
+        }
+      }
     }
     const discovered = await telemetry.track("ORGANIZATION_DISCOVERY", {}, () =>
       fetchOrganizations(googleAds, config.googleAds.loginCustomerId)
     );
     discoveredCount = discovered.length;
-    let eligible = selectEligibleOrganizations(config, discovered, logger);
+    const requestedUiCustomer = requestedDateSource === "BUILT_ADS_MANAGER_UI" ? options.customerId : null;
+    if (requestedUiCustomer !== null && !eligibleArchiveAccounts) throw archivedBeforeStart();
+    let eligible = selectEligibleOrganizations(config, discovered, logger, requestedUiCustomer);
     if (eligibleArchiveAccounts) eligible = eligible.filter(({ customerId }) => eligibleArchiveAccounts.has(customerId));
-    eligible = await applyThirtyDayGate(config, options, eligible, logger);
+    if (requestedUiCustomer === null) eligible = await applyThirtyDayGate(config, options, eligible, logger);
     eligibleCount = eligible.length;
     logger.info({
       progressEvent: "organization_discovery_completed",
@@ -398,7 +419,9 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
       services.emailAlerts,
       skippedByArchive ? undefined : services.runReportEmail,
       services.runReportRecipients,
-      persistence
+      persistence,
+      undefined,
+      deliverManualReport,
     );
     logger.info({ status, organizationsSelected: selectedCount }, "Sweep run completed");
     return {
@@ -425,7 +448,8 @@ export async function runSweeper(config: AppConfig, rules: RuleSet, options: Swe
       rejectedByArchive ? undefined : services.runReportEmail,
       services.runReportRecipients,
       persistence,
-      errorMessage(error)
+      errorMessage(error),
+      deliverManualReport,
     );
     logger.error({ status: "FAILED" }, "Sweep run failed");
     return { runId: artifacts.runId, runDirectory: artifacts.runDirectory, status: "FAILED" };
@@ -506,7 +530,8 @@ async function finalizeRun(
   runReportEmail?: RunReportEmailService,
   runReportRecipients?: readonly string[],
   persistence: SweepPersistence = new DisabledSweepPersistence(),
-  fatalError?: string
+  fatalError?: string,
+  deliverManualReport?: (message: RunReportMessage | null) => Promise<void>,
 ): Promise<"SUCCEEDED" | "PARTIAL" | "FAILED"> {
   const completedAt = new Date().toISOString();
   const telemetrySnapshot = telemetry.snapshot();
@@ -552,6 +577,7 @@ async function finalizeRun(
     fatalError: fatalError ?? null
   });
   let workbookWritten = false;
+  let manualMessage: RunReportMessage | null = null;
   let reportDelivery: import("../storage/persistence.js").SweepRunFinish["reportDelivery"] = {
     status: "NOT_CONFIGURED",
     messageId: null,
@@ -587,7 +613,7 @@ async function finalizeRun(
     });
     const cipirianAnalysisFilename = `cipirian-keyword-analysis-${artifacts.runId}.xlsx`;
     await artifacts.writeBuffer(cipirianAnalysisFilename, cipirianAnalysisWorkbook);
-    const delivery = await runReportEmail?.send({
+    const report: RunReportMessage = {
       runId: artifacts.runId,
       status,
       completedAt,
@@ -599,7 +625,9 @@ async function finalizeRun(
       inputTokens: telemetrySnapshot.tokenUsage.inputTokens,
       outputTokens: telemetrySnapshot.tokenUsage.outputTokens,
       accountOverviews: classificationReport.accountOverviews
-    }, runReportRecipients);
+    };
+    if (deliverManualReport) manualMessage = report;
+    const delivery = await runReportEmail?.send(report, runReportRecipients);
     reportDelivery = delivery ?? reportDelivery;
     await artifacts.write("report-email.json", reportDelivery);
   } catch (error) {
@@ -689,6 +717,7 @@ async function finalizeRun(
     fatalError: fatalError ?? null,
     reportDelivery
   });
+  await deliverManualReport?.(manualMessage);
   return status;
 }
 
@@ -699,8 +728,13 @@ async function finalizeRun(
 export function selectEligibleOrganizations(
   config: AppConfig,
   discovered: Organization[],
-  logger: Logger
+  logger: Logger,
+  requestedUiCustomer: string | null = null
 ): Organization[] {
+  if (requestedUiCustomer !== null) {
+    const customerId = requestedUiCustomer.replaceAll("-", "");
+    return discovered.filter((organization) => organization.customerId === customerId);
+  }
   if (config.sweepAccounts.source !== "master-file") {
     logger.info({
       progressEvent: "account_selection_source",

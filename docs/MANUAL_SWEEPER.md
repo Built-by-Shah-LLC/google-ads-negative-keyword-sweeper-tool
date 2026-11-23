@@ -123,8 +123,14 @@ The script typechecks, runs the manual-sweeper tests, builds the image under
 the **separate** tag `sweeper:manual-latest` (the daily job's `sweeper:latest`
 is never touched), reuses the `sweeper-runner` service account and shared
 secrets, and creates/updates only the `negative-keyword-sweeper-manual` job.
-It creates no scheduler. The job environment is Moonshot-only for LLM calls
+It creates no scheduler. Browser requests select the exact configured,
+non-archived account from enabled manager-account discovery. Direct invocations
+use the master account list. The manual job disables fixed-list reports and
+error emails and has zero Cloud Run retries. The job environment is Moonshot-only for LLM calls
 (`LLM_PROVIDER=moonshot`; no other provider key is uploaded).
+
+The selected-recipient report includes account results and the keyword analysis
+workbook. The diagnostic workbook is retained as an operator artifact.
 
 ## What this instance deliberately does not do
 

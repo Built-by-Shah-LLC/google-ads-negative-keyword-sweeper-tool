@@ -13,7 +13,7 @@ export interface RunReportEmailContent {
 const EMAIL_FONT = "Arial, Helvetica, sans-serif";
 
 /** Renders the visual daily report sent through Resend. */
-export function renderRunReportEmailHtml(content: RunReportEmailContent): string {
+export function renderRunReportEmailHtml(content: RunReportEmailContent, mode: "scheduled" | "manual" = "scheduled"): string {
   const totals = summarize(content.accountOverviews);
   const accounts = content.accountOverviews.length > 0
     ? content.accountOverviews.map(renderAccountCard).join("\n")
@@ -57,7 +57,7 @@ export function renderRunReportEmailHtml(content: RunReportEmailContent): string
                 </table>
                 <div style="margin-top:18px;padding:14px 16px;border:1px solid #57758e;border-radius:7px;background:#294b69;">
                   <div style="font-size:11px;line-height:16px;font-weight:700;letter-spacing:0.7px;color:#b8cad8;">ABOUT THIS EMAIL</div>
-                  <div style="padding-top:6px;font-size:13px;line-height:20px;color:#f2f7fb;">This email covers ${formatCount(content.organizationCount)} ${plural(content.organizationCount, "account")} from one sweep. The original decision-audit workbook is unchanged. The attached Cipirian Keyword Analysis workbook contains one table with every classified candidate across this run.</div>
+                  <div style="padding-top:6px;font-size:13px;line-height:20px;color:#f2f7fb;">This email covers ${formatCount(content.organizationCount)} ${plural(content.organizationCount, "account")} from one sweep. ${mode === "scheduled" ? "The original decision-audit workbook is unchanged. " : ""}The attached Cipirian Keyword Analysis workbook contains one table with every classified candidate across this run.</div>
                 </div>
                 <div style="padding-top:17px;font-size:15px;line-height:22px;font-weight:700;">${escapeHtml(runMessage)}</div>
               </td>
@@ -91,7 +91,7 @@ export function renderRunReportEmailHtml(content: RunReportEmailContent): string
             </tr>
             ${accounts}
             <tr>
-              <td style="padding:21px 30px 27px;text-align:center;font-size:11px;line-height:17px;color:#6d8093;">Issued by Built by Shah Negative Keyword Sweeper · ${escapeHtml(formatReportDate(content.completedAt))} · Ref ${escapeHtml(content.runId)} · Two Excel workbooks attached</td>
+              <td style="padding:21px 30px 27px;text-align:center;font-size:11px;line-height:17px;color:#6d8093;">Issued by Built by Shah Negative Keyword Sweeper · ${escapeHtml(formatReportDate(content.completedAt))} · Ref ${escapeHtml(content.runId)} · ${mode === "manual" ? "One Excel workbook attached" : "Two Excel workbooks attached"}</td>
             </tr>
           </table>
         </td>
@@ -102,7 +102,7 @@ export function renderRunReportEmailHtml(content: RunReportEmailContent): string
 }
 
 /** Plain-text alternative for recipients or mail clients that cannot render HTML. */
-export function renderRunReportEmailText(content: RunReportEmailContent): string {
+export function renderRunReportEmailText(content: RunReportEmailContent, mode: "scheduled" | "manual" = "scheduled"): string {
   const totals = summarize(content.accountOverviews);
   const lines = [
     `Search Negatives Sweep — ${content.status}`,
@@ -126,7 +126,9 @@ export function renderRunReportEmailText(content: RunReportEmailContent): string
       `- ${account.descriptiveName} (${account.customerId}): ${account.status}; ${account.candidateCount} candidates; ${account.decisionCount} classified; ${account.negativeExactCount} exact-negative recommendations; ${account.errorCount} errors.`
     );
   }
-  lines.push("", "Attached: the unchanged decision-audit workbook and Cipirian Keyword Analysis, a one-sheet table of all classified keywords.");
+  lines.push("", mode === "manual"
+    ? "Attached: Cipirian Keyword Analysis, a one-sheet table of all classified keywords."
+    : "Attached: the unchanged decision-audit workbook and Cipirian Keyword Analysis, a one-sheet table of all classified keywords.");
   return lines.join("\n");
 }
 

@@ -14,3 +14,12 @@ test("Cloud Scheduler receives valid JSON on Windows and updates headers idempot
   assert.match(script, /IndexOf\(\$schedulerArgs, "--headers"\).*"--update-headers"/);
   assert.match(script, /Remove-Item -LiteralPath \$schedulerBodyPath/);
 });
+
+test("manual Cloud Run deployment disables fixed reports and alerts and leaves failed executions terminal", async () => {
+  const script = await readFile(new URL("../scripts/deploy/deploy-manual-sweeper-gcloud.ps1", import.meta.url), "utf8");
+
+  assert.match(script, /\$plainEnvPairs \+= "RUN_REPORT_EMAIL_ENABLED=false"/);
+  assert.match(script, /\$plainEnvPairs \+= "ERROR_EMAIL_ENABLED=false"/);
+  assert.doesNotMatch(script, /"(?:RUN_REPORT_EMAIL_ENABLED|RUN_REPORT_EMAIL_TO|ERROR_EMAIL_ENABLED|ERROR_EMAIL_TO)"/);
+  assert.match(script, /"--max-retries", "0"/);
+});

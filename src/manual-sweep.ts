@@ -1,14 +1,8 @@
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
-import {
-  loadConfig,
-  loadOperationalConfig,
-  type EmailAlertConfig,
-  type RunReportEmailConfig
-} from "./config/env.js";
+import { loadConfig, loadLoggingConfig } from "./config/env.js";
 import { loadPolicyFromDatabase } from "./config/db-policy.js";
-import { EmailAlertService } from "./notifications/email-alerts.js";
-import { RunReportEmailService } from "./notifications/run-report-email.js";
+import { manualSweepReportSender } from "./notifications/manual-sweep-report-email.js";
 import {
   assertManualSweepReadOnly,
   buildManualSweepOptions,
@@ -41,16 +35,15 @@ import { createLogger, type Logger } from "./observability/logger.js";
  *     npm run sweep:manual -- --all-organizations [--date 2026-09-27]
  *
  * Both scopes keep the standard campaign-name filter (CAMPAIGN_NAME_CONTAINS,
- * default "Built by Shah") and the sweep accounts master file. The 30-day
+ * default "Built by Shah"). Browser requests select the exact active database
+ * account from enabled MCC discovery. Direct invocations keep the master file. The 30-day
  * completion gate is deliberately bypassed here: a manual invocation naming a
  * company and date range is itself the explicit authorization, and the future
  * scheduled mode is defined to cover every master-list company under the MCC.
  */
 async function main(
   rootDirectory: string,
-  logger: Logger,
-  emailAlerts: EmailAlertService,
-  runReportEmail: RunReportEmailService
+  logger: Logger
 ): Promise<void> {
   const cli = parseManualSweepCliArguments(process.argv.slice(2));
   const config = await loadConfig(rootDirectory);
@@ -58,7 +51,7 @@ async function main(
   if (!config.persistence.enabled) {
     throw new Error("PERSIST_RUNS_TO_DATABASE must be true for keyword sweeper runs.");
   }
-  if (config.sweepAccounts.source !== "master-file") {
+  if (cli.requestSource !== "built_ads_manager_ui" && config.sweepAccounts.source !== "master-file") {
     throw new Error(
       `Manual bounded sweeps require the sweep accounts master file (expected at ${config.sweepAccounts.filePath}).`
     );
@@ -79,7 +72,10 @@ async function main(
     mutationWriterConstructed: false
   }, "Starting manual bounded read-only sweep");
 
-  const result = await runSweeper(config, policy.rules, options, { logger, emailAlerts, runReportEmail });
+  const result = await runSweeper(config, policy.rules, options, {
+    logger,
+    ...(cli.manualRequestId ? { manualReport: manualSweepReportSender(cli.manualRequestId) } : {}),
+  });
   logger.info({ ...result }, "Pipeline run finished");
   if (result.status === "FAILED") process.exitCode = 1;
 }
@@ -87,20 +83,9 @@ async function main(
 async function bootstrap(): Promise<void> {
   const rootDirectory = resolve(dirname(fileURLToPath(import.meta.url)), "..");
   let logger = createLogger();
-  const disabledAlerts: EmailAlertConfig = {
-    enabled: false,
-    handledErrorCodes: [],
-    handledErrorStages: []
-  };
-  let emailAlerts = new EmailAlertService(disabledAlerts, logger);
-  const disabledRunReports: RunReportEmailConfig = { enabled: false };
-  let runReportEmail = new RunReportEmailService(disabledRunReports, logger);
   try {
-    const operationalConfig = await loadOperationalConfig(rootDirectory);
-    logger = createLogger(operationalConfig.logging);
-    emailAlerts = new EmailAlertService(operationalConfig.emailAlerts, logger);
-    runReportEmail = new RunReportEmailService(operationalConfig.runReportEmail, logger);
-    await main(rootDirectory, logger, emailAlerts, runReportEmail);
+    logger = createLogger(await loadLoggingConfig(rootDirectory));
+    await main(rootDirectory, logger);
   } catch (error) {
     const serialized = serializeError(error, {
       stage: "BOOTSTRAP",
@@ -108,11 +93,7 @@ async function bootstrap(): Promise<void> {
       retryable: false
     });
     logger.fatal({ pipelineError: serialized }, "Unhandled pipeline error");
-    await emailAlerts.notifyUnhandled(serialized);
     process.exitCode = 1;
-  } finally {
-    await emailAlerts.flush();
-    emailAlerts.close();
   }
 }
 

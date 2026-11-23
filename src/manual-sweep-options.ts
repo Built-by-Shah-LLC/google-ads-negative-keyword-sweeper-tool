@@ -24,6 +24,7 @@ export interface ManualSweepCliOptions {
   date: string | null;
   candidateLimitPerOrganization: number | null;
   archiveRevision?: string;
+  manualRequestId?: string;
   requestSource: "command_line" | "built_ads_manager_ui";
 }
 
@@ -56,6 +57,7 @@ export function parseManualSweepCliArguments(argumentsList: string[]): ManualSwe
       || argument === "--candidate-limit-per-organization"
       || argument === "--request-source"
       || argument === "--archive-revision"
+      || argument === "--manual-request-id"
     ) {
       const value = argumentsList[index + 1];
       if (!value) throw new Error(`${argument} requires a value.`);
@@ -63,6 +65,11 @@ export function parseManualSweepCliArguments(argumentsList: string[]): ManualSwe
       if (argument === "--customer") {
         if (!/^[\d-]+$/u.test(value)) throw new Error("--customer must be a Google Ads customer ID.");
         options.customerId = value;
+      } else if (argument === "--manual-request-id") {
+        if (options.manualRequestId !== undefined || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(value)) {
+          throw new Error("Use one valid manual request ID.");
+        }
+        options.manualRequestId = value;
       } else if (argument === "--archive-revision") {
         if (options.archiveRevision !== undefined || !/^(0|[1-9]\d{0,18})$/.test(value) || BigInt(value) > 9_223_372_036_854_775_807n) {
           throw new Error("Use one valid account archive revision.");
@@ -176,6 +183,9 @@ export function buildManualSweepOptions(
 ): SweepOptions {
   if (cli.archiveRevision !== undefined && cli.requestSource !== "built_ads_manager_ui") {
     throw new Error("--archive-revision is only supported for a Built Ads Manager request.");
+  }
+  if (cli.manualRequestId !== undefined && (cli.requestSource !== "built_ads_manager_ui" || !cli.customerId)) {
+    throw new Error("--manual-request-id is only supported for a bounded Built Ads Manager request.");
   }
   if (cli.customerId && cli.allOrganizations) {
     throw new Error("Use either --customer or --all-organizations, not both.");
