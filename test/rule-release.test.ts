@@ -6,8 +6,8 @@ import { cp, mkdtemp, mkdir, readFile, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-test("release gate rejects bulk phrase protections, stable edits, and multi-section policy changes", async (t) => {
-  const root = await mkdtemp(join(tmpdir(), "release-budget-"));
+async function releaseFixture(t: import("node:test").TestContext) {
+  const root = await mkdtemp(join(tmpdir(), "release-gate-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   await mkdir(join(root, "src"));
   await cp("src/config", join(root, "src/config"), { recursive: true });
@@ -24,6 +24,11 @@ test("release gate rejects bulk phrase protections, stable edits, and multi-sect
   const manifest = JSON.parse(await readFile(releasePath, "utf8"));
   const hash = (text: string) => createHash("sha256").update(text).digest("hex");
   const release = async () => writeFile(releasePath, JSON.stringify({ ...manifest, releaseId: "test-new", releasedVersion: (await readFile(rulePath, "utf8")).match(/^Rule set version: `([^`]+)`/mu)![1], rulesSha256: hash(await readFile(rulePath, "utf8")), protectionsSha256: hash(await readFile(protectionPath, "utf8")) }));
+  return { root, run, rulePath, protectionPath, originalRules, originalProtections, release };
+}
+
+test("release gate rejects bulk phrase protections, stable edits, and multi-section policy changes", async (t) => {
+  const { root, run, rulePath, protectionPath, originalRules, originalProtections, release } = await releaseFixture(t);
   assert.doesNotThrow(run);
   await writeFile(protectionPath, '```json\n' + JSON.stringify(Array.from({ length: 6 }, (_, i) => ({ id: `new-${i}`, phrase: `query ${i}`, ruleId: "POL-COMPETITOR-NEGATIVE", customerIds: [], excusedEvidence: "Test" }))) + '\n```');
   await release();
@@ -42,25 +47,7 @@ test("release gate rejects bulk phrase protections, stable edits, and multi-sect
 });
 
 test("release gate requires a rule version bump for a single-section policy change", async (t) => {
-  const root = await mkdtemp(join(tmpdir(), "release-version-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
-  await mkdir(join(root, "src"));
-  await cp("src/config", join(root, "src/config"), { recursive: true });
-  const git = (...args: string[]) => execFileSync("git", args, { cwd: root, stdio: "pipe" });
-  git("init");
-  git("add", ".");
-  git("-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-m", "baseline");
-  const run = () => execFileSync(process.execPath, ["--import", import.meta.resolve("tsx"), resolve("scripts/check-rule-release.ts"), "HEAD"], { cwd: root, stdio: "pipe" });
-  const rulePath = join(root, "src/config/negative-keyword-rules.md");
-  const protectionPath = join(root, "src/config/phrase-protections.md");
-  const releasePath = join(root, "src/config/rule-release.json");
-  const originalRules = await readFile(rulePath, "utf8");
-  const originalProtections = await readFile(protectionPath, "utf8");
-  const manifest = JSON.parse(await readFile(releasePath, "utf8"));
-  const hash = (text: string) => createHash("sha256").update(text).digest("hex");
-  // Re-hash the manifest (and a fresh releaseId) without touching the version line,
-  // so only the "Policy changes require a new rule version" gate can fail.
-  const release = async () => writeFile(releasePath, JSON.stringify({ ...manifest, releaseId: "test-new", releasedVersion: (await readFile(rulePath, "utf8")).match(/^Rule set version: `([^`]+)`/mu)![1], rulesSha256: hash(await readFile(rulePath, "utf8")), protectionsSha256: hash(await readFile(protectionPath, "utf8")) }));
+  const { run, rulePath, protectionPath, originalRules, originalProtections, release } = await releaseFixture(t);
   assert.doesNotThrow(run);
   // Single-section, one-line edit: the section-count gate passes, so the run
   // must reach and trip the version-bump gate.

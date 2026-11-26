@@ -250,6 +250,19 @@ npm run check
 npm test
 ```
 
+Test selection should follow risk, not a target case count. Keep separate
+coverage for account scoping, fail-closed classification, exact-negative
+validation, mutation authorization, idempotency, retries, and report privacy.
+Share repeated fixture setup without combining independent safety scenarios.
+Prompt tests should check trusted/untrusted boundaries and serialized inputs;
+policy tests should check rule IDs, validation outcomes, and release integrity,
+not the verbatim wording of every illustrative query. Telemetry tests should
+reconcile actual usage rather than pin a descriptive label. Deployment checks
+should validate required settings and parsed payloads without fixing JSON
+whitespace or property order. Record removals and their coverage disposition in
+Jira. An offline pass does not establish live database/provider correctness;
+report skipped integration tests explicitly.
+
 Run the live OpenAI comparison over all 124 handoff examples when evaluation spend is
 intentionally available:
 
