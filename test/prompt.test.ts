@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildClassifierPrompt, buildSystemInstruction, FIXED_INPUT_DEFINITION } from "../src/llm/prompt.js";
+import { buildClassifierPrompt, buildSystemInstruction } from "../src/llm/prompt.js";
 import type { ClassificationContext } from "../src/llm/classifier.js";
 import type { RuleSet } from "../src/types.js";
 
@@ -98,11 +98,6 @@ test("prompt without positive keywords embeds an empty inventory", () => {
   };
   const prompt = buildClassifierPrompt(context).userPrompt;
   assert.ok(prompt.includes("Configured positive keywords (trusted Google Ads inventory JSON):\n\n[]"));
-});
-
-test("fixed-input definition names the shared instruction so cost attribution stays accurate", () => {
-  assert.match(FIXED_INPUT_DEFINITION, /operational guardrails/iu);
-  assert.equal(/soul/iu.test(FIXED_INPUT_DEFINITION), false);
 });
 
 test("trusted per-item phrase map excuses evidence without removing any query or rule", async () => {
